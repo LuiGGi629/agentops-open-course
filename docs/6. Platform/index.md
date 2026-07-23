@@ -69,3 +69,15 @@ kubectl kustomize infra/k8s/overlays/gke >/dev/null
 ```
 
 The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platform Delivery](./6.6. Platform Delivery.md) walks the plan and the teardown, and no cloud resource is created without a later, explicit approval.
+
+## What breaks first, and where do you look?
+
+The same handful of failures recur across this chapter and the next, and every one is a wiring mistake rather than a bug in the agent. Each row below is a symptom you can observe, the misconfiguration that usually causes it, and the page that owns the fix:
+
+| Symptom                                               | Likely cause                                                                                                        | Where to look                                                                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely  | [7.1. Tracing](../7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector)                |
+| Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL | [6.3. Platform Agents](./6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds) |
+| Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                          | [6.6. Platform Delivery](./6.6. Platform Delivery.md#how-do-you-run-the-full-local-kubernetes-stack)              |
+| Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                               | [6.6. Platform Delivery](./6.6. Platform Delivery.md#how-do-you-run-the-full-local-kubernetes-stack)              |
+| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees    | [7.0. Reproducibility](../7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination)      |

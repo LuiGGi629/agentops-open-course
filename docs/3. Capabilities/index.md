@@ -30,6 +30,32 @@ flowchart TD
 
 Two of the chapter's artifacts sit deliberately outside this composition root: the `triage_workflow` graph ([3.5. Workflows](./3.5. Workflows.md)) and the `coordinator_agent` with its specialists ([3.7. Multi-Agent](./3.7. Multi-Agent.md)). They are demonstrations with no CLI or serving entrypoint — `mise run run`, `mise run web`, and `mise run a2a` all serve `root_agent` — so they are exercised only by their tests. That is honest by design: you learn the pattern without wiring a second deployment you do not yet need.
 
+## Which composition should you reach for?
+
+This chapter introduces five ways to compose work, scattered across 3.3, 3.5, 3.6, and 3.7. They form one ladder, and the rule is the same as everywhere else in the course: **take the cheapest option that fits.** Walk the questions top to bottom and stop at the first "yes".
+
+```mermaid
+flowchart TD
+    Q1{"Does the step need model judgment at all?"} -->|no| Plain["Plain Python<br/>if / for / a function call"]
+    Q1 -->|yes| Q2{"Is the order of steps a fixed requirement<br/>where deviation is a defect?"}
+    Q2 -->|yes| WF["Fixed Workflow graph · 3.5<br/>you own the order, the model owns each node"]
+    Q2 -->|no| Q3{"Does one authority + toolset cover the whole task?"}
+    Q3 -->|yes| One["One agent · 3.1<br/>the root_agent you have built"]
+    Q3 -->|no| Q4{"Do the specialists share process, trust,<br/>and lifecycle with the coordinator?"}
+    Q4 -->|yes| Deleg["In-process delegation · 3.7<br/>coordinator + least-privilege sub-agents"]
+    Q4 -->|no| A2A["Networked A2A · 3.6<br/>separate process, trust, and lifecycle"]
+    Q1 -.->|"expose a function to other agents"| MCP["MCP tool · 3.3<br/>publish a read tool over the wire"]
+```
+
+- **Plain Python** — no judgment is required, so no model call belongs here ([3.5](./3.5. Workflows.md#what-are-the-alternatives-to-an-adk-workflow-graph) ranks this first for a reason).
+- **One agent** — judgment is needed but one authority and toolset cover the task; this is the `root_agent` of [3.1. Tools](./3.1. Tools.md) that the whole chapter assembles.
+- **Fixed Workflow graph** — the order `triage → diagnose → recommend` is a requirement, not a choice, so you write it down as a graph ([3.5. Workflows](./3.5. Workflows.md#what-is-a-workflow-and-why-does-an-agent-need-one)).
+- **In-process delegation** — different authority per specialist, but same process, trust, and lifecycle: a coordinator transfers to least-privilege sub-agents ([3.7. Multi-Agent](./3.7. Multi-Agent.md)).
+- **Networked A2A** — a separate process, trust, and lifecycle forces a network boundary; delegate to a peer agent over the protocol ([3.6. A2A](./3.6. A2A.md#when-is-a2a-worth-its-cost)).
+- **MCP tool** — the orthogonal move: expose one of your functions so _other_ agents can call it ([3.3. MCP](./3.3. MCP.md)).
+
+The dashed edge marks MCP as orthogonal to the ladder: it is about publishing a capability outward, not about which composition runs your own work.
+
 ## Which capability lives in which module?
 
 Each capability has exactly one owner, so a failure has one place to look. This chapter's pages map onto the reference package like this:

@@ -17,6 +17,29 @@ When a command in this chapter fails, match the symptom in [0.6. Troubleshooting
 - **[1.4. Providers](./1.4. Providers.md)**: local Qwen3 through Ollama by default, or optional native Gemini, configured without leaking credentials.
 - **[1.5. Workspace](./1.5. Workspace.md)**: the repository, editor-neutral workflow, `AGENTS.md` guidance, git hooks, and your first full validation gate.
 
+## What is the shortest path to a running agent?
+
+If you only want the local Qwen3 agent talking, this is the whole sequence — clone, build the environment, prove it offline, then add the local model:
+
+```bash
+git clone https://github.com/MLOps-Courses/agentops-open-course.git
+cd agentops-open-course
+mise install         # materialize the pinned CLI toolchain from mise.toml
+mise run install     # create both Python virtualenvs and install deps
+mise run doctor      # base prerequisites and both venvs present
+mise run test        # the Python agent's offline suite (no model needed)
+
+# Local Qwen3 model path
+curl -fsSL https://ollama.com/install.sh | sh   # Linux; macOS/Windows use the app installer
+ollama pull qwen3:4b-instruct
+mise run doctor:model                            # probes that qwen3:4b-instruct is served
+
+cd agents/python
+mise run run                                     # interactive agent on local Qwen3
+```
+
+_Local path — skip [1.2. Containers](./1.2. Containers.md) and [1.3. Kubernetes](./1.3. Kubernetes.md) until Chapter 5/6._
+
 ## Why are the prerequisites staged instead of installed up front?
 
 An agent platform pulls in heavy, stateful dependencies — a running model server, a container engine, a Kubernetes cluster, a cloud project. Installing and starting all of them before the first lesson wastes time and money and makes failures hard to localize. `scripts/doctor.sh` instead defines a small ladder of profiles, each a superset of the last, so you pay for a dependency only at the boundary it validates. This keeps the base learning path account-free and offline: you can finish Chapter 1 and read or build the whole course without Docker, a GPU, a provider key, or a k3d cluster. `mise.toml` still pins every tool for reproducibility, and `run_auto_install = false` makes a missing tool fail fast in hooks rather than silently installing it.
