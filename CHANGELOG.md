@@ -4,14 +4,23 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-24
+
 ### Changed
 
 - Renamed the reference agent from "Ops Copilot" to "AgentOps Agent", aligning the application identity (`OTEL_SERVICE_NAME`, MLflow experiment and prompt registry, ADK `app_name`, MCP server, audit actor, gateway backend) with the `agentops-agent` name the container image, Kubernetes workload, and Python distribution already used.
 - Promoted the default local model to `qwen3:4b-instruct` (Qwen3 4B Instruct 2507) for stronger tool calling at the same 2.5 GB footprint, and documented `gemma4:e4b` as an optional, heavier Apache-2.0 alternative.
+- Workflow sub-agents now enforce the same per-session token budget as every other agent (`enforce_token_budget`/`record_token_usage`).
 
 ### Fixed
 
 - Corrected the front matter on the Overview, Quality, and Observability chapter indexes, where an unquoted colon made the YAML invalid and published the page description as a heading. `scripts/check-docs.sh` now parses front matter instead of pattern-matching it.
+- Made semantic runbook indexing atomic — a `BEGIN IMMEDIATE` rebuild — so two concurrent first-use turns can no longer race a parallel index drop/create.
+- Long-term memory now surfaces the same `DataAccessError` boundary as the primary data layer instead of leaking a raw SQLite driver error.
+- The prompt A/B evaluator reads a marked child-output line and re-raises the child's stderr on failure, instead of assuming its scores are the last line printed and swallowing the cause.
+- `mise run config:check` now names the offending field on a validation error, and `eval:cost` reports an actionable message for a malformed `AGENT_COST_TOLERANCE` rather than an uncaught `ValueError`.
+- Corrected the container build-stage count (three, not two), the `ObservabilityCollectorDown` runbook cross-reference, the Observability chapter description and incident loop, and several command-directory and cross-link notes across the course.
+- Aligned the `agent-guardrails` skill's kill-switch variable name to `AGENT_WRITES_DISABLED`, converted the `agentops-course` skill's cross-links to GitHub-rendering Markdown, and clarified the source-path roots in the installable skills.
 
 ## [0.1.0] - 2026-07-16
 
@@ -50,5 +59,6 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Untrusted tool-output sanitization is enabled by default.
 - Release publishing now pushes and signs the exact local image that passed the pre-push scan instead of rebuilding it.
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0
