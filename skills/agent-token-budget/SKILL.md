@@ -22,7 +22,7 @@ Every agent loop step is another model call, so cost and latency compound. Give 
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
 
 - `budget.py` — `record_token_usage`, `enforce_token_budget`, `estimate_cost`; OTel counter + span attributes.
 - Course chapters `7.3. Costs` and `3.7. Multi-Agent`.

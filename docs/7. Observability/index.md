@@ -1,12 +1,12 @@
 ---
-description: "Gain insight into the agent in production: reproducibility, tracing, monitoring, cost, feedback, online evaluation, and governance."
+description: "Gain insight into the agent in production: reproducibility, tracing, monitoring, cost, feedback, online evaluation, governance, and incident response."
 ---
 
 # 7. Observability
 
 ## How will you operate the agent after deployment?
 
-Your AgentOps Agent now runs as a private Kubernetes workload ([Chapter 6](../6. Platform/)). This chapter closes the [AgentOps loop](../0. Overview/0.2. AgentOps.md) with evidence: release lineage, OpenTelemetry traces, span-derived/gateway metrics, explicit cost assumptions, trace-linked human feedback, a safe online-evaluation design, auditable approved actions, and the incident-response loop that ties every one of those signals into detect → review → prevent.
+Your AgentOps Agent now runs as a private Kubernetes workload ([Chapter 6](../6. Platform/)). This chapter closes the [AgentOps loop](../0. Overview/0.2. AgentOps.md) with evidence: release lineage, OpenTelemetry traces, span-derived/gateway metrics, explicit cost assumptions, trace-linked human feedback, a safe online-evaluation design, auditable approved actions, and the incident-response loop that ties every one of those signals into detect → triage → mitigate → review → prevent.
 
 Every later page in this chapter assumes one shipped telemetry topology and one set of ports. Read this landing page first so the OTLP endpoints, stores, and deployment profiles the sibling pages keep referencing already mean something concrete.
 
@@ -42,15 +42,15 @@ Which scraper and UI actually exist depends on the deployment profile, and every
 
 Traces, metrics, logs, assessments, and audit rows each answer a different operational question; open the page that owns the signal you actually need:
 
-| When you ask...                            | Signal to read                       | Where it lives                      | Page                                                  |
-| ------------------------------------------ | ------------------------------------ | ----------------------------------- | ----------------------------------------------------- |
-| Can I rebuild this exact release?          | code/image/model/prompt/data lineage | git, registry, MLflow               | [7.0. Reproducibility](./7.0. Reproducibility.md)     |
-| What happened inside one turn?             | ADK/gateway trace                    | MLflow `:5000`                      | [7.1. Tracing](./7.1. Tracing.md)                     |
-| Is the service healthy right now?          | RED + gateway metrics, alerts        | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring](./7.2. Monitoring.md)               |
-| What did the work cost?                    | token counters + stated assumptions  | Prometheus, docs                    | [7.3. Costs](./7.3. Costs.md)                         |
-| Was this answer any good?                  | human MLflow assessment              | MLflow                              | [7.4. Feedback](./7.4. Feedback.md)                   |
-| Are answers drifting at scale?             | sampled trace scoring (design)       | MLflow                              | [7.5. Online Evaluation](./7.5. Online Evaluation.md) |
-| Who approved this write, and what changed? | append-only audit row                | SQLite audit table                  | [7.6. Governance](./7.6. Governance.md)               |
-| The agent itself broke — now what?         | the detect→review→prevent loop       | every signal above, joined          | [7.7. Incident Response](./7.7. Incident Response.md) |
+| When you ask...                            | Signal to read                        | Where it lives                      | Page                                                  |
+| ------------------------------------------ | ------------------------------------- | ----------------------------------- | ----------------------------------------------------- |
+| Can I rebuild this exact release?          | code/image/model/prompt/data lineage  | git, registry, MLflow               | [7.0. Reproducibility](./7.0. Reproducibility.md)     |
+| What happened inside one turn?             | ADK/gateway trace                     | MLflow `:5000`                      | [7.1. Tracing](./7.1. Tracing.md)                     |
+| Is the service healthy right now?          | RED + gateway metrics, alerts         | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring](./7.2. Monitoring.md)               |
+| What did the work cost?                    | token counters + stated assumptions   | Prometheus, docs                    | [7.3. Costs](./7.3. Costs.md)                         |
+| Was this answer any good?                  | human MLflow assessment               | MLflow                              | [7.4. Feedback](./7.4. Feedback.md)                   |
+| Are answers drifting at scale?             | sampled trace scoring (design)        | MLflow                              | [7.5. Online Evaluation](./7.5. Online Evaluation.md) |
+| Who approved this write, and what changed? | append-only audit row                 | SQLite audit table                  | [7.6. Governance](./7.6. Governance.md)               |
+| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent | every signal above, joined          | [7.7. Incident Response](./7.7. Incident Response.md) |
 
 The chapter checkpoint uses local or already-running lab telemetry. It does not deploy GCP or call a model unless the learner explicitly chooses that step.

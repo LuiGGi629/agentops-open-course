@@ -15,13 +15,13 @@ Getting an agent to answer correctly once is a demo. **AgentOps** is keeping it 
 
 ## The patterns
 
-1. **[[agentops-telemetry]]** — trace, meter, and log the agent with OpenTelemetry; content off by default.
-1. **[[agent-guardrails]]** — PII redaction, injection spotlighting, human approval on writes, a kill-switch.
-1. **[[agent-resilience]]** — deadlines, bounded retries, a circuit breaker, and a validated model fallback.
-1. **[[agent-token-budget]]** — per-session token ceilings and cost attribution.
-1. **[[agent-least-privilege]]** — split into least-privilege specialists so injection has nothing to call.
-1. **[[agent-evaluation]]** — trajectory, groundedness, and cost-regression evals that gate changes.
-1. **[[agent-incident-response]]** — the detect→triage→mitigate→review→prevent loop for the agent as a workload.
+1. **[agentops-telemetry](../agentops-telemetry/SKILL.md)** — trace, meter, and log the agent with OpenTelemetry; content off by default.
+1. **[agent-guardrails](../agent-guardrails/SKILL.md)** — PII redaction, injection spotlighting, human approval on writes, a kill-switch.
+1. **[agent-resilience](../agent-resilience/SKILL.md)** — deadlines, bounded retries, a circuit breaker, and a validated model fallback.
+1. **[agent-token-budget](../agent-token-budget/SKILL.md)** — per-session token ceilings and cost attribution.
+1. **[agent-least-privilege](../agent-least-privilege/SKILL.md)** — split into least-privilege specialists so injection has nothing to call.
+1. **[agent-evaluation](../agent-evaluation/SKILL.md)** — trajectory, groundedness, and cost-regression evals that gate changes.
+1. **[agent-incident-response](../agent-incident-response/SKILL.md)** — the detect→triage→mitigate→review→prevent loop for the agent as a workload.
 
 ## How they fit together
 

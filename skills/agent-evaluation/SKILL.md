@@ -24,7 +24,7 @@ Score an agent's _behavior_ over fixed cases, not one exact string. Keep the det
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
 
 - `evals/mlflow_eval.py` — deterministic trajectory/response scorers + optional judge.
 - `evals/groundedness_eval.py`, `evals/cost_eval.py`, `evals/prompt_ab.py`.
