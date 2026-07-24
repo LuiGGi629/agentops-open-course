@@ -118,7 +118,7 @@ def _stream_events(*, fail_after_first: bool) -> list[dict[str, Any]]:
 
 def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
     assert server.agent_card.url == "http://localhost:8080/"
-    assert server.agent_card.version == "0.1.0"
+    assert server.agent_card.version == "0.1.1"
     assert "Operating rules" not in server.agent_card.description
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
 
