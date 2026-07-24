@@ -32,7 +32,9 @@ flowchart TD
     Q5 --> Ready(["Ready for<br/>1. Setup"])
 ```
 
-The lifecycle you meet in [0.2. AgentOps](./0.2. AgentOps.md) is not only a mental model — it is the order of the course. Build ([Chapter 2](../2. Agents/index.md)), Capabilities ([3](../3. Capabilities/index.md)), Quality ([4](../4. Quality/index.md)), Gateway ([5](../5. Gateway/index.md)), Platform ([6](../6. Platform/index.md)), and Observe ([7](../7. Observability/index.md)) each own one phase, which is why the chapters run from a first model call to a monitored workload rather than in any other sequence. The thread underneath every decision above is the open-source boundary: the required path — ADK, agentgateway, kagent, MLflow, OpenTelemetry, Ollama, and the Apache-2.0 open-weight Qwen3 model — needs no account and no fee, while Gemini, Vertex AI, and GKE are optional proprietary comparisons the course never relabels as OSS.
+The lifecycle you meet in [0.2. AgentOps](./0.2. AgentOps.md) is not only a mental model — it is the order of the course. Build ([Chapter 2](../2. Agents/index.md)), Capabilities ([3](../3. Capabilities/index.md)), Quality ([4](../4. Quality/index.md)), Gateway ([5](../5. Gateway/index.md)), Platform ([6](../6. Platform/index.md)), and Observe ([7](../7. Observability/index.md)) each own one phase. That is why the chapters run from a first model call to a monitored workload rather than in any other sequence.
+
+One thread runs underneath every decision above: the open-source boundary. The required path — ADK, agentgateway, kagent, MLflow, OpenTelemetry, Ollama, and the Apache-2.0 open-weight Qwen3 model — needs no account and no fee. Gemini, Vertex AI, and GKE are optional proprietary comparisons the course never relabels as OSS.
 
 ## What do you need to run this chapter?
 

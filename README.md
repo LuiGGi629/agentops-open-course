@@ -20,7 +20,21 @@ The required host and local Kubernetes path uses open-source software and open-w
 
 ## What will you learn from?
 
-The completed **AgentOps Agent** reference investigates incidents in a fictional service. It reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills. Read actions can run directly; state-changing mock actions require approval and append an application-level, append-only audit record. Runtime state is copied into `.state/`, so exercises never mutate the course dataset.
+The completed **AgentOps Agent** is an on-call assistant for a fictional service. Ask it to `investigate INC-002` and it looks up the incident, checks that the `inventory` service is down, reads the matching runbook, and proposes a fix — then pauses for your approval before it restarts anything:
+
+```text
+> investigate INC-002
+  → get_incident(incident_id="INC-002")   INC-002 · inventory · SEV1 · open
+  → get_service_status(service="inventory")   inventory: down
+  → get_runbook(slug="service-down")
+
+  INC-002 is a SEV1: the inventory service is down and stock lookups fail.
+  The runbook's first step is to restart the service to clear the crash loop.
+  Proposed action — restart_service(service="inventory"). Approve to proceed.
+  [awaiting human approval]
+```
+
+Every claim traces to a tool result, and the state-changing `restart_service` requires human approval and appends an append-only audit record. It reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills; runtime state is copied into `.state/`, so exercises never mutate the course dataset. New to the acronyms below (MCP, A2A, OTLP)? The [glossary](https://agentops-open-course.fmind.dev/0.%20Overview/0.7.%20Glossary.html) defines every term.
 
 ```mermaid
 flowchart LR
@@ -72,9 +86,15 @@ cd agents/python
 mise run run
 ```
 
-Ask `List the open incidents`. The response should use the `list_incidents` tool and ground its answer in the local dataset. Chapter 2 explains the agent; Chapter 5 moves the same OpenAI-compatible model contract behind agentgateway.
+Ask `List the open incidents`. The response should use the `list_incidents` tool and ground its answer in the local dataset. That is the whole local loop: an agent that reads real data through typed tools and refuses to invent an answer. Chapter 2 explains how it is wired.
 
-The Chapter 5 host data plane runs the read-only MCP server and A2A server in separate terminals:
+The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html).
+
+That is the fast path. The rest of this section is optional and belongs to Chapters 5-6 — you can skip it until you get there.
+
+## Run the full local stack (Chapters 5-6)
+
+Chapter 5 moves the same OpenAI-compatible model contract behind agentgateway and governs the MCP and A2A traffic. The host data plane runs the read-only MCP server and A2A server in separate terminals:
 
 ```bash
 mise run doctor:gateway
@@ -87,7 +107,7 @@ cd agents/python
 mise run mcp:http
 ```
 
-Start the digest-pinned gateway wrapper from the repository root. It publishes every gateway listener on loopback. On native Linux it also owns a Docker-bridge-only relay to the loopback MCP, A2A, and Ollama upstreams, plus the loopback gateway-metrics listener consumed by Compose Prometheus. Raw services remain off the workstation's LAN interfaces:
+Start the digest-pinned gateway wrapper from the repository root. It exposes every gateway listener on loopback only, so raw services stay off your LAN. (Chapter 5 explains the Docker-bridge relay and metrics listener it also manages on native Linux.)
 
 ```bash
 # Terminal 2
@@ -184,7 +204,7 @@ Each skill is tool-agnostic guidance that points back to the exact reference fil
 ## Everyday commands
 
 ```bash
-mise run serve    # documentation at http://localhost:8000
+mise run serve    # documentation at http://127.0.0.1:8000
 mise run doctor   # base docs/Python entry prerequisites
 mise run format   # dprint + Ruff + shfmt
 mise run check:core # static gate without Docker or infrastructure execution

@@ -61,11 +61,13 @@ src/agent/
   mcp_server.py   stdio or streamable HTTP MCP server
   mcp_client.py   ADK MCP toolset selection
   longterm.py     Explicit cross-session incident notes
+  compaction.py   Bounded conversation-history compaction
   memory.py       Runbook retrieval
   retrieval.py    Optional local semantic retrieval
   report.py       Schema-validated triage report
   structured_report/ ADK discovery package for the report evaluation
   resilience.py   Read/model deadlines and retry policy
+  circuit.py      Deterministic clock-injectable circuit breaker
   workflow.py     Explicit triage workflow
   delegation.py   Specialist delegation
   guardrails.py   Input and action policy
