@@ -49,6 +49,10 @@ DETERMINISTIC_SCORERS = {
     "tool_policy": tool_policy,
 }
 
+# The child prints its scores on a marked line so the parent can find them even
+# if a library logs to stdout — never assume the JSON is the last line printed.
+_SCORE_MARKER = "__PROMPT_AB_SCORES__"
+
 
 def score_configured_prompt() -> dict[str, float]:  # pragma: no cover - model-backed, weekly lane
     """Run the eval set under the currently-configured prompt and return pass rates."""
@@ -74,21 +78,32 @@ def format_comparison(label_a: str, scores_a: dict[str, float], label_b: str, sc
 def _score_pinned_prompt(prompt_uri: str) -> dict[str, float]:  # pragma: no cover - spawns a model-backed child
     """Score one prompt version in a fresh interpreter with it pinned."""
     environment = {**os.environ, "AGENT_PROMPT_URI": prompt_uri}
-    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        [sys.executable, __file__, "--score"],
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return json.loads(completed.stdout.strip().splitlines()[-1])
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [sys.executable, __file__, "--score"],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        # Surface the child's stderr; otherwise the operator sees a bare
+        # non-zero exit with no cause (a model timeout, an import error, ...).
+        raise RuntimeError(
+            f"Scoring child for {prompt_uri!r} failed (exit {error.returncode}):\n{error.stderr}"
+        ) from error
+    for line in reversed(completed.stdout.splitlines()):
+        if line.startswith(_SCORE_MARKER):
+            return json.loads(line[len(_SCORE_MARKER) :])
+    raise RuntimeError(f"Scoring child for {prompt_uri!r} produced no scores line.\nstdout:\n{completed.stdout}")
 
 
 def main() -> None:  # pragma: no cover - CLI entrypoint (model-backed)
     """Score the current prompt (``--score``) or compare two pinned versions."""
     args = sys.argv[1:]
     if args == ["--score"]:
-        print(json.dumps(score_configured_prompt()))  # noqa: T201 - machine-readable child output
+        # Marked, machine-readable child output; the parent scans for this line.
+        print(f"{_SCORE_MARKER}{json.dumps(score_configured_prompt())}")  # noqa: T201
         return
     if len(args) != 2:
         raise SystemExit("Usage: prompt_ab.py <prompt-uri-a> <prompt-uri-b>")

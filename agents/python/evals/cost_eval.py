@@ -89,7 +89,11 @@ def main() -> None:
         return
 
     baseline = json.loads(_BASELINE.read_text(encoding="utf-8"))
-    tolerance = float(os.environ.get("AGENT_COST_TOLERANCE", _DEFAULT_TOLERANCE))
+    raw_tolerance = os.environ.get("AGENT_COST_TOLERANCE")
+    try:
+        tolerance = float(raw_tolerance) if raw_tolerance else _DEFAULT_TOLERANCE
+    except ValueError:
+        raise SystemExit(f"AGENT_COST_TOLERANCE must be a number (e.g. 0.25), got {raw_tolerance!r}.") from None
     problems = regressions(observed, baseline, tolerance)
     if problems:
         raise SystemExit("Cost regression against cost_baseline.json:\n  " + "\n  ".join(problems))

@@ -25,7 +25,11 @@ def main() -> int:
     except ValidationError as error:
         print("Agent configuration is invalid:", file=sys.stderr)
         for issue in error.errors():
-            print(f"- {issue['msg']}", file=sys.stderr)
+            # Name the offending field(s) so the operator knows *where* to fix,
+            # not just what is wrong; top-level model errors have an empty loc.
+            location = ".".join(str(part) for part in issue["loc"])
+            prefix = f"{location}: " if location else ""
+            print(f"- {prefix}{issue['msg']}", file=sys.stderr)
         return 1
     print("Agent configuration is valid. Resolved settings (secrets masked):")
     for name, value in sorted(resolved.model_dump().items()):

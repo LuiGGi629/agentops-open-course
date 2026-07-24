@@ -12,6 +12,7 @@ from __future__ import annotations
 from google.adk import Agent, Workflow
 from google.adk.agents.llm_agent import ToolUnion
 
+from .budget import enforce_token_budget, record_token_usage
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_model
@@ -31,8 +32,8 @@ triage = Agent(
         "(lowest SEV number wins). State its id, service, severity, and one-line summary."
     ),
     tools=ALL_TOOLS,
-    before_model_callback=redact_request_pii,
-    after_model_callback=redact_response_pii,
+    before_model_callback=[enforce_token_budget, redact_request_pii],
+    after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,
     on_tool_error_callback=handle_tool_error,
@@ -49,8 +50,8 @@ diagnose = Agent(
         "in two or three sentences, citing the runbook."
     ),
     tools=_DIAGNOSE_TOOLS,
-    before_model_callback=redact_request_pii,
-    after_model_callback=redact_response_pii,
+    before_model_callback=[enforce_token_budget, redact_request_pii],
+    after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,
     on_tool_error_callback=handle_tool_error,
@@ -67,8 +68,8 @@ recommend = Agent(
         "resolve_incident) and requires human approval. Cite the runbook you used."
     ),
     tools=KNOWLEDGE_TOOLS,
-    before_model_callback=redact_request_pii,
-    after_model_callback=redact_response_pii,
+    before_model_callback=[enforce_token_budget, redact_request_pii],
+    after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,
     on_tool_error_callback=handle_tool_error,

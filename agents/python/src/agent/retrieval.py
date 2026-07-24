@@ -92,15 +92,26 @@ def index_runbooks() -> int:
     vectors = embed_texts([chunk for _, chunk in chunks])
     dimensions = len(vectors[0])
     with closing(_connect()) as connection:
-        connection.execute("DROP TABLE IF EXISTS runbook_chunks")
-        connection.execute(
-            f"CREATE VIRTUAL TABLE runbook_chunks USING vec0(embedding float[{dimensions}], slug TEXT, chunk TEXT)"
-        )
-        connection.executemany(
-            "INSERT INTO runbook_chunks (embedding, slug, chunk) VALUES (?, ?, ?)",
-            [(_serialize(vector), slug, chunk) for (slug, chunk), vector in zip(chunks, vectors, strict=True)],
-        )
-        connection.commit()
+        # Serialize concurrent (re)builds: two turns that both find the index
+        # missing must not run parallel DROP/CREATE on the same file. BEGIN
+        # IMMEDIATE takes the write lock up front, so the second builder waits
+        # (the connect timeout) for the first to commit instead of racing it.
+        # The network embedding work above is deliberately outside this lock.
+        connection.isolation_level = None  # manage the transaction explicitly
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            connection.execute("DROP TABLE IF EXISTS runbook_chunks")
+            connection.execute(
+                f"CREATE VIRTUAL TABLE runbook_chunks USING vec0(embedding float[{dimensions}], slug TEXT, chunk TEXT)"
+            )
+            connection.executemany(
+                "INSERT INTO runbook_chunks (embedding, slug, chunk) VALUES (?, ?, ?)",
+                [(_serialize(vector), slug, chunk) for (slug, chunk), vector in zip(chunks, vectors, strict=True)],
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
     return len(chunks)
 
 

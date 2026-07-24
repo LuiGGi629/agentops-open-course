@@ -24,7 +24,8 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -58,11 +59,24 @@ def memory_db_path() -> str:
     return str(settings.state_dir / "memory.db")
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
+    """Open the memory database and wrap driver errors at the data boundary.
+
+    Mirrors ``data._connect`` so every SQLite store in the agent surfaces the
+    same ``DataAccessError`` contract instead of leaking a raw ``sqlite3.Error``
+    to the model or caller.
+    """
     connection = sqlite3.connect(memory_db_path(), timeout=5)
-    connection.row_factory = sqlite3.Row
-    connection.executescript(_SCHEMA)
-    return connection
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(_SCHEMA)
+        yield connection
+    except sqlite3.Error as error:
+        connection.rollback()
+        raise data.DataAccessError(f"Long-term memory operation failed for {memory_db_path()}") from error
+    finally:
+        connection.close()
 
 
 def _user(tool_context: ToolContext | None) -> str:
@@ -95,7 +109,7 @@ def save_incident_note(incident_id: str, note: str, tool_context: ToolContext | 
     # Memory is a persistence boundary: redact before the write, not after the read.
     redacted = redact_persisted_text(cleaned)
     timestamp = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
-    with closing(_connect()) as connection:
+    with _connect() as connection:
         connection.execute(
             "INSERT INTO incident_notes (ts, user_id, incident_id, note) VALUES (?, ?, ?, ?)",
             (timestamp, _user(tool_context), normalized, redacted),
@@ -128,7 +142,7 @@ def recall_incident_context(incident_id: str = "", tool_context: ToolContext | N
         query += " AND incident_id = ?"
         params.append(normalized)
     query += " ORDER BY id DESC LIMIT ?"
-    with closing(_connect()) as connection:
+    with _connect() as connection:
         rows = connection.execute(query, (*params, _RECALL_LIMIT)).fetchall()
     notes = [{"ts": row["ts"], "incident_id": row["incident_id"], "note": row["note"]} for row in rows]
     return {"count": len(notes), "notes": notes}
@@ -148,7 +162,7 @@ def forget_user_memory(user_id: str) -> dict[str, Any]:
     cleaned = user_id.strip()
     if not cleaned:
         return {"error": "Refusing to erase memory for an empty user id."}
-    with closing(_connect()) as connection:
+    with _connect() as connection:
         cursor = connection.execute("DELETE FROM incident_notes WHERE user_id = ?", (cleaned,))
         deleted = cursor.rowcount
         connection.commit()
