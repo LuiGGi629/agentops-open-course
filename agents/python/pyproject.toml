@@ -1,10 +1,10 @@
 # https://docs.astral.sh/uv/reference/settings/
-# The AgentOps reference agent — Python track (Google ADK 2.0). MIT licensed.
+# The AgentOps reference agent — Python track (Google ADK 2.x). MIT licensed.
 
 [project]
 name = "agentops-agent"
 version = "0.1.1"
-description = "The AgentOps Open Course reference agent, built with Google ADK 2.0."
+description = "The AgentOps Open Course reference agent, built with Google ADK 2.x."
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT" # the code license text lives at agents/LICENSE

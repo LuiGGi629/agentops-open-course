@@ -32,7 +32,7 @@ Two of the chapter's artifacts sit deliberately outside this composition root: t
 
 ## Which composition should you reach for?
 
-This chapter introduces five ways to compose work, scattered across 3.3, 3.5, 3.6, and 3.7. They form one ladder, and the rule is the same as everywhere else in the course: **take the cheapest option that fits.** Walk the questions top to bottom and stop at the first "yes".
+This chapter introduces six ways to compose work, scattered across 3.1, 3.3, 3.5, 3.6, and 3.7. Five of them form one ladder — plain Python, one agent, a fixed Workflow graph, in-process delegation, and networked A2A — while MCP is the orthogonal move that publishes a capability outward. The rule for the ladder is the same as everywhere else in the course: **take the cheapest option that fits.** Walk the questions top to bottom and stop at the first "yes".
 
 ```mermaid
 flowchart TD
@@ -60,16 +60,16 @@ The dashed edge marks MCP as orthogonal to the ladder: it is about publishing a 
 
 Each capability has exactly one owner, so a failure has one place to look. This chapter's pages map onto the reference package like this:
 
-| Sub-page                                  | What it adds                                               | Owning module(s)                           |
-| ----------------------------------------- | ---------------------------------------------------------- | ------------------------------------------ |
-| [3.0. Packaging](./3.0. Packaging.md)     | The uv package and lazy `root_agent` discovery             | `pyproject.toml`, `__init__.py`            |
-| [3.1. Tools](./3.1. Tools.md)             | Typed read tools over validated, resettable incident state | `tools.py`, `data.py`                      |
-| [3.2. Skills](./3.2. Skills.md)           | Progressive-disclosure procedures via `skill_toolset()`    | `skills.py`                                |
-| [3.3. MCP](./3.3. MCP.md)                 | The governed MCP server and client for the read tools      | `mcp_server.py`, `mcp_client.py`           |
-| [3.4. Memory](./3.4. Memory.md)           | Conversation, notes, and deterministic runbook retrieval   | `memory.py`, `longterm.py`, `retrieval.py` |
-| [3.5. Workflows](./3.5. Workflows.md)     | The fixed `triage → diagnose → recommend` graph            | `workflow.py`                              |
-| [3.6. A2A](./3.6. A2A.md)                 | The persistent A2A server, card, and task store            | `server.py`, `delegation.py`               |
-| [3.7. Multi-Agent](./3.7. Multi-Agent.md) | A coordinator with least-privilege specialists             | `delegation.py`                            |
+| Sub-page                                  | What it adds                                                                 | Owning module(s)                                            |
+| ----------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [3.0. Packaging](./3.0. Packaging.md)     | The uv package and lazy `root_agent` discovery                               | `pyproject.toml`, `__init__.py`                             |
+| [3.1. Tools](./3.1. Tools.md)             | Typed read tools over validated, resettable incident state                   | `tools.py`, `data.py`                                       |
+| [3.2. Skills](./3.2. Skills.md)           | Progressive-disclosure procedures via `skill_toolset()`                      | `skills.py`                                                 |
+| [3.3. MCP](./3.3. MCP.md)                 | The governed MCP server and client for the read tools                        | `mcp_server.py`, `mcp_client.py`                            |
+| [3.4. Memory](./3.4. Memory.md)           | Conversation, notes, history compaction, and deterministic runbook retrieval | `memory.py`, `longterm.py`, `compaction.py`, `retrieval.py` |
+| [3.5. Workflows](./3.5. Workflows.md)     | The fixed `triage → diagnose → recommend` graph                              | `workflow.py`                                               |
+| [3.6. A2A](./3.6. A2A.md)                 | The persistent A2A server, card, and task store                              | `server.py`, `delegation.py`                                |
+| [3.7. Multi-Agent](./3.7. Multi-Agent.md) | A coordinator with least-privilege specialists                               | `delegation.py`                                             |
 
 ## Which switches change this chapter's behavior?
 

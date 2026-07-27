@@ -26,7 +26,7 @@ Most of the time. Every delegation is an extra model call and another candidate 
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
 
 - `delegation.py` — a coordinator with read-only and write-only specialists.
 - Course chapter `3.7. Multi-Agent`.

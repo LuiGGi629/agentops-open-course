@@ -24,7 +24,7 @@ Trace an agent the way you trace a distributed system: one correlated record of 
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
 
 - `telemetry.py` — OTLP setup and a redacting, bounded, dedup log bridge; content capture off by default.
 - `infra/observability/` — OTel Collector, Prometheus, Grafana, Loki, and a shipped dashboard.

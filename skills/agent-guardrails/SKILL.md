@@ -24,7 +24,7 @@ Put a guardrail at each boundary an untrusted signal can cross: input, model, to
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
 
 - `guardrails.py` — argument validation, injection neutralization, spotlighting, safe error handlers.
 - `pii.py` — Presidio-based redaction at each boundary.

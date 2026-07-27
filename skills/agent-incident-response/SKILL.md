@@ -23,10 +23,10 @@ An operated agent is a running workload with incidents of its own: error-budget 
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
 
 - Course chapter `7.7. Incident Response` (the full loop and a postmortem template).
-- Runtime levers across `4.5. Guardrails`, `4.4. Evaluations`, `7.3. Costs`.
+- Runtime levers across `4.5. Guardrails` and `7.3. Costs`.
 
 ## Verify
 

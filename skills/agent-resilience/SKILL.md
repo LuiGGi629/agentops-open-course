@@ -23,7 +23,7 @@ Give an agent's outbound calls three layers of failure handling, applied in the 
 
 ## Reference implementation
 
-This skill is distilled from the AgentOps Open Course, which ships a working version (agent modules live under `agents/python/src/agent/`):
+From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
 
 - `resilience.py` — `with_resilience` (deadline + bounded retry, never on writes).
 - `circuit.py` — a deterministic, clock-injectable `CircuitBreaker`.

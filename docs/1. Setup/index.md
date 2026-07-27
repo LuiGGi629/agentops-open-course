@@ -25,7 +25,7 @@ If you only want the local Qwen3 agent talking, this is the whole sequence — c
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
 cd agentops-open-course
 mise install         # materialize the pinned CLI toolchain from mise.toml
-mise run install     # create both Python virtualenvs and install deps
+mise run install     # create the Python virtualenvs and install deps
 mise run doctor      # base prerequisites and both venvs present
 mise run test        # the Python agent's offline suite (no model needed)
 

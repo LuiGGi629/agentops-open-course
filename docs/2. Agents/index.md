@@ -1,5 +1,5 @@
 ---
-description: Run and understand the completed Google ADK 2.0 reference agent end to end on local Qwen3.
+description: Run and understand the completed Google ADK 2.x reference agent end to end on local Qwen3.
 ---
 
 # 2. Agents
@@ -10,7 +10,7 @@ This chapter builds and explains the **AgentOps Agent** — the single reference
 
 Read the sections by their kind, not just their order. **2.0 is conceptual** — the mental model you need before code makes sense. **2.1 and 2.5 are hands-on** — you run commands and see output. **2.2, 2.3, and 2.4 are reference** — the model, instruction, and runtime pieces you consult as you build:
 
-- **[2.0. Concepts](./2.0. Concepts.md)** _(concept)_: The ADK 2.0 building blocks — Agent, Runner, Session, Events, Tools, and the graph Workflow.
+- **[2.0. Concepts](./2.0. Concepts.md)** _(concept)_: The ADK 2.x building blocks — Agent, Runner, Session, Events, Tools, and the graph Workflow.
 - **[2.1. First Agent](./2.1. First Agent.md)** _(hands-on)_: Inspect and run the AgentOps Agent end to end on local Qwen3.
 - **[2.2. Models](./2.2. Models.md)** _(reference)_: The default Ollama contract and the optional native Gemini branch.
 - **[2.3. Instructions](./2.3. Instructions.md)** _(reference)_: The system instruction — persona, operating rules, grounding, and structured output.

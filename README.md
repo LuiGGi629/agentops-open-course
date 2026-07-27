@@ -171,11 +171,11 @@ The GKE path is an optional lab, not a production reference architecture. Its si
 | [0. Overview](./docs/0.%20Overview/index.md)              | Choose the right agent architecture, stack, and learning path.                     |
 | [1. Setup](./docs/1.%20Setup/index.md)                    | Install the staged prerequisites for the checkpoint you are running.               |
 | [2. Agents](./docs/2.%20Agents/index.md)                  | Run and understand the ADK reference agent on local Qwen3.                         |
-| [3. Capabilities](./docs/3.%20Capabilities/)              | Inspect typed tools, skills, MCP, memory, workflows, and A2A.                      |
-| [4. Quality](./docs/4.%20Quality/)                        | Enforce typing, tests, evaluations, guardrails, and adversarial regressions.       |
-| [5. Gateway](./docs/5.%20Gateway/)                        | Move the stable model contract behind agentgateway and govern MCP and A2A traffic. |
-| [6. Platform](./docs/6.%20Platform/)                      | Deliver the same image to local k3d and an optional GKE lab with kagent.           |
-| [7. Observability](./docs/7.%20Observability/)            | Trace, measure, evaluate, and audit the running system with OSS backends.          |
+| [3. Capabilities](./docs/3.%20Capabilities/index.md)      | Inspect typed tools, skills, MCP, memory, workflows, and A2A.                      |
+| [4. Quality](./docs/4.%20Quality/index.md)                | Enforce typing, tests, evaluations, guardrails, and adversarial regressions.       |
+| [5. Gateway](./docs/5.%20Gateway/index.md)                | Move the stable model contract behind agentgateway and govern MCP and A2A traffic. |
+| [6. Platform](./docs/6.%20Platform/index.md)              | Deliver the same image to local k3d and an optional GKE lab with kagent.           |
+| [7. Observability](./docs/7.%20Observability/index.md)    | Trace, measure, evaluate, and audit the running system with OSS backends.          |
 | [8. Community](./docs/8.%20Community/index.md)            | Maintain, release, and document an open-source agent project.                      |
 | [8.7. Capstone](./docs/8.%20Community/8.7.%20Capstone.md) | Transform the completed reference into your own evidence-backed agent platform.    |
 
