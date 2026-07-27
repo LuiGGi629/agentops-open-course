@@ -19,6 +19,7 @@ from opentelemetry import metrics
 from pydantic import ValidationError
 
 from .budget import enforce_token_budget, record_token_usage
+from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_model
@@ -52,7 +53,7 @@ triage_report_agent = Agent(
     instruction=REPORT_INSTRUCTION,
     tools=[*ALL_TOOLS, *KNOWLEDGE_TOOLS],
     output_schema=TriageReport,
-    before_model_callback=[enforce_token_budget, redact_request_pii],
+    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,

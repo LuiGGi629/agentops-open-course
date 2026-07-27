@@ -2,7 +2,7 @@
 
 Where ``root_agent`` (an LlmAgent) decides its own steps, a ``Workflow`` runs a fixed graph:
 agents are nodes, and an edge chains them so each runs in order, passing findings forward via
-session state. ``Workflow`` is ADK 2.0's graph runtime — it supersedes the classic
+session state. ``Workflow`` is the ADK 2.x graph runtime — it supersedes the classic
 ``SequentialAgent`` / ``ParallelAgent`` / ``LoopAgent`` (now deprecated) and also expresses
 parallel, looping, and dynamic DAGs.
 """
@@ -13,6 +13,7 @@ from google.adk import Agent, Workflow
 from google.adk.agents.llm_agent import ToolUnion
 
 from .budget import enforce_token_budget, record_token_usage
+from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_model
@@ -32,7 +33,7 @@ triage = Agent(
         "(lowest SEV number wins). State its id, service, severity, and one-line summary."
     ),
     tools=ALL_TOOLS,
-    before_model_callback=[enforce_token_budget, redact_request_pii],
+    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,
@@ -50,7 +51,7 @@ diagnose = Agent(
         "in two or three sentences, citing the runbook."
     ),
     tools=_DIAGNOSE_TOOLS,
-    before_model_callback=[enforce_token_budget, redact_request_pii],
+    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,
@@ -68,7 +69,7 @@ recommend = Agent(
         "resolve_incident) and requires human approval. Cite the runbook you used."
     ),
     tools=KNOWLEDGE_TOOLS,
-    before_model_callback=[enforce_token_budget, redact_request_pii],
+    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
     on_model_error_callback=handle_model_error,
