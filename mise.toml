@@ -4,7 +4,7 @@
 # Git hooks (lefthook.yml) and CI (.github/workflows) call these same tasks.
 
 [tools]
-uv = "0.11.28"
+uv = "0.11.32"
 dprint = "0.55.1"
 lefthook = "2.1.10"
 gitleaks = "8.30.1"
