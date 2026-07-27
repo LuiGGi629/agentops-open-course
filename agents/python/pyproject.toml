@@ -13,7 +13,7 @@ authors = [{ name = "Médéric HURIER", email = "agentops-open-course@fmind.dev"
 dependencies = [
   "aiosqlite>=0.22.1,<0.23", # async SQLite driver for ADK sessions and the A2A task store
   "google-adk[a2a]>=2.4.0", # locked agent runtime + A2A serving; avoid the unused Spanner `db` extra
-  "a2a-sdk>=0.3.26,<1", # ADK allows <2, but a2a-sdk 1.x replaces the pydantic AgentCard/types with protobuf — a deliberate migration (code + Ch. 3.6 rewrite), not a routine bump
+  "a2a-sdk>=1.1.2", # A2A protocol types + server (Ch. 3.6); 1.x reworked the type surface — kept current with ADK's <2 cap
   "mcp>=1.28.1", # Model Context Protocol server (FastMCP) + client (McpToolset), Ch. 3.3
   "openai>=2.45.0", # OSS SDK used by ADK OpenAILlm for direct Ollama or agentgateway
   "opentelemetry-exporter-otlp-proto-http>=1.42.0,<=1.42.1", # match ADK's OTel cap; export to Collector/MLflow
@@ -135,6 +135,10 @@ filterwarnings = [
   'ignore:^\[EXPERIMENTAL\] feature FeatureName\.(JSON_SCHEMA_FOR_FUNC_DECL|PLUGGABLE_AUTH|TOOL_CONFIRMATION) is enabled\.$:UserWarning',
   'ignore:^\[EXPERIMENTAL\] (_?A2a\w+|AgentCardBuilder|AgentRunRequest|convert_\w+|to_a2a):UserWarning',
   'ignore:^Using `httpx` with `starlette\.testclient` is deprecated; install `httpx2` instead\.$:UserWarning',
+  # a2a-sdk 1.x proto validator still reads the deprecated `FieldDescriptor.label`; protobuf 6.x
+  # warns, and under `error` this surfaces (via the C HasField call) as a SystemError on message/stream.
+  # Harmless at runtime (warnings are not errors there); drop when a2a-sdk moves to `is_repeated()`.
+  'ignore:^label\(\) is deprecated\. Use is_required\(\) or is_repeated\(\) instead\.$:DeprecationWarning',
   'ignore:^You should use `Logger` instead\. Deprecated since version 1\.39\.0 and will be removed in a future release\.$:DeprecationWarning',
   'ignore:^You should use `LoggerProvider` instead\. Deprecated since version 1\.39\.0 and will be removed in a future release\.$:DeprecationWarning',
   'ignore:^You should use `ProxyLoggerProvider` instead\. Deprecated since version 1\.39\.0 and will be removed in a future release\.$:DeprecationWarning',

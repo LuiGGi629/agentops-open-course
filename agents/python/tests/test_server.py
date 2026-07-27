@@ -117,7 +117,8 @@ def _stream_events(*, fail_after_first: bool) -> list[dict[str, Any]]:
 
 
 def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
-    assert server.agent_card.url == "http://localhost:8080/"
+    # a2a-sdk 1.x moved the endpoint from a single ``url`` to a transport-interface list.
+    assert [interface.url for interface in server.agent_card.supported_interfaces] == ["http://localhost:8080/"]
     assert server.agent_card.version == "0.1.1"
     assert "Operating rules" not in server.agent_card.description
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
@@ -213,7 +214,9 @@ def test_a2a_confirmation_response_resumes_the_guarded_action_with_audit_identit
         assert start_results[1]["status"]["state"] == "working"
         paused_task = start_results[-1]
         assert paused_task["status"]["state"] == "input-required"
-        assert paused_task["final"] is True
+        # a2a-sdk 1.x treats an input-required pause as non-terminal (the task resumes under
+        # the same id), so ``final`` is False here even though the stream closes.
+        assert paused_task["final"] is False
         context_id = paused_task["contextId"]
         task_id = paused_task["taskId"]
         confirmation_call = next(

@@ -14,7 +14,7 @@ import uvicorn
 from a2a.server.agent_execution import RequestContext
 from a2a.server.events import Event as A2AEvent
 from a2a.server.tasks import DatabaseTaskStore, TaskStore
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill, TaskStatusUpdateEvent
+from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill, TaskStatusUpdateEvent
 from google.adk.a2a.converters.part_converter import A2APartToGenAIPartConverter
 from google.adk.a2a.converters.request_converter import AgentRunRequest, convert_a2a_request_to_agent_run_request
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -95,9 +95,16 @@ class Runtime:
 agent_card = AgentCard(
     name="AgentOps Agent",
     description="Runbook-grounded incident triage and guarded remediation for the AgentOps Open Course.",
-    url=f"{settings.a2a_protocol}://{settings.a2a_host}:{settings.a2a_port}/",
+    # a2a-sdk 1.x replaced the single top-level ``url`` with a list of transport
+    # interfaces; the JSON-RPC binding is the one ADK's ``to_a2a`` serves.
+    supported_interfaces=[
+        AgentInterface(
+            url=f"{settings.a2a_protocol}://{settings.a2a_host}:{settings.a2a_port}/",
+            protocol_binding="JSONRPC",
+        )
+    ],
     version=version("agentops-agent"),
-    capabilities=AgentCapabilities(streaming=True, state_transition_history=True),
+    capabilities=AgentCapabilities(streaming=True),
     default_input_modes=["text/plain"],
     default_output_modes=["text/plain"],
     skills=[
@@ -188,7 +195,9 @@ def _error_code_interceptor() -> ExecuteInterceptor:
         del executor_context
         error_code = error_codes.pop(final_event.task_id, None)
         if error_code:
-            final_event.metadata = {**(final_event.metadata or {}), "adk_error_code": error_code}
+            # a2a-sdk 1.x models ``metadata`` as a protobuf Struct: mutate the
+            # entry in place rather than reassigning the whole submessage.
+            final_event.metadata["adk_error_code"] = error_code
         return final_event
 
     return ExecuteInterceptor(after_event=remember, after_agent=restore)
