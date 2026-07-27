@@ -221,8 +221,10 @@ def test_run_converts_a_real_confirmation_pause_without_approving_or_mutating(mo
     result = asyncio.run(mlflow_eval._run(["Restart inventory."], "confirmation-pause"))  # noqa: SLF001
 
     assert result["responses"] == [
-        "The guarded restart_service action for service inventory is waiting for approval. "
-        "Provide a rationale with the approval; no state change has occurred."
+        (
+            "The guarded restart_service action for service inventory is waiting for approval. "
+            "Provide a rationale with the approval; no state change has occurred."
+        )
     ]
     assert [call["name"] for call in result["tools"][0]] == [
         "restart_service",

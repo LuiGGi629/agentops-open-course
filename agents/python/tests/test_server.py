@@ -205,6 +205,7 @@ def test_a2a_confirmation_response_resumes_the_guarded_action_with_audit_identit
             "task",
             "status-update",
             "artifact-update",
+            "status-update",
             "artifact-update",
             "status-update",
         ]

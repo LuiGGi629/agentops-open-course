@@ -9,7 +9,7 @@ with ``mise run mcp`` (``python -m agent.mcp_server``).
 from __future__ import annotations
 
 import os
-from typing import Literal, cast
+from typing import Literal
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
@@ -122,7 +122,7 @@ def main() -> None:
     if transport == "stdio":
         mcp.run("stdio")
         return
-    _run_http(cast("Literal['sse', 'streamable-http']", transport))
+    _run_http(transport)
 
 
 # --8<-- [end:mcp-server-transport]
