@@ -14,8 +14,8 @@
 # docker build -f agents/python/Dockerfile -t agentops-agent:dev agents
 
 # --- Stage 1: resolve dependencies into /app/.venv with uv -------------------
-FROM ghcr.io/astral-sh/uv:0.11.28@sha256:0f36cb9361a3346885ca3677e3767016687b5a170c1a6b88465ec14aefec90aa AS uv
-FROM python:3.13.13-slim-trixie@sha256:aa938a849bcb82dce8f49480f056ab82bf5c1c3ebc294f0430f37b6820e7f286 AS build
+FROM ghcr.io/astral-sh/uv:0.11.32@sha256:df4cae8f3a96d175e2e5f992e597550000edbe78fdc2594d5cd8de1a217f504c AS uv
+FROM python:3.13.14-slim-trixie@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS build
 
 COPY --from=uv /uv /uvx /bin/
 
@@ -47,7 +47,7 @@ RUN ln -sfn /usr/bin/python3 /app/.venv/bin/python \
  && install -d -o 10001 -g 10001 /app/state
 
 # --- Stage 2: minimal, non-root runtime --------------------------------------
-FROM cgr.dev/chainguard/wolfi-base@sha256:02dab76bd852a70556b5b2002195c8a5fdab77d323c433bf6642aab080489795 AS runtime
+FROM cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e AS runtime
 
 # Exact apk pins keep the runtime reproducible. Wolfi is a *rolling* repository:
 # it removes superseded package versions, so these pins periodically stop
@@ -56,7 +56,7 @@ FROM cgr.dev/chainguard/wolfi-base@sha256:02dab76bd852a70556b5b2002195c8a5fdab77
 # (or `mise run` the Renovate update) and rebuild. See docs 6.1.
 RUN apk add --no-cache \
     libstdc++=16.1.0-r4 \
-    python-3.13=3.13.14-r2
+    python-3.13=3.13.14-r3
 
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
