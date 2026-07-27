@@ -50,4 +50,12 @@ jobs:
         run: cd agents/python && mise run eval:validate
 
       - name: Verify generated files are committed
-        run: test -z "$(git status --porcelain)"
+        run: |
+          changed="$(git status --porcelain)"
+          if [ -n "$changed" ]; then
+            echo "::error::Working tree is dirty after install/format/check/test — a generated file is not committed."
+            echo "$changed"
+            git diff --stat
+            git diff
+            exit 1
+          fi
