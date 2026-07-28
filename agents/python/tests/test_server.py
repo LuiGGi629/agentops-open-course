@@ -7,6 +7,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from a2a.server.agent_execution import RequestContext
 from google.adk.a2a.converters.part_converter import A2APartToGenAIPartConverter
 from google.adk.a2a.converters.request_converter import AgentRunRequest
@@ -19,6 +20,12 @@ from starlette.testclient import TestClient
 from agent import actions, data, server
 from agent.config import settings
 from agent.guardrails import handle_model_error, validate_actions
+
+
+def test_a2a_default_rejects_a_non_agent_entrypoint(monkeypatch) -> None:
+    monkeypatch.setattr(server, "root_agent", object())
+    with pytest.raises(RuntimeError, match="AGENT_ENTRYPOINT=agent"):
+        server._selected_a2a_agent()  # noqa: SLF001 - entrypoint boundary
 
 
 class _StreamingLlm(BaseLlm):

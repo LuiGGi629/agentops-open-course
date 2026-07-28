@@ -22,7 +22,10 @@ from .guardrails import handle_model_error, handle_tool_error, secure_tool_outpu
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_model
 from .pii import redact_request_pii, redact_response_pii
+from .telemetry import setup_telemetry
 from .tools import ALL_TOOLS
+
+setup_telemetry()
 
 # The diagnosis specialist: read-only by construction.
 diagnosis_agent = Agent(
@@ -32,8 +35,10 @@ diagnosis_agent = Agent(
     instruction=(
         "You are a diagnosis specialist. Given an incident id, use get_incident for its details and "
         "runbook, get_runbook for the runbook body, and get_service_status for the service. Explain "
-        "the likely root cause in a few sentences and cite the runbook. You cannot take actions — "
-        "hand your findings back to the coordinator."
+        "the likely root cause in a few sentences and cite the runbook. When the coordinator asks "
+        "for post-action verification, re-read the incident and service, compare those observations "
+        "with the expected recovery evidence, and label recovery unverified when they do not prove "
+        "it. You cannot take actions — hand your findings back to the coordinator."
     ),
     tools=[*ALL_TOOLS, *KNOWLEDGE_TOOLS],
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
@@ -53,8 +58,9 @@ remediation_agent = Agent(
     instruction=(
         "You are a remediation specialist. The coordinator hands you a diagnosed incident and a "
         "runbook-backed plan. Propose the exact guarded action (restart_service or resolve_incident), "
-        "wait for the engineer's approval, then execute it and report the audit result. Never act "
-        "without a diagnosis; never invent targets."
+        "wait for the engineer's approval, then execute it. Return only the attempted action and "
+        "audit result; never claim service recovery from the action response. Never act without a "
+        "diagnosis; never invent targets."
     ),
     tools=[*ACTION_TOOLS],
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
@@ -74,8 +80,11 @@ coordinator_agent = Agent(
         "You are the on-call coordinator. Triage with list_incidents and get_service_status. When a "
         "specific incident needs a root-cause analysis, delegate to the diagnosis_agent sub-agent. "
         "Once a diagnosis is confirmed and the engineer wants to act, delegate to the "
-        "remediation_agent sub-agent with the incident id and the runbook-backed plan, then "
-        "summarize the outcome (including the audit record) for the engineer."
+        "remediation_agent sub-agent with the incident id, runbook-backed plan, and expected recovery "
+        "evidence. Treat its response as action and audit evidence only. Then delegate back to "
+        "diagnosis_agent to re-read the incident and service and compare them with the expected "
+        "recovery evidence. Summarize the audit and verified observations; never claim recovery "
+        "from the action response alone."
     ),
     tools=ALL_TOOLS,
     sub_agents=[diagnosis_agent, remediation_agent],

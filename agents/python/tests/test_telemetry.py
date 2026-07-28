@@ -14,6 +14,7 @@ from agent import telemetry
 @pytest.fixture(autouse=True)
 def clean_agent_otel_handlers():
     """Keep global logging state isolated across telemetry tests."""
+    telemetry._PROVIDERS_CONFIGURED = False  # noqa: SLF001 - setup state isolation
     logger = logging.getLogger("agent")
     for handler in tuple(logger.handlers):
         if isinstance(handler, telemetry._AgentOTelLoggingHandler):  # noqa: SLF001 - setup contract
@@ -24,6 +25,7 @@ def clean_agent_otel_handlers():
         if isinstance(handler, telemetry._AgentOTelLoggingHandler):  # noqa: SLF001 - setup contract
             logger.removeHandler(handler)
             handler.close()
+    telemetry._PROVIDERS_CONFIGURED = False  # noqa: SLF001 - setup state isolation
 
 
 def test_setup_telemetry_is_a_safe_noop_without_an_endpoint(monkeypatch) -> None:
@@ -46,15 +48,18 @@ def test_setup_telemetry_is_a_safe_noop_without_an_endpoint(monkeypatch) -> None
 
 
 def test_setup_telemetry_delegates_to_adk(monkeypatch) -> None:
-    called = False
+    calls = 0
 
     def fake_setup() -> None:
-        nonlocal called
-        called = True
+        nonlocal calls
+        calls += 1
 
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4318/v1/traces")
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
     monkeypatch.setattr(telemetry, "maybe_set_otel_providers", fake_setup)
     telemetry.setup_telemetry()
-    assert called
+    telemetry.setup_telemetry()
+    assert calls == 1
 
 
 def test_setup_does_not_install_a_handler_when_the_otel_sdk_is_disabled(monkeypatch) -> None:

@@ -20,6 +20,7 @@ from typing import Any
 
 import mlflow
 import mlflow.genai
+from google.adk.agents import BaseAgent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from mlflow.entities import AssessmentSource, Feedback
@@ -27,7 +28,7 @@ from mlflow.genai.scorers import Scorer, scorer
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from agent.agent import INSTRUCTION, root_agent
+from agent.composition import INSTRUCTION, root_agent
 from agent.config import settings
 
 _EVALSET = Path(__file__).parent / "ops.evalset.json"
@@ -321,6 +322,8 @@ async def _run(turns: list[str], eval_id: str) -> dict[str, Any]:
     """Run all turns in one session and retain each answer and tool trajectory."""
     if not turns:
         raise ValueError("An evaluation conversation needs at least one turn")
+    if not isinstance(root_agent, BaseAgent):
+        raise RuntimeError("MLflow evaluation requires AGENT_ENTRYPOINT=agent.")
     user_id = _eval_user_id(eval_id)
     runner = InMemoryRunner(agent=root_agent, app_name=_EXPERIMENT)
     try:
@@ -552,15 +555,22 @@ def _required_metric_failures(metrics: dict[str, Any]) -> list[str]:
     return failures
 
 
-def main() -> None:
-    """Register the prompt, link it to a logged model, and evaluate that model."""
-    mlflow.set_tracking_uri(_TRACKING_URI)
-    experiment = mlflow.set_experiment(_EXPERIMENT)
-    prompt = mlflow.genai.register_prompt(
+def _evaluation_prompt():
+    """Return the exact prompt version used by the already-built root agent."""
+    if settings.prompt_uri:
+        return mlflow.genai.load_prompt(settings.prompt_uri)
+    return mlflow.genai.register_prompt(
         name="agentops-agent-instruction",
         template=INSTRUCTION,
         commit_message="AgentOps Agent system instruction",
     )
+
+
+def main() -> None:
+    """Link the resolved prompt to a logged model, then evaluate that model."""
+    mlflow.set_tracking_uri(_TRACKING_URI)
+    experiment = mlflow.set_experiment(_EXPERIMENT)
+    prompt = _evaluation_prompt()
     logged_model = mlflow.initialize_logged_model(
         name="agentops-agent",
         experiment_id=experiment.experiment_id,

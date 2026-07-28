@@ -38,3 +38,14 @@ def test_remediation_actions_still_require_confirmation() -> None:
     """Least privilege does not replace HITL: the guarded actions stay guarded."""
     for tool in remediation_agent.tools:
         assert getattr(tool, "_require_confirmation", None) is True  # the HITL contract
+
+
+def test_coordinator_requires_post_action_verification() -> None:
+    remediation_instruction = str(remediation_agent.instruction)
+    coordinator_instruction = str(coordinator_agent.instruction)
+    diagnosis_instruction = str(diagnosis_agent.instruction)
+    assert "never claim service recovery from the action response" in remediation_instruction
+    assert "delegate back to diagnosis_agent" in coordinator_instruction
+    assert "re-read the incident and service" in coordinator_instruction
+    assert "never claim recovery from the action response alone" in coordinator_instruction
+    assert "post-action verification" in diagnosis_instruction

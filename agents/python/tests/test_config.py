@@ -7,10 +7,11 @@ import pytest
 from pydantic import AliasChoices, ValidationError
 
 from agent import config_check
-from agent.config import ModelProvider, Settings
+from agent.config import AgentEntrypoint, ModelProvider, Settings
 
 # Environment variables that would leak a developer's real setup into a test.
 _AMBIENT_VARS = (
+    "AGENT_ENTRYPOINT",
     "AGENT_GATEWAY_ENABLED",
     "AGENT_MODEL_PROVIDER",
     "AGENT_MCP_URL",
@@ -34,6 +35,7 @@ def clean_environment(monkeypatch, tmp_path):
 
 def test_default_settings_are_valid() -> None:
     settings = Settings()
+    assert settings.entrypoint is AgentEntrypoint.AGENT
     assert settings.model_provider is ModelProvider.OPENAI_COMPATIBLE
     assert settings.model == "qwen3:4b-instruct"
     assert settings.openai_base_url == "http://127.0.0.1:11434/v1"
@@ -44,6 +46,14 @@ def test_default_settings_are_valid() -> None:
     assert settings.a2a_host == "localhost"
     assert settings.embedding_timeout_s == 120.0
     assert settings.sanitize_tool_output is True
+
+
+def test_entrypoint_is_a_validated_choice(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_ENTRYPOINT", "workflow")
+    assert Settings().entrypoint is AgentEntrypoint.WORKFLOW
+    monkeypatch.setenv("AGENT_ENTRYPOINT", "unknown")
+    with pytest.raises(ValidationError, match="entrypoint"):
+        Settings()
 
 
 def test_settings_ignore_local_dotenv(tmp_path) -> None:

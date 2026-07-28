@@ -7,11 +7,10 @@ Contributions that make the course more accurate, runnable, or useful are welcom
 Install [mise](https://mise.jdx.dev/), clone your fork, and run:
 
 ```bash
-mise install
-mise run install
+mise run install:maintainer
 ```
 
-The first command installs the repository's pinned tools. The second installs the documentation and agent dependencies and enables the Git hooks.
+This installs every pinned tool and locked environment used by the complete contributor gate, then enables the Git hooks. Learners use the smaller `mise run install` tier.
 
 ## What should a contribution preserve?
 

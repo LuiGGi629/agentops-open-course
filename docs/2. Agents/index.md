@@ -14,7 +14,7 @@ description: Run and understand the completed Google ADK 2.x reference agent end
 
 This chapter builds one object, `root_agent`. Every later chapter adds to that same object rather than replacing it.
 
-That object is the **AgentOps Agent**, the single reference agent carried through the entire course. It is assembled once in `agent.py` as a plain ADK `Agent` value: a model, an instruction string, a flat tool list, and a set of **policy callbacks** — code the runtime runs around every model call and tool call.
+That object is the **AgentOps Agent**, the single reference agent carried through the entire course. It is assembled once in `composition.py` as a plain ADK `Agent` value: a model, an instruction string, a flat tool list, and a set of **policy callbacks** — code the runtime runs around every model call and tool call.
 
 ??? note "Deeper: where does this agent go after Chapter 2?"
 
@@ -35,16 +35,16 @@ By the end you will have run the agent on a model on your own laptop. You will k
 
 ## Which page owns which part of the agent?
 
-The `Agent(...)` call in `agent.py` names each part of the reference agent. Each part is taught by exactly one sub-page, so when a behavior surprises you, there is one page and one module to open.
+The `Agent(...)` call in `composition.py` names each part of the reference agent. Each part is taught by exactly one sub-page, so when a behavior surprises you, there is one page and one module to open.
 
 Concretely, each field of `root_agent` traces to one owner:
 
 | Sub-page                                    | What it teaches                                | Owning module / symbol                                        |
 | ------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
 | [2.0. Concepts](./2.0. Concepts.md)         | The ADK runtime loop and its object vocabulary | `google.adk` (framework)                                      |
-| [2.1. First Agent](./2.1. First Agent.md)   | Composing and running `root_agent`             | `agent.py` (composition root)                                 |
+| [2.1. First Agent](./2.1. First Agent.md)   | Composing and running `root_agent`             | `composition.py` (composition root)                           |
 | [2.2. Models](./2.2. Models.md)             | Provider selection behind `model=`             | `model.py` `build_model`, `config.py` `ModelProvider`         |
-| [2.3. Instructions](./2.3. Instructions.md) | The persona and rules behind `instruction=`    | `agent.py` `INSTRUCTION` / `_instruction`                     |
+| [2.3. Instructions](./2.3. Instructions.md) | The persona and rules behind `instruction=`    | `composition.py` `INSTRUCTION` / `_instruction`               |
 | [2.4. Sessions](./2.4. Sessions.md)         | Persistent sessions and A2A task state         | `server.py` `DatabaseSessionService`, `config.py` `state_dir` |
 | [2.5. Dev Loop](./2.5. Dev Loop.md)         | The offline gates and interactive run modes    | `mise.toml` tasks                                             |
 
@@ -57,7 +57,7 @@ Tools and callbacks are named here, not taught here. Owned by [Chapter 3](../3. 
     ```mermaid
     flowchart TD
         concepts["Runtime concepts · 2.0<br/>Agent · Runner · Session · Events"]
-        subgraph agent["root_agent — assembled in agent.py · 2.1"]
+        subgraph agent["root_agent — assembled in composition.py · 2.1"]
             model["model = build_model() · 2.2"]
             instr["instruction = _instruction() · 2.3"]
             tools["tools = [reads, actions, memory, skills]<br/>+ policy callbacks · Ch. 3 / 4.5"]
@@ -82,7 +82,7 @@ mise run test
 
 That is the offline test suite. It constructs the agent, resolves its configuration, and exercises model and session wiring without a running model or network.
 
-The whole run takes well under a minute once dependencies are installed. It ends with a coverage total checked against the enforced 95% threshold, then a pytest `passed` line. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
+The whole run can take several minutes depending on the machine and cache state. It ends with a coverage total checked against the enforced 95% threshold, then a pytest `passed` line. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
 
 A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate gate, owned by [2.5. Dev Loop](./2.5. Dev Loop.md).
 
@@ -94,7 +94,7 @@ A green run proves the agent is assembled correctly, not that it reasons well. M
     uv run pytest tests/test_model.py tests/test_config.py
     ```
 
-    That two-file subset prints its own `passed` summary and still exits non-zero, because the repository-wide 95% coverage gate in `pyproject.toml` is measured over the whole suite: `mise run test` is the run that has to be green.
+    That focused subset exits cleanly and gives fast feedback. The repository-wide 95% branch-coverage gate belongs to `mise run test`, which adds the coverage flags around the complete suite.
 
     Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate gate ([2.5. Dev Loop](./2.5. Dev Loop.md)'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
 

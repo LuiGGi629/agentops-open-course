@@ -4,6 +4,23 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Added a bounded read-only `plan → investigate → evidence_review → recommend` workflow, a least-privilege coordinator path, and model-backed evaluation for the planning and reflection loop.
+- Added explicit learner, platform, and maintainer install tiers plus stable aggregate CI and security-scan jobs that import-smoke every built image.
+
+### Changed
+
+- Reworked the learning path so setup stays read-only, the first model interaction happens in Chapter 2, Kubernetes deployment precedes inspection, and the capstone is the primary finish before optional project maintenance.
+- Unified ADK discovery behind one validated `AGENT_ENTRYPOINT=agent|workflow|coordinator` package boundary while constructing only the selected composition.
+- Made promotion a truthful offline preflight by default, with model-backed evidence required before it prints deploy and rollback commands.
+
+### Fixed
+
+- Repaired the locked ADK 2.4 terminal entrypoint, which was shadowed by `agent.py`, and added real CLI, wheel, and container discovery coverage.
+- Wrapped `adk eval` so metric failures cannot exit successfully; each trajectory case is strict and the measured local-model baseline uses an explicit aggregate case-pass floor.
+- Strengthened host and load smoke tests to require successful A2A completion, made OpenTelemetry provider setup idempotent, preserved evidence across workflow nodes, and required fresh reads after approved actions.
+
 ## [0.1.1] - 2026-07-24
 
 ### Changed

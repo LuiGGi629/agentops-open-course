@@ -1,0 +1,67 @@
+{
+  "eval_set_id": "agentops_incident_workflow",
+  "name": "AgentOps bounded incident workflow",
+  "description": "Model-backed validation of the plan, investigation, evidence review, and recommendation path (Ch. 3.5).",
+  "eval_cases": [
+    {
+      "eval_id": "checkout-evidence-review",
+      "conversation": [
+        {
+          "invocation_id": "inv-checkout-evidence-review",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Investigate INC-001 and recommend the safest next step."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "INC-001 is an investigating SEV2 checkout latency incident. The evidence supports following the high-latency runbook, with recovery verified before any approved action is called successful."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "get_incident",
+                "args": {
+                  "incident_id": "INC-001"
+                }
+              },
+              {
+                "name": "get_service_status",
+                "args": {
+                  "name": "checkout"
+                }
+              },
+              {
+                "name": "search_service_logs",
+                "args": {
+                  "service": "checkout"
+                }
+              },
+              {
+                "name": "get_runbook",
+                "args": {
+                  "slug": "high-latency"
+                }
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "triage_workflow",
+        "user_id": "eval",
+        "state": {}
+      },
+      "creation_timestamp": 0.0
+    }
+  ]
+}

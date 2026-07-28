@@ -27,7 +27,7 @@ flowchart LR
 
 | Capability                                       | Source                               | Course               |
 | ------------------------------------------------ | ------------------------------------ | -------------------- |
-| Agent, instructions, callbacks                   | `python/src/agent/agent.py`          | Chapter 2            |
+| Agent, instructions, callbacks                   | `python/src/agent/composition.py`    | Chapter 2            |
 | Typed configuration and model selection          | `config.py`, `model.py`, `models.py` | Chapters 2 and 5     |
 | Immutable seed and runtime state                 | `data.py`, `data/`                   | Chapter 3            |
 | Incident, service, and log tools                 | `tools.py`                           | Chapter 3.1          |
@@ -46,9 +46,8 @@ flowchart LR
 From the repository root:
 
 ```bash
-mise install
 mise run install
-mise run check
+mise run check:core
 mise run test
 ```
 

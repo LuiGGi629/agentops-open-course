@@ -29,8 +29,8 @@ def _run_python(script: str, *, warnings_as_errors: bool = False) -> subprocess.
 
 def test_mcp_import_does_not_initialize_adk_or_emit_warnings() -> None:
     result = _run_python(
-        "import sys; import agent; assert 'agent.agent' not in sys.modules; "
-        "import agent.mcp_server; assert 'agent.agent' not in sys.modules",
+        "import sys; import agent; assert 'agent.composition' not in sys.modules; "
+        "import agent.mcp_server; assert 'agent.composition' not in sys.modules",
         warnings_as_errors=True,
     )
     assert result.returncode == 0, result.stderr
@@ -41,7 +41,7 @@ def test_mcp_import_does_not_initialize_adk_or_emit_warnings() -> None:
     "script",
     [
         (
-            "import sys; import agent; assert 'agent.agent' not in sys.modules; "
+            "import sys; import agent; assert 'agent.composition' not in sys.modules; "
             "from google.adk.cli.utils.agent_loader import AgentLoader; "
             "loaded = AgentLoader('src').load_agent('agent'); assert loaded.name == 'agentops_agent'"
         ),
@@ -49,8 +49,46 @@ def test_mcp_import_does_not_initialize_adk_or_emit_warnings() -> None:
             "from google.adk.cli.cli_eval import get_root_agent; "
             "loaded = get_root_agent('src/agent'); assert loaded.name == 'agentops_agent'"
         ),
+        (
+            "import os; from agent.structured_report.agent import root_agent; "
+            "assert root_agent.name == 'triage_report_agent'; "
+            "assert os.environ['ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS'] == 'false'; "
+            "assert os.environ['OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT'] == 'false'"
+        ),
+        (
+            "import os; os.environ['AGENT_ENTRYPOINT'] = 'workflow'; "
+            "from google.adk.cli.cli_eval import get_root_agent; "
+            "loaded = get_root_agent('src/agent'); "
+            "assert loaded.name == 'triage_workflow'; "
+            "assert os.environ['ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS'] == 'false'; "
+            "assert os.environ['OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT'] == 'false'"
+        ),
+        (
+            "import os; os.environ['AGENT_ENTRYPOINT'] = 'coordinator'; "
+            "from google.adk.cli.cli_eval import get_root_agent; "
+            "loaded = get_root_agent('src/agent'); "
+            "assert loaded.name == 'coordinator_agent'; "
+            "assert os.environ['ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS'] == 'false'; "
+            "assert os.environ['OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT'] == 'false'"
+        ),
     ],
 )
 def test_adk_cli_discovery_resolves_lazy_root_agent(script: str) -> None:
     result = _run_python(script)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("entrypoint", ["agent", "workflow", "coordinator"])
+def test_adk_terminal_cli_loads_each_entrypoint_without_a_model_call(entrypoint: str) -> None:
+    adk = Path(sys.executable).with_name("adk")
+    result = subprocess.run(  # noqa: S603 - venv-owned CLI and fixed arguments
+        [adk, "run", "--in_memory", "src/agent"],
+        cwd=_PROJECT_DIR,
+        env={**os.environ, "AGENT_ENTRYPOINT": entrypoint},
+        input="exit\n",
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert result.returncode == 0, result.stderr

@@ -533,6 +533,23 @@ def _stub_run_context(monkeypatch, tags: dict | None = None) -> None:
     monkeypatch.setattr(mlflow_eval.mlflow, "set_tags", recorder.update)
 
 
+def test_evaluation_prompt_reuses_the_configured_registry_version(monkeypatch) -> None:
+    expected = SimpleNamespace(
+        uri="prompts:/agentops-agent-instruction/3",
+        version=3,
+        name="agentops-agent-instruction",
+    )
+    monkeypatch.setattr(mlflow_eval, "settings", SimpleNamespace(prompt_uri=expected.uri))
+    monkeypatch.setattr(mlflow_eval.mlflow.genai, "load_prompt", lambda uri: expected if uri == expected.uri else None)
+    monkeypatch.setattr(
+        mlflow_eval.mlflow.genai,
+        "register_prompt",
+        lambda **_kwargs: pytest.fail("a pinned registry prompt must not be relabeled as the committed prompt"),
+    )
+
+    assert mlflow_eval._evaluation_prompt() is expected  # noqa: SLF001 - prompt lineage contract
+
+
 def test_main_links_prompt_version_to_evaluated_model(monkeypatch, capsys) -> None:
     finalized: list[tuple[str, str]] = []
     evaluated: dict[str, object] = {}

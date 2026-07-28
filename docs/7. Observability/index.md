@@ -7,7 +7,7 @@ description: "Gain insight into the agent in production: reproducibility, tracin
 !!! abstract "In one glance"
 
     - **You will:** See how one agent turn becomes a trace, a metric, and a log line, and know which page owns which signal.
-    - **You need:** Nothing beyond a terminal.
+    - **You need:** Chapter 6 finished, Docker running, and `mise run install:platform` completed.
     - **Time:** about 6 minutes, orientation.
 
 ## How will you operate the agent after deployment?
@@ -19,6 +19,7 @@ Your AgentOps Agent now runs as a private Kubernetes workload ([Chapter 6](../6.
     Every later page in this chapter shows you something inside a running stack. Bring it up now, from the repository root:
 
     ```bash
+    mise run install:platform  # optional observability and platform environments
     mise run doctor:gateway     # checks Docker, Compose, and the other container prerequisites
     mise run observability:up   # MLflow, the collector, Prometheus, Alertmanager, Loki, Grafana
     ```
@@ -31,16 +32,16 @@ Every later page assumes one telemetry topology and one set of ports. This landi
 
 Traces, metrics, logs, assessments, and audit rows each answer a different operational question; open the page that owns the signal you actually need:
 
-| When you ask...                            | Signal to read                        | Where it lives                      | Page                                                               |
-| ------------------------------------------ | ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------ |
-| Can I rebuild this exact release?          | code/image/model/prompt/data lineage  | git, registry, MLflow               | [7.0. Reproducibility](./7.0. Reproducibility.md) _(hands-on)_     |
-| What happened inside one turn?             | ADK/gateway trace                     | MLflow `:5000`                      | [7.1. Tracing](./7.1. Tracing.md)                                  |
-| Is the service healthy right now?          | RED + gateway metrics, alerts         | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring](./7.2. Monitoring.md) _(hands-on)_               |
-| What did the work cost?                    | token counters + stated assumptions   | Prometheus, docs                    | [7.3. Costs](./7.3. Costs.md) _(hands-on)_                         |
-| Was this answer any good?                  | human MLflow assessment               | MLflow                              | [7.4. Feedback](./7.4. Feedback.md) _(hands-on)_                   |
-| Are answers drifting at scale?             | sampled trace scoring (design)        | MLflow                              | [7.5. Online Evaluation](./7.5. Online Evaluation.md) _(hands-on)_ |
-| Who approved this write, and what changed? | append-only audit row                 | SQLite audit table                  | [7.6. Governance](./7.6. Governance.md) _(hands-on)_               |
-| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent | every signal above, joined          | [7.7. Incident Response](./7.7. Incident Response.md) _(hands-on)_ |
+| When you ask...                            | Signal to read                        | Where it lives                      | Page                                                                        |
+| ------------------------------------------ | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
+| Can I rebuild this exact release?          | code/image/model/prompt/data lineage  | git, registry, MLflow               | [7.0. Reproducibility](./7.0. Reproducibility.md) _(hands-on)_              |
+| What happened inside one turn?             | ADK/gateway trace                     | MLflow `:5000`                      | [7.1. Tracing](./7.1. Tracing.md)                                           |
+| Is the service healthy right now?          | RED + gateway metrics, alerts         | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring](./7.2. Monitoring.md) _(hands-on)_                        |
+| What did the work cost?                    | token counters + stated assumptions   | Prometheus, docs                    | [7.3. Costs](./7.3. Costs.md) _(hands-on)_                                  |
+| Was this answer any good?                  | human MLflow assessment               | MLflow                              | [7.4. Feedback](./7.4. Feedback.md) _(hands-on)_                            |
+| Are answers drifting at scale?             | sampled trace scoring (design)        | MLflow                              | [7.5. Online Evaluation](./7.5. Online Evaluation.md) _(optional hands-on)_ |
+| Who approved this write, and what changed? | append-only audit row                 | SQLite audit table                  | [7.6. Governance](./7.6. Governance.md) _(hands-on)_                        |
+| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent | every signal above, joined          | [7.7. Incident Response](./7.7. Incident Response.md) _(hands-on)_          |
 
 Each of those pages is also explicit about where the shipped stack stops.
 

@@ -25,9 +25,12 @@ from .memory import KNOWLEDGE_TOOLS
 from .model import build_model
 from .models import TriageReport
 from .pii import redact_request_pii, redact_response_pii
+from .telemetry import setup_telemetry
 from .tools import ALL_TOOLS
 
 logger = logging.getLogger(__name__)
+
+setup_telemetry()
 
 # Counted so dashboards can watch schema-violation rates (a model-quality signal).
 _SCHEMA_FAILURES = metrics.get_meter("agentops.agent").create_counter(

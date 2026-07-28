@@ -16,15 +16,15 @@ Trust comes in layers. Each page below adds one, and each layer catches a class 
 
 Your agent now holds a conversation ([Chapter 2](../2. Agents/)) and has bounded capabilities ([Chapter 3](../3. Capabilities/)). This chapter makes it defensible.
 
-Four of these pages run entirely offline, with no account and no bill. The marker on each line says what that page's own checkpoint needs; run `mise run doctor:model` before a model-backed one.
+The early checkpoints need no model, account, or bill. Some static checks and supply-chain scans may refresh advisory data over the network. The marker on each line says what that page's own checkpoint needs; run `mise run doctor:model` before a model-backed one.
 
 - **[4.0. Typing](./4.0. Typing.md)** _(concept · offline)_: Python typing with ty, parsing tool I/O at the boundary.
-- **[4.1. Linting](./4.1. Linting.md)** _(hands-on · offline)_: Lint and format with ruff and dprint.
+- **[4.1. Linting](./4.1. Linting.md)** _(hands-on · model-free; audit may use network)_: Lint and format with ruff and dprint.
 - **[4.2. Testing](./4.2. Testing.md)** _(hands-on · offline)_: Fast, offline unit tests with pytest, against an isolated dataset copy.
 - **[4.3. Metrics](./4.3. Metrics.md)** _(reference · needs a model)_: A concrete scorecard of release gates and observed operational indicators.
 - **[4.4. Evaluations](./4.4. Evaluations.md)** _(hands-on · needs a model)_: ADK trajectories plus full-conversation MLflow lineage and optional judge evidence.
 - **[4.5. Guardrails](./4.5. Guardrails.md)** _(hands-on · offline, except the last checkpoint step)_: Boundary redaction, stable errors, confirmation, transactions, and audit evidence.
-- **[4.6. Security](./4.6. Security.md)** _(hands-on · offline)_: Threat modeling, offline adversarial regressions, identity, and supply-chain scanning.
+- **[4.6. Security](./4.6. Security.md)** _(hands-on · model-free; scans may use network)_: Threat modeling, offline adversarial regressions, identity, and supply-chain scanning.
 
 Two pages end in a hands-on build step, so expect to write code, not just read. [4.4. Evaluations](./4.4. Evaluations.md) has you add an eval case, and [4.5. Guardrails](./4.5. Guardrails.md) has you turn a guardrail into a test that fails if it ever weakens.
 
@@ -53,8 +53,8 @@ The rule is short. The local hooks and the CI **merge gate** — the check a cha
 
 ??? note "Deeper: which task runs in which workflow"
 
-    1. **Local hooks (`lefthook.yml`)** run the fast, offline gates before code leaves your machine: `format` and `check` (typing, lint, docs, links, licenses) plus `secure:staged` on commit, then `test` on push.
-    1. **The CI merge gate (`.github/workflows/ci.yml`)** re-runs the same `check` and `test` on a clean runner and adds two named signals — the deterministic `redteam` suite and offline `eval:validate` — so a regression blocks the merge instead of hiding in one line of the full log. Every gate above this point is offline: no model, no provider key, no cost.
+    1. **Local hooks (`lefthook.yml`)** run the model-free gates before code leaves your machine: `format` and `check` (typing, lint, docs, links, licenses) plus `secure:staged` on commit, then `test` on push. The dependency audit inside `check` may use package-index network access.
+    1. **The CI merge gate (`.github/workflows/ci.yml`)** re-runs the same `check` and `test` on a clean runner and adds two named signals — the deterministic `redteam` suite and offline `eval:validate` — so a regression blocks the merge instead of hiding in one line of the full log. No gate above this point calls a model, uses a provider key, or creates model cost; `test`, `redteam`, and `eval:validate` are fully offline.
     1. **The weekly model-backed workflow (`.github/workflows/eval.yml`, Monday 07:00 UTC or manual dispatch)** is the only tier that calls a model; it provisions a local Ollama server on the runner and runs `eval`, `eval:report`, `eval:mlflow`, `eval:cost`, and `eval:ground` against the fixed seed data. It is scheduled evidence, never a PR gate: a failed run points you at uploaded artifacts to inspect, not at a blocked merge.
 
 So the chapter stays model-free until [4.3. Metrics](./4.3. Metrics.md) explicitly asks for a configured provider; everything before it runs with no account and no bill.

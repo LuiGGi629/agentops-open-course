@@ -32,7 +32,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .agent import root_agent
+from .composition import root_agent
 from .config import settings
 from .data import db_path, probe_runtime_database
 
@@ -233,8 +233,16 @@ def _health_routes(runtime: Runtime) -> tuple[Callable[[Request], Awaitable[JSON
     return healthz, livez
 
 
-def create_app(agent: BaseAgent = root_agent) -> Starlette:
+def _selected_a2a_agent() -> BaseAgent:
+    """Require the conversational composition for the A2A server."""
+    if isinstance(root_agent, BaseAgent):
+        return root_agent
+    raise RuntimeError("The A2A server requires AGENT_ENTRYPOINT=agent.")
+
+
+def create_app(agent: BaseAgent | None = None) -> Starlette:
     """Build an A2A app whose SQLite resources have an explicit owner."""
+    selected_agent = agent if agent is not None else _selected_a2a_agent()
     settings.state_dir.mkdir(parents=True, exist_ok=True)
     database_url = f"sqlite+aiosqlite:///{settings.state_dir / 'runtime.db'}"
 
@@ -247,7 +255,7 @@ def create_app(agent: BaseAgent = root_agent) -> Starlette:
         max_overflow=0,
         connect_args={"timeout": 30},
     )
-    runner = Runner(agent=agent, app_name=_APP_NAME, session_service=session_service)
+    runner = Runner(agent=selected_agent, app_name=_APP_NAME, session_service=session_service)
     task_engine = session_service.db_engine
     runtime = Runtime(
         runner=runner,
@@ -267,7 +275,7 @@ def create_app(agent: BaseAgent = root_agent) -> Starlette:
             await runtime.close()
 
     app = to_a2a(
-        agent,
+        selected_agent,
         host=settings.a2a_host,
         port=settings.a2a_port,
         protocol=settings.a2a_protocol,

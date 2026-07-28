@@ -28,6 +28,8 @@ _OTEL_LOG_MESSAGE_MAX_CHARS = 2048
 _TRUNCATED_SUFFIX = "... [truncated]"
 _STANDARD_LOG_RECORD_KEYS = frozenset(logging.makeLogRecord({}).__dict__) | {"asctime", "message"}
 _HANDLER_LOCK = threading.Lock()
+_PROVIDER_LOCK = threading.Lock()
+_PROVIDERS_CONFIGURED = False
 
 
 def _bounded_text(text: str) -> str:
@@ -91,6 +93,34 @@ def _otel_logging_configured() -> bool:
     return bool(os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"))
 
 
+def _otel_export_configured() -> bool:
+    """Return whether this process should install any OTLP provider."""
+    disabled = os.environ.get("OTEL_SDK_DISABLED", "").strip().lower()
+    if disabled in {"1", "true", "yes"}:
+        return False
+    return any(
+        os.environ.get(name)
+        for name in (
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        )
+    )
+
+
+def _configure_otel_providers() -> None:
+    """Install ADK's global providers at most once in this process."""
+    global _PROVIDERS_CONFIGURED
+    if not _otel_export_configured():
+        return
+    with _PROVIDER_LOCK:
+        if _PROVIDERS_CONFIGURED:
+            return
+        maybe_set_otel_providers()
+        _PROVIDERS_CONFIGURED = True
+
+
 def _install_agent_log_handler() -> None:
     logger = logging.getLogger(_AGENT_LOGGER_NAME)
     with _HANDLER_LOCK:
@@ -123,6 +153,6 @@ def setup_telemetry() -> None:
     # status metadata without duplicating user prompts or model responses.
     os.environ.setdefault("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "false")
     os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "false")
-    maybe_set_otel_providers()
+    _configure_otel_providers()
     if _otel_logging_configured():
         _install_agent_log_handler()

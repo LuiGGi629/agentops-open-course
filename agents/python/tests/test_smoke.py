@@ -1,11 +1,46 @@
 """Smoke test: the reference agent is importable and defined."""
 
-from agent.agent import root_agent
+from google.adk import Agent
+
+from agent import composition
+from agent.composition import root_agent
+from agent.config import AgentEntrypoint, settings
+from agent.delegation import coordinator_agent
+from agent.workflow import triage_workflow
 
 
 def test_root_agent_defined() -> None:
+    assert isinstance(root_agent, Agent)
     assert root_agent.name == "agentops_agent"
     assert root_agent.model
+
+
+def test_composition_selector_exposes_each_validated_entrypoint(monkeypatch) -> None:
+    calls = 0
+
+    def build_default():
+        nonlocal calls
+        calls += 1
+        return root_agent
+
+    monkeypatch.setattr(composition, "build_conversational_agent", build_default)
+    monkeypatch.setattr(settings, "entrypoint", AgentEntrypoint.WORKFLOW)
+    assert composition._select_root_agent() is triage_workflow  # noqa: SLF001 - composition contract
+    monkeypatch.setattr(settings, "entrypoint", AgentEntrypoint.COORDINATOR)
+    assert composition._select_root_agent() is coordinator_agent  # noqa: SLF001 - composition contract
+    assert calls == 0
+    monkeypatch.setattr(settings, "entrypoint", AgentEntrypoint.AGENT)
+    assert composition._select_root_agent() is root_agent  # noqa: SLF001 - composition contract
+    assert calls == 1
+
+
+def test_instruction_requires_plan_and_post_action_verification() -> None:
+    assert isinstance(root_agent, Agent)
+    instruction = str(root_agent.instruction)
+    assert "concise, observable plan" in instruction
+    assert "expected recovery evidence" in instruction
+    assert "re-read the incident and affected service" in instruction
+    assert "Never claim success from the action response alone" in instruction
 
 
 def test_instruction_defaults_to_the_committed_text(monkeypatch) -> None:

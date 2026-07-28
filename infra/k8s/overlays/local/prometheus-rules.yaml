@@ -28,21 +28,22 @@ groups:
     rules:
       # Multiwindow burn rate for a 99% span-success SLO: both the fast (5m)
       # and slow (1h) windows must burn the 30-day error budget at >= 14.4x.
-      # On sparse lab traffic a few consecutive failures cross the threshold
-      # immediately — intended, so stopping Ollama pages within minutes.
+      # Require three recent failures so one sparse-traffic error cannot page.
       - alert: AgentErrorBudgetBurn
         expr: |-
           agentops:calls:error_ratio_rate5m > (14.4 * 0.010)
             and agentops:calls:error_ratio_rate1h > (14.4 * 0.010)
+            and sum(increase(agentops_calls_total{status_code="STATUS_CODE_ERROR"}[5m])) >= 3
         for: 2m
         labels:
           severity: page
         annotations:
           summary: Agent spans are burning the 99% success error budget
           description: >-
-            More than 14.4% of agent spans failed over both the last 5m and
-            1h. The usual causes are a stopped model provider (Ollama), a
-            misconfigured gateway route, or a failing tool backend.
+            At least three agent spans failed in 5m, and more than 14.4% failed
+            over both the last 5m and 1h. The usual causes are a stopped model
+            provider (Ollama), a misconfigured gateway route, or a failing tool
+            backend.
           runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/docs/7.%20Observability/7.2.%20Monitoring.md
 
       # p95 across all agent spans (dashboard panel expression). The

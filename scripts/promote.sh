@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 
-# Eval-gated promotion (Chapter 6.7): refuse to roll out a new agent image or
-# prompt version unless the evaluation gate passes first. Evaluation is the
-# promotion criterion here, not an afterthought run once the change already
-# shipped. The deterministic offline gate always runs; model-backed evidence is
-# opt-in with --with-model. Nothing is applied to a cluster — the script gates
-# and then prints the exact promote and rollback commands for you to run.
+# Promotion preflight (Chapter 6.7): validate the committed eval set, current
+# source behavior, and target overlay before a rollout. A guarded build/deploy
+# command is emitted only when model-backed evidence also passes for a clean
+# commit. The script neither builds an image nor applies anything to a cluster.
 #
-#   scripts/promote.sh                 # gate + render the local overlay
-#   scripts/promote.sh gke             # gate + render the gke overlay
-#   scripts/promote.sh --with-model    # also run the model-backed evals
+#   scripts/promote.sh                 # offline preflight for the local overlay
+#   scripts/promote.sh gke             # offline preflight for the gke overlay
+#   scripts/promote.sh --with-model    # behavior gate + local promote command
 
 lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
@@ -19,7 +17,9 @@ require_cmd kustomize platform
 require_cmd skaffold platform
 
 overlay=local
+overlay_set=0
 with_model=0
+candidate_commit=
 for arg in "$@"; do
 	case ${arg} in
 	--with-model) with_model=1 ;;
@@ -27,25 +27,45 @@ for arg in "$@"; do
 		printf 'promote: unknown flag %q\n' "${arg}" >&2
 		exit 2
 		;;
-	*) overlay=${arg} ;;
+	local | gke)
+		if ((overlay_set)); then
+			printf 'promote: expected one overlay, got %q after %q\n' "${arg}" "${overlay}" >&2
+			exit 2
+		fi
+		overlay=${arg}
+		overlay_set=1
+		;;
+	*)
+		printf 'promote: unknown overlay %q (expected local or gke)\n' "${arg}" >&2
+		exit 2
+		;;
 	esac
 done
 
-printf 'Eval-gated promotion → overlay %q\n' "${overlay}"
+if ((with_model)); then
+	require_cmd git
+	working_tree_status=$(git status --porcelain)
+	[[ -z ${working_tree_status} ]] ||
+		fail "promote: --with-model requires a clean working tree; commit or stash the candidate first"
+	candidate_commit=$(git rev-parse --verify HEAD)
+fi
 
-# 1. Deterministic offline gate — always runs, needs no model. A failure here
-#    means the change regressed a behavior the committed eval set pins, so it
-#    must not promote.
-printf '\n[1/3] Offline evaluation gate (eval:validate)...\n'
+printf 'Promotion preflight → overlay %q\n' "${overlay}"
+
+# 1. Deterministic offline validation — always runs and needs no model. It checks
+#    the eval-set structure and seed references, not candidate behavior.
+printf '\n[1/3] Offline eval-set validation (eval:validate)...\n'
 (cd agents/python && mise run eval:validate)
 
-# 2. Optional model-backed evidence: trajectory, groundedness, and cost. Skipped
-#    by default so the gate stays runnable without a model or a cluster.
+# 2. Optional model-backed behavior evidence. This is required before the script
+#    will emit a promotion command.
 if ((with_model)); then
 	printf '\n[2/3] Model-backed evals (eval:mlflow, eval:ground)...\n'
-	(cd agents/python && mise run eval:mlflow && mise run eval:ground)
+	# A release preflight must exercise the committed instruction that the
+	# production image contains, even when .env pins a registry prompt for A/B work.
+	(cd agents/python && AGENT_PROMPT_URI='' mise run eval:mlflow && AGENT_PROMPT_URI='' mise run eval:ground)
 else
-	printf '\n[2/3] Skipping model-backed evals (pass --with-model to include them).\n'
+	printf '\n[2/3] Skipping model-backed behavior gate (pass --with-model to run it).\n'
 fi
 
 # 3. Prove the target overlay still renders before anyone promotes it.
@@ -53,12 +73,38 @@ printf '\n[3/3] Rendering the %q overlay...\n' "${overlay}"
 kustomize build "infra/k8s/overlays/${overlay}" >/dev/null
 printf 'The %q overlay renders cleanly.\n' "${overlay}"
 
-cat <<EOF
+if ((!with_model)); then
+	cat <<EOF
 
-Eval gate passed. Promote the new image with:
-  cd infra && SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold run --filename skaffold.yaml --profile ${overlay}
+Offline preflight passed, but no promotion command was emitted because candidate
+behavior was not evaluated. Re-run with --with-model when a model is configured.
+EOF
+	exit 0
+fi
 
-Roll a prompt regression back instantly, without a redeploy, by pinning the
-previous registry version (Chapter 4.4):
-  AGENT_PROMPT_URI=prompts:/agentops-agent-instruction/<previous-version>
+if [[ ${overlay} == local ]]; then
+	repository='registry.localhost:5050'
+else
+	repository="\"\$(cd gcp && tofu output -raw artifact_registry_repository)\""
+fi
+
+current_commit=$(git rev-parse --verify HEAD)
+working_tree_status=$(git status --porcelain)
+[[ ${current_commit} == "${candidate_commit}" && -z ${working_tree_status} ]] ||
+	fail "promote: source changed during evaluation; rerun the gate on one clean commit"
+
+printf '\nSource behavior gate passed for commit %s.\n' "${candidate_commit}"
+printf 'Build and deploy that unchanged source with:\n'
+# Print literal command substitutions for the learner's later shell.
+# shellcheck disable=SC2016
+printf '  test "$(git rev-parse HEAD)" = %q && test -z "$(git status --porcelain)" && \\\n' \
+	"${candidate_commit}"
+printf '    cd infra && SKAFFOLD_DEFAULT_REPO=%s skaffold run --filename skaffold.yaml --profile %s\n' \
+	"${repository}" "${overlay}"
+cat <<'EOF'
+
+The command builds after this preflight; no image digest was evaluated here.
+For production, scan and smoke the same immutable digest that you deploy, then
+record it with the source commit so rollback can target a known-good artifact.
+AGENT_PROMPT_URI is only supported by host development and evaluation processes.
 EOF

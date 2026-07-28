@@ -15,6 +15,7 @@ Nine chapters follow the AgentOps lifecycle, from a first local model call to an
 - **One completed reference:** every chapter inspects and runs the same AgentOps Agent, then the capstone guides you through replacing its fictional domain with your own platform.
 - **OSS-first and account-free:** run the Apache-2.0 open-weight [Qwen3](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) model through Ollama with no account, no mandatory SaaS, and no usage fee.
 - **Real operational boundaries:** tools, Agent Skills, MCP, A2A, human approval, PII redaction, append-only audit records, and persistent sessions are implemented in the reference agent.
+- **Bounded reasoning:** the fast agent plans multi-step work and verifies approved actions; a runnable plan → investigate → evidence review → recommend workflow teaches deeper orchestration.
 - **One data plane:** agentgateway routes and governs MCP, A2A, and OpenAI-compatible model traffic.
 - **One local-to-cloud contract:** the same container and Kubernetes base run on k3d and on a small GKE lab; only overlays and model identity change.
 - **Observable end to end:** optional OTLP telemetry flows to a self-hosted MLflow trace UI and Prometheus/Grafana metrics.
@@ -57,20 +58,18 @@ flowchart LR
 
 ## Local quickstart
 
-You need a Unix-like shell (Linux, macOS, or WSL2), git, and basic Python. Two things `mise install` cannot install for you, so start there:
+You need a Unix-like shell (Linux, macOS, or WSL2), git, and basic Python. Install and activate mise first:
 
 ```bash
-curl -fsSL https://mise.run | sh          # then follow its instructions to activate your shell
-curl -fsSL https://ollama.com/install.sh -o /tmp/ollama-install.sh
-sh /tmp/ollama-install.sh                 # macOS and Windows: use the ollama.com/download installer
+curl -fsSL https://mise.run | sh
+# Follow mise's printed instructions to activate it in your shell.
 ```
 
-This first checkpoint then installs the pinned toolchain and runs the complete offline test suite. It makes no model, cloud, container, or deployment calls.
+The learner bootstrap installs only the pinned core tools and environments, then runs the model-free gates. It makes no model, cloud, container, or deployment calls; `test` is offline after installation, while `check:core` may query package-index advisory services.
 
 ```bash
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
 cd agentops-open-course
-mise install
 mise run install
 mise run doctor
 mise run check:core
@@ -84,7 +83,7 @@ The core gate validates course content, data, Python, shell, workflows, links, a
 Required test coverage of 95% reached
 ```
 
-For the first interactive run, pull Qwen3 with the Ollama you installed above (~2.5 GB, Apache-2.0 open weights):
+For the first interactive run, install [Ollama](https://ollama.com/download), then pull Qwen3 (~2.5 GB, Apache-2.0 open weights):
 
 ```bash
 ollama pull qwen3:4b-instruct
@@ -100,70 +99,28 @@ mise run run
 
 Ask `List the open incidents`. It should answer with **INC-002, INC-005, and INC-010** — three ids from the committed dataset, not three it invented. That is the whole local loop: an agent that reads real data through typed tools and refuses to make one up. `mise run run` prints the answer, not the tool calls behind it; use `mise run web` and its Events timeline to watch those. Chapter 2 explains how it is wired.
 
+Later, Chapter 3 compares the same conversational agent with `mise run workflow` and `mise run coordinator`. Those tasks select bounded orchestration through the same lazy `src/agent` package; the default runtime tasks stay pinned to the conversational composition.
+
 The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html).
 
-That is the fast path. The rest of this section is optional and belongs to Chapters 5-6 — you can skip it until you get there.
+That is the first complete loop. [1. Setup](./docs/1.%20Setup/index.md) stages later prerequisites only when the corresponding chapter needs them.
 
 ## Run the full local stack (Chapters 5-6)
 
-Chapter 5 moves the same OpenAI-compatible model contract behind agentgateway and governs the MCP and A2A traffic. The host data plane runs the read-only MCP server and A2A server in separate terminals:
+The heavier platform is intentionally not part of first-run setup.
 
 ```bash
+mise run install:platform
 mise run doctor:gateway
-mise run smoke:host # isolated fake-model composition check with automatic teardown
-```
+mise run smoke:host
 
-```bash
-# Terminal 1
-cd agents/python
-mise run mcp:http
-```
-
-Start the digest-pinned gateway wrapper from the repository root. It exposes every gateway listener on loopback only, so raw services stay off your LAN. (Chapter 5 explains the Docker-bridge relay and metrics listener it also manages on native Linux.)
-
-```bash
-# Terminal 2
-mise run gateway:host
-```
-
-To keep the gateway detached, use `mise run gateway:host:start`, inspect it with `mise run gateway:host:status` and `mise run gateway:host:logs`, then stop it with `mise run gateway:host:stop`.
-
-The agent starts last and points only at the gateway's `:3000` and `:4000` listeners:
-
-```bash
-# Terminal 3
-cd agents/python
-AGENT_MODEL_PROVIDER=openai-compatible \
-AGENT_MODEL=qwen3:4b-instruct \
-AGENT_MCP_URL=http://127.0.0.1:3000/mcp \
-OPENAI_BASE_URL=http://127.0.0.1:4000/v1 \
-OPENAI_API_KEY=local-ollama \
-mise run a2a
-```
-
-Inspect the A2A contract through the governed listener, not the raw application port:
-
-```bash
-curl -fsS http://127.0.0.1:3001/.well-known/agent-card.json | jq .name
-```
-
-Expected output:
-
-```text
-"AgentOps Agent"
-```
-
-The MCP and A2A processes remain in the foreground so logs are visible; stop them with `Ctrl-C`. Stop the wrapper with `Ctrl-C` in foreground mode or the explicit stop task in detached mode; wrapper cleanup also removes its relay.
-
-Kubernetes begins in Chapter 6. When you reach it, validate the heavier platform prerequisites before creating anything:
-
-```bash
 mise run doctor:platform
 mise run cluster:start
 mise run platform:install
+mise run platform:dev
 ```
 
-Chapter 6 shows the required Ollama bridge bind before `mise run platform:dev`; the default loopback-only Ollama listener is intentionally not reachable from cluster pods.
+`smoke:host` is an isolated fake-model composition check with automatic teardown. Chapter 5 owns the real host gateway process order; Chapter 6 owns the Ollama bridge bind, Kubernetes deployment, verification, backup, and teardown. Follow those pages rather than copying a second infrastructure runbook from this README.
 
 ## Which learning path should you choose?
 
@@ -216,20 +173,24 @@ Each skill is tool-agnostic guidance that points back to the exact reference fil
 ## Everyday commands
 
 ```bash
-mise run serve    # documentation at http://127.0.0.1:8000
-mise run doctor   # base docs/Python entry prerequisites
-mise run format   # dprint + Ruff + shfmt
+mise run install    # core pinned tools, docs/agent environments, and hooks
+mise run serve      # documentation at http://127.0.0.1:8000
+mise run doctor     # base docs/Python entry prerequisites
+mise run format:core # dprint + Ruff + shfmt
 mise run check:core # static gate without Docker or infrastructure execution
-mise run check    # docs, Python, infrastructure, shell, and workflows
-mise run test     # deterministic offline tests with branch coverage
-mise run scan     # gitleaks history + Trivy dependency/secret/license/config scan
+mise run test       # deterministic offline tests with branch coverage
+
+mise run install:maintainer # complete platform/security toolchain and environments
+mise run format             # core plus OpenTofu
+mise run check              # core plus both infrastructure overlays
+mise run scan               # gitleaks history + Trivy scans
 ```
 
 For local stack troubleshooting, start with `kubectl get pods -A`, `kubectl -n agentops get events --sort-by=.lastTimestamp`, and `docker compose -f infra/observability/compose.yaml logs`. To reset only the agent's local writable state, run `cd agents/python && mise run data:reset`.
 
 ## Stop and clean up
 
-For the host quickstart, stop the MCP server, A2A server, and foreground gateway with `Ctrl-C`; use `mise run gateway:host:stop` for the detached wrapper. Stop Ollama only if you started it manually. For the Chapter 6 Kubernetes path, first confirm the context, then remove only this course's workloads from `infra/`:
+For the host quickstart, stop the MCP server, A2A server, and foreground gateway with `Ctrl-C`; use `mise run gateway:host:stop` for the detached wrapper. Stop Ollama only if you started it manually. `Ctrl-C` on `platform:dev` leaves Kubernetes resources and PVCs in place by design. To remove them, first confirm the context, then delete only this course's workloads from `infra/`:
 
 ```bash
 test "$(kubectl config current-context)" = k3d-local

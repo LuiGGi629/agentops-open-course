@@ -58,11 +58,17 @@ cd infra
 SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev -p local
 ```
 
-No Ingress or LoadBalancer is created. Open only the path being tested:
+No Ingress or LoadBalancer is created. Open only the path being tested, and run each foreground forward in its own terminal:
 
 ```bash
 kubectl -n agentops port-forward svc/agentops-agent 8080:8080
+```
+
+```bash
 kubectl -n agentops port-forward svc/agentgateway 3000:3000 3001:3001 4000:4000 15020:15020
+```
+
+```bash
 kubectl -n agentops port-forward svc/mlflow 5000:5000
 ```
 

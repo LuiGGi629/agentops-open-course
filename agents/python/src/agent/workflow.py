@@ -1,8 +1,8 @@
-"""A deterministic triage → diagnose → recommend workflow (Chapter 3.5).
+"""A bounded plan → investigate → evidence review → recommend workflow (Chapter 3.5).
 
-Where ``root_agent`` (an LlmAgent) decides its own steps, a ``Workflow`` runs a fixed graph:
-agents are nodes, and an edge chains them so each runs in order, passing findings forward via
-session state. ``Workflow`` is the ADK 2.x graph runtime — it supersedes the classic
+Where ``root_agent`` decides its own steps, a ``Workflow`` makes the operating loop explicit.
+Each node receives its predecessor's output as input, and the fixed edge bounds the topology to
+four read-only stages. ``Workflow`` is the ADK 2.x graph runtime — it supersedes the classic
 ``SequentialAgent`` / ``ParallelAgent`` / ``LoopAgent`` (now deprecated) and also expresses
 parallel, looping, and dynamic DAGs.
 """
@@ -18,21 +18,25 @@ from .guardrails import handle_model_error, handle_tool_error, secure_tool_outpu
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_model
 from .pii import redact_request_pii, redact_response_pii
+from .telemetry import setup_telemetry
 from .tools import ALL_TOOLS
 
-# Each step is a focused agent; the Workflow chains them. Tools reflect what each step needs.
-_DIAGNOSE_TOOLS: list[ToolUnion] = [*ALL_TOOLS, *KNOWLEDGE_TOOLS]
+setup_telemetry()
 
-# 1) Triage: find the incident that matters most right now.
-triage = Agent(
+# Every tool in this workflow is read-only. Guarded actions remain on the interactive root agent.
+_READ_TOOLS: list[ToolUnion] = [*ALL_TOOLS, *KNOWLEDGE_TOOLS]
+
+# 1) Plan: turn the request into a small, observable investigation contract.
+plan = Agent(
     model=build_model(),
-    name="triage",
-    description="Finds the most urgent unresolved incident.",
+    name="plan",
+    description="Defines a concise evidence plan for one incident investigation.",
     instruction=(
-        "You triage incidents. List the unresolved incidents and pick the single most urgent one "
-        "(lowest SEV number wins). State its id, service, severity, and one-line summary."
+        "Turn the request into an investigation plan with at most four bullets. Preserve the exact "
+        "incident or service named by the user. If none is named, plan to select the most urgent "
+        "unresolved incident. State the target, the checks to run, the evidence that would support "
+        "recovery, and the condition for stopping or escalating. Do not diagnose or recommend yet."
     ),
-    tools=ALL_TOOLS,
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
@@ -40,17 +44,18 @@ triage = Agent(
     on_tool_error_callback=handle_tool_error,
 )
 
-# 2) Diagnose: explain the likely cause of the triaged incident.
-diagnose = Agent(
+# 2) Investigate: collect the incident, service, logs, and runbook evidence named by the plan.
+investigate = Agent(
     model=build_model(),
-    name="diagnose",
-    description="Explains the likely cause of the triaged incident.",
+    name="investigate",
+    description="Collects read-only evidence for the planned incident investigation.",
     instruction=(
-        "You diagnose the incident chosen by triage. Use get_incident for its details and its "
-        "runbook (get_runbook), and get_service_status for the service. Explain the likely cause "
-        "in two or three sentences, citing the runbook."
+        "Execute the investigation plan for one incident. If the plan has no incident id, use "
+        "list_incidents to select the most urgent unresolved incident (lowest SEV number). Read its "
+        "details, service status, relevant logs, and runbook. Return only concise observed evidence "
+        "with source names; label any inference and stop plainly when required evidence is missing."
     ),
-    tools=_DIAGNOSE_TOOLS,
+    tools=_READ_TOOLS,
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
@@ -58,15 +63,39 @@ diagnose = Agent(
     on_tool_error_callback=handle_tool_error,
 )
 
-# 3) Recommend: propose concrete, runbook-backed next steps.
+# 3) Evidence review: challenge the investigation before advice is produced.
+evidence_review = Agent(
+    model=build_model(),
+    name="evidence_review",
+    description="Checks whether incident evidence supports a safe recommendation.",
+    instruction=(
+        "Review the investigation evidence against the incident, service status, logs, and runbook. "
+        "Re-read a source when needed to resolve one material gap. Separate observations from "
+        "inferences and name missing or conflicting evidence. Return a compact handoff containing "
+        "the exact incident id, service, runbook slug, at most four key observations, remaining "
+        "gaps, and a supported, insufficient, or conflicting verdict with one short reason. "
+        "Do not recommend or take an action."
+    ),
+    tools=_READ_TOOLS,
+    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
+    after_model_callback=[record_token_usage, redact_response_pii],
+    after_tool_callback=secure_tool_output,
+    on_model_error_callback=handle_model_error,
+    on_tool_error_callback=handle_tool_error,
+)
+
+# 4) Recommend: propose a bounded next step only after evidence review.
 recommend = Agent(
     model=build_model(),
     name="recommend",
     description="Recommends concrete, runbook-backed remediation.",
     instruction=(
-        "You recommend remediation for the diagnosed incident. Using the runbook, give a short, "
-        "ordered list of next steps. Flag any step that needs a guarded action (restart_service, "
-        "resolve_incident) and requires human approval. Cite the runbook you used."
+        "Recommend only what the evidence review supports. If its verdict is insufficient or "
+        "conflicting, ask for the missing check instead of proposing a write. Otherwise give at "
+        "most three runbook-backed next steps, the expected recovery evidence, and a rollback or "
+        "stop condition, preserving the exact incident and service from the handoff. Flag "
+        "restart_service or resolve_incident as requiring human approval; never call either "
+        "action. Cite the handed-off runbook slug."
     ),
     tools=KNOWLEDGE_TOOLS,
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
@@ -76,9 +105,9 @@ recommend = Agent(
     on_tool_error_callback=handle_tool_error,
 )
 
-# The graph: START → triage → diagnose → recommend, sharing session state along the way.
+# The graph is intentionally linear: each output becomes the next node's input.
 triage_workflow = Workflow(
     name="triage_workflow",
-    description="Runs triage → diagnose → recommend over the current incidents.",
-    edges=[("START", triage, diagnose, recommend)],
+    description="Runs a bounded plan → investigate → evidence review → recommend loop.",
+    edges=[("START", plan, investigate, evidence_review, recommend)],
 )

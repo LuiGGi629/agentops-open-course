@@ -2,11 +2,12 @@
 
 from typing import cast
 
+from google.adk import Agent
 from google.adk.agents.llm_agent import ToolUnion
 
 from agent import actions, data, memory, tools
 from agent import agent as agent_module
-from agent.agent import root_agent
+from agent.composition import root_agent
 from agent.longterm import MEMORY_TOOLS
 
 
@@ -95,6 +96,7 @@ def test_append_audit_writes_entry() -> None:
 
 
 def test_agent_registers_tools() -> None:
+    assert isinstance(root_agent, Agent)
     assert root_agent.name == "agentops_agent"
     # read + knowledge + guarded actions + long-term memory tools + the skill toolset
     expected = len(tools.ALL_TOOLS) + len(memory.KNOWLEDGE_TOOLS) + len(actions.ACTION_TOOLS) + len(MEMORY_TOOLS) + 1

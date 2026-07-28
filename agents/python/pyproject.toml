@@ -31,8 +31,10 @@ dependencies = [
 [dependency-groups]
 dev = [
   "anyio>=4.8.0",
-  # Minimal `adk eval` dependencies. Avoid its broad `eval` extra, which pulls
-  # Vertex's LiteLLM-backed evaluator even though this course does not use it.
+  # ADK imports Vertex evaluation types even for the local rubric evaluator.
+  # Add only that SDK plus the local scorers instead of ADK's broad `eval` extra,
+  # which also pulls the unused LiteLLM-backed evaluator.
+  "google-cloud-aiplatform>=1.148,<2",
   "hypothesis>=6.100",
   "jinja2>=3.1.4,<4",
   "lefthook>=2.1.9",
@@ -122,10 +124,6 @@ addopts = [
   "-ra",
   "--strict-config",
   "--strict-markers",
-  "--cov=agent",
-  "--cov-branch",
-  "--cov-report=term-missing:skip-covered",
-  "--cov-fail-under=95",
 ]
 pythonpath = ["src"]
 xfail_strict = true

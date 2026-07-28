@@ -42,16 +42,21 @@ jobs:
             context: agents
             dockerfile: agents/python/Dockerfile
             image: agentops-agent:scan
+            smoke: "import asyncio; from agent.composition import root_agent; from agent.server import create_app; app = create_app(); assert root_agent.name == 'agentops_agent'; asyncio.run(app.state.runtime.close())"
           - name: mlflow
             context: infra/mlflow
             dockerfile: infra/mlflow/Dockerfile
             image: agentops-mlflow:scan
+            smoke: "import mlflow"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build ${{ matrix.name }} image
         run: docker build --file "${{ matrix.dockerfile }}" --tag "${{ matrix.image }}" "${{ matrix.context }}"
+
+      - name: Smoke-test ${{ matrix.name }} image runtime
+        run: docker run --rm --entrypoint python "${{ matrix.image }}" -c "${{ matrix.smoke }}"
 
       - name: Scan ${{ matrix.name }} image vulnerabilities and secrets
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -72,3 +77,17 @@ jobs:
           scanners: license
           severity: UNKNOWN,HIGH,CRITICAL
           exit-code: "1"
+
+  scan:
+    name: scan
+    if: always()
+    needs: [repository, containers]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every scan passed
+        env:
+          CONTAINERS_RESULT: ${{ needs.containers.result }}
+          REPOSITORY_RESULT: ${{ needs.repository.result }}
+        run: |
+          test "$REPOSITORY_RESULT" = success
+          test "$CONTAINERS_RESULT" = success

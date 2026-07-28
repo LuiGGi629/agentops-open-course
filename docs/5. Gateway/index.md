@@ -7,7 +7,7 @@ description: Route and govern the agent's MCP, A2A, and model traffic through a 
 !!! abstract "In one glance"
 
     - **You will:** Get the map of the chapter: which page governs which gateway port, and in what order to read them.
-    - **You need:** Chapters 2-4 finished, so you have an agent that calls MCP tools and answers A2A clients.
+    - **You need:** Chapters 2-4 finished; [5.1. Gateway Setup](./5.1.%20Gateway%20Setup.md) installs the optional platform tier before starting anything.
     - **Time:** about 4 minutes, orientation.
 
 ## What will the gateway add?
@@ -67,7 +67,7 @@ flowchart TD
 Before you start, three things about the shape of the chapter:
 
 - **It all runs on your laptop.** The host profile needs no Kubernetes cluster, cloud account, or provider key.
-- **It needs Docker running and `qwen3:4b-instruct` pulled.** `mise run doctor:model` and `mise run doctor:gateway` are the two gates, and [5.1. Gateway Setup](./5.1. Gateway Setup.md) runs both before anything else starts.
+- **It needs the platform tier, Docker, and Qwen3.** [5.1. Gateway Setup](./5.1.%20Gateway%20Setup.md) runs `mise run install:platform`, then the model and gateway doctors.
 - **Not all of it is required.** The secured JWT/TLS profile in 5.5. Gateway Security is opt-in, the Vertex Gemini path in 5.4. Model Gateway is an optional proprietary comparison, and the Kubernetes material is a preview of Chapter 6.
 
 ## What proves this chapter worked?

@@ -18,10 +18,12 @@ docker run --rm --network host -v "$PWD/load:/scripts:ro" grafana/k6:2.1.0 run /
 
 1. `health.js` — raw `/healthz` on MCP `:8000` and A2A `:8080`, plus a low-rate hop through agentgateway `:3001`. Establishes the latency floor and the pure gateway overhead.
 1. `mcp-read.js` — MCP streamable HTTP `tools/call` (`list_incidents`) through the gateway `:3000`. Measures gateway + FastMCP + SQLite without any model call.
-1. `a2a-send.js` — one bounded A2A `message/send` conversation through the gateway `:3001`. Every iteration runs a full agent turn with model calls: 1 VU, 3 iterations by default.
+1. `a2a-send.js` — one bounded A2A `message/send` conversation through the gateway `:3001`. Every iteration requires a completed, non-empty result with no structured ADK error; an HTTP 200 carrying a failed task does not pass. The defaults are 1 VU and 3 model-backed turns.
 1. `fake_model.py` — a deterministic OpenAI-compatible upstream packaged as an isolated PEP 723 script. Run the same A2A scenario against it to isolate agent/gateway overhead from inference latency.
 
 Each script encodes its latency budget as k6 `thresholds`, so a breached budget fails the run. All budgets are localhost starting points — tune them to your hardware instead of deleting them.
+
+For A2A, a successful result is either a non-empty `Message`, or a `Task` whose state is `completed` and whose status message or artifact contains text. The scenario rejects missing JSON-RPC results, failed/incomplete tasks, empty output, and `metadata.adk_error_code`.
 
 ## Prerequisites
 

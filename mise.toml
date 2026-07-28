@@ -37,13 +37,40 @@ run_auto_install = false # fail fast in hooks instead of silently installing a m
 
 [tasks.install]
 alias = "i"
-description = "Install docs, agent, MLflow, and git-hook dependencies"
+description = "Install the learner-facing docs, agent, and git-hook dependencies"
+run = "mise run install:core"
+
+[tasks."install:core"]
+description = "Install the learner-facing docs, agent, and git-hook dependencies"
 run = [
+  "mise run install:tools:core",
   "uv sync --locked",
-  "uv sync --directory infra/mlflow --locked",
-  "./scripts/install-helm-diff.sh",
   "lefthook install",
   "cd agents/python && mise run install",
+]
+
+[tasks."install:tools:core"]
+description = "Install only the tools used by learner and contributor core tasks"
+run = "mise install uv dprint lefthook gitleaks actionlint trivy sqlite sqlite@3.53.3 shellcheck shfmt lychee jq"
+
+[tasks."install:platform"]
+description = "Install the separate MLflow server, local platform, and GKE plan dependencies"
+run = [
+  "mise run install:tools:platform",
+  "uv sync --directory infra/mlflow --locked",
+  "./scripts/install-helm-diff.sh",
+]
+
+[tasks."install:tools:platform"]
+description = "Install tools used by the local platform and optional GKE plan"
+run = "mise install uv k3d kubectl helm helmfile skaffold kustomize kubeconform kube-linter opentofu tflint sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
+
+[tasks."install:maintainer"]
+description = "Install every dependency used by the complete maintainer validation"
+run = [
+  "mise install",
+  "mise run install:core",
+  "mise run install:platform",
 ]
 
 [tasks.doctor]
@@ -102,13 +129,17 @@ description = "Build the site for release (GitHub Pages publishes it in CI)"
 run = "uv run zensical build"
 
 [tasks.promote]
-description = "Eval-gated promotion: run the eval gate, render the overlay, print promote/rollback commands"
+description = "Preflight source behavior and manifests, then print a guarded build/deploy handoff"
 run = "./scripts/promote.sh"
 
 [tasks.format]
 alias = "f"
-description = "Format docs, config, and the Python agent"
-depends = ["format:dprint", "format:python", "format:shell", "format:tofu"]
+description = "Format all course sources, including optional OpenTofu infrastructure"
+depends = ["format:core", "format:tofu"]
+
+[tasks."format:core"]
+description = "Format docs, config, shell scripts, and the Python agent"
+depends = ["format:dprint", "format:python", "format:shell"]
 
 [tasks."format:dprint"]
 description = "Format Markdown and configuration files"
@@ -132,16 +163,19 @@ run = "tofu -chdir=infra/gcp fmt -recursive"
 
 [tasks.check]
 alias = "c"
-description = "Run the complete maintainer validation, including infrastructure"
-depends = ["check:core", "check:infra"]
+description = "Run the complete maintainer validation, including infrastructure and all licenses"
+depends = ["check:infra", "check:licenses", "check:source"]
 
 [tasks."check:core"]
 description = "Run the model-, container-, cluster-, and cloud-free course validation"
+depends = ["check:licenses:core", "check:source"]
+
+[tasks."check:source"]
+description = "Validate shared course sources without infrastructure or license profiles"
 depends = [
   "check:data",
   "check:docs",
   "check:format",
-  "check:licenses",
   "check:links",
   "check:python",
   "check:release-metadata",
@@ -178,8 +212,12 @@ description = "Validate the installable Agent Skills under skills/"
 run = "uv run python scripts/check_conventions.py skills"
 
 [tasks."check:licenses"]
-description = "Verify repository and Python dependency licenses"
-run = "./scripts/check-licenses.sh"
+description = "Verify repository, core, and optional MLflow dependency licenses"
+run = "./scripts/check-licenses.sh full"
+
+[tasks."check:licenses:core"]
+description = "Verify repository, documentation, and agent dependency licenses"
+run = "./scripts/check-licenses.sh core"
 
 [tasks."check:python"]
 description = "Lint, type-check, and audit the Python reference agent"
@@ -285,10 +323,10 @@ run = [
 ]
 
 [tasks."platform:dev"]
-description = "Build, push, and continuously reconcile the local platform"
+description = "Build, push, and reconcile the local platform; leave workloads for explicit teardown"
 run = [
   "test \"$(kubectl config current-context)\" = k3d-local",
-  "cd infra && SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev --filename skaffold.yaml --profile local",
+  "cd infra && SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev --filename skaffold.yaml --profile local --cleanup=false",
 ]
 
 [tasks."state:backup"]

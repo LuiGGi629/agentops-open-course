@@ -21,6 +21,14 @@ class ModelProvider(StrEnum):
     GEMINI = "gemini"
 
 
+class AgentEntrypoint(StrEnum):
+    """Runnable agent compositions exposed through the shared ADK package."""
+
+    AGENT = "agent"
+    WORKFLOW = "workflow"
+    COORDINATOR = "coordinator"
+
+
 class Settings(BaseSettings):
     """Agent settings parsed once from ``AGENT_*`` and provider SDK variables.
 
@@ -40,6 +48,7 @@ class Settings(BaseSettings):
     )
 
     # --8<-- [start:settings-provider-fields]
+    entrypoint: AgentEntrypoint = AgentEntrypoint.AGENT
     model_provider: ModelProvider = ModelProvider.OPENAI_COMPATIBLE
     model: str = Field(default="qwen3:4b-instruct", min_length=1)
 

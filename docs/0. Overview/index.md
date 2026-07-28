@@ -6,8 +6,8 @@ description: "Orient before you build: decide when an agent is justified, map th
 
 !!! abstract "In one glance"
 
-    - **You will:** Answer the five questions the rest of the course assumes you have already settled, then clone the repository and get its offline test suite passing.
-    - **You need:** A terminal, and `mise` for the two pages that end in a command — 0.0. Course installs the toolchain, 0.4. Providers downloads the local model.
+    - **You will:** Answer the five questions the rest of the course assumes you have already settled.
+    - **You need:** Nothing beyond this course page; Chapter 0 is read-only.
     - **Time:** about 4 minutes, orientation.
 
 !!! tip "Keep the glossary open"
@@ -22,7 +22,7 @@ Read 0.0 to 0.4 in order. Bookmark 0.5, 0.6, and 0.7, and come back to them when
 
 This chapter covers:
 
-- **[0.0. Course](./0.0. Course.md)** _(orientation · ~25 min)_: outcome, audience, prerequisites, time, cost, learning paths, and the first checkpoint.
+- **[0.0. Course](./0.0. Course.md)** _(orientation · ~20 min)_: outcome, audience, prerequisites, time, cost, and learning paths.
 - **[0.1. Agents](./0.1. Agents.md)** _(concept · ~16 min)_: what an AI agent is, the agentic loop, common patterns, and when a workflow or plain code is the better choice.
 - **[0.2. AgentOps](./0.2. AgentOps.md)** _(concept · ~12 min)_: the AgentOps lifecycle and how MLOps, LLMOps, and AgentOps relate.
 - **[0.3. Ecosystem](./0.3. Ecosystem.md)** _(reference · ~18 min)_: ownership boundaries across ADK, agentgateway, kagent, MLflow, OTel, MCP, A2A, AAIF, and CNCF.
@@ -50,16 +50,11 @@ One thread runs underneath every decision above: the open-source boundary. The r
 
 ## What do you need to run this chapter?
 
-A terminal, and `mise` by the time you reach the checkpoint in 0.0. Course. No page in this chapter asks for an account or costs a fee.
+Nothing. Chapter 0 asks you to read, compare, and decide; it does not ask you to install software, download a model, create an account, or spend money.
 
-Seven of the nine pages are read-only. Two end in a command:
+[1.0. System](../1. Setup/1.0. System.md) owns the repository clone and core installation. [1.4. Providers](../1. Setup/1.4. Providers.md) owns the local model download. Keeping those actions in Setup gives every command one canonical home and lets you finish orientation on any device.
 
-- [0.0. Course](./0.0. Course.md) clones the repository, installs the pinned command-line tools with `mise install`, and runs the model-free test gate.
-- [0.4. Providers](./0.4. Providers.md) pulls the local model. You can defer that one to [1.4. Providers](../1. Setup/1.4. Providers.md).
-
-The course admits each heavy dependency only at the chapter that first needs it. A running model server, container engine, cluster, or cloud project never blocks the reading you can do today.
-
-[1. Setup](../1. Setup/index.md) then enforces the same staged-prerequisite discipline with a laddered **doctor**: a check task that confirms one tier of tools is present before you enter it. Read this chapter, decide the questions above, then build the environment.
+The course admits each heavy dependency only at the chapter that first needs it. A running model server, container engine, cluster, or cloud project never blocks the decisions you can make today.
 
 ## What proves this chapter worked?
 
@@ -71,6 +66,6 @@ There is nothing to run here. The chapter has worked when you can answer its fiv
 - You can name the six lifecycle phases — Build, Capabilities, Quality, Gateway, Platform, Observe — and the chapter that owns each one.
 - You can name which tool owns the agent runtime, which one owns the traffic in front of it, and which ones record what happened.
 - You have picked a model path, and you know the default one needs no account and no fee.
-- You know which of the nine pages you will read now and which three you have bookmarked.
+- You know which five pages you will read now and which three lookup pages you have bookmarked.
 
-Continue to [0.0. Course](./0.0.%20Course.md) when you are ready to pick a learning path and run the first checkpoint.
+Continue to [0.0. Course](./0.0.%20Course.md) when you are ready to pick a learning path.

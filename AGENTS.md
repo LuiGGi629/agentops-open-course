@@ -28,6 +28,7 @@ The course teaches the complete lifecycle of one **AgentOps Agent** with Google 
 - **Audit is append-only, not immutable.** SQLite triggers block row update/delete through the schema; administrators can still alter the file/schema. Do not overclaim.
 - **Telemetry content stays private by default.** Both ADK/GenAI content-capture variables default to literal `false`. PII callbacks cover outbound model requests, inbound model responses, and tool output, but raw session ingestion occurs earlier.
 - **No LiteLLM or garak contract.** Runtime/evaluation uses ADK's OpenAI-compatible client for Ollama/agentgateway or native Gemini when selected explicitly. `mise run redteam` is deterministic offline adversarial regression, not live-model penetration testing.
+- **Planning is bounded.** `root_agent` plans only multi-step investigations and verifies approved actions afterward. `triage_workflow` is the runnable, read-only plan → investigate → evidence review → recommend path; do not replace it with an unbounded reflection loop.
 - **Cost-efficient by default.** Prefer deterministic offline tests and fakes, the smallest model that can validate the behavior, and single-replica resource-bounded local services. Measure before increasing model size, context, RAM, CPU, storage, replicas, or load-test concurrency. Do not start a cluster, observability stack, model server, paid API, or cloud resource unless it materially validates the current boundary; stop temporary processes and tear down disposable resources when the check is complete.
 
 ## Open-source boundary
@@ -54,8 +55,9 @@ The stable network contract is MCP `:3000`, A2A `:3001`, OpenAI-compatible model
 Root tasks:
 
 ```bash
-mise install
 mise run install
+mise run install:platform
+mise run install:maintainer
 mise run doctor
 mise run doctor:model
 mise run doctor:gateway
@@ -83,6 +85,8 @@ mise run platform:dev
 mise run promote
 ```
 
+`mise run install` bootstraps the learner-facing core tools and environments. The platform and maintainer tiers are explicit so a first checkout does not install Kubernetes, cloud, and security tooling it does not yet need.
+
 Agent tasks from `agents/python/`:
 
 ```bash
@@ -93,9 +97,13 @@ mise run mcp
 mise run mcp:http
 mise run a2a
 mise run data:reset
+mise run workflow
+mise run coordinator
 ```
 
-The `eval:*` tasks (`eval`, `eval:report`, `eval:mlflow`, `eval:cost`, `eval:ground`, `eval:ab`, `eval:retrieval`) call a configured model and stay outside the offline test gate — they are scheduled evidence in `eval.yml`, not CI gates. `eval:validate` is the only offline eval and runs in CI. The MLflow judge is optional and must use the configured agentgateway URL.
+`AGENT_ENTRYPOINT=agent|workflow|coordinator` selects the composition behind the single lazy `src/agent` package boundary. Use the task aliases above rather than raw `adk run` commands so model configuration and the repository `.env` are loaded consistently.
+
+The `eval:*` tasks (`eval`, `eval:workflow`, `eval:report`, `eval:mlflow`, `eval:cost`, `eval:ground`, `eval:ab`, `eval:retrieval`) call a configured model and stay outside the offline test gate — they are scheduled evidence in `eval.yml`, not CI gates. `eval:validate` is the only offline eval and runs in CI. The MLflow judge is optional and must use the configured agentgateway URL.
 
 ## Local and cloud safety
 
@@ -163,9 +171,11 @@ Continue to [<next page>](link) when <the condition that matters>.
 Re-read the original request, inspect the final diff, and run:
 
 ```bash
+mise run install:maintainer
 mise run format
 mise run check
 mise run test
+mise run scan
 ```
 
-The Python suite enforces at least 95% branch coverage. For infrastructure changes, render/validate both overlays and run repository security checks. Never suppress a real failure to force green. Do not call a live model, deploy Kubernetes/cloud resources, or commit unless the user explicitly asks.
+The Python suite enforces at least 95% branch coverage. The complete gate renders both overlays and scans the repository; no model, cluster, or cloud call is part of it. Never suppress a real failure to force green. Do not call a live model, deploy Kubernetes/cloud resources, or commit unless the user explicitly asks.

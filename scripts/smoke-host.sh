@@ -369,7 +369,24 @@ curl --fail --silent --show-error \
 	}' \
 	"http://localhost:${gateway_a2a_port}/" \
 	>"${work_dir}/a2a-response.json"
-jq -e '.error == null and (.result.kind == "task" or .result.kind == "message")' "${work_dir}/a2a-response.json" >/dev/null
+jq -e --arg expected "${model_content}" '
+		.error == null
+		and (
+			(
+				.result.kind == "message"
+				and any(.result.parts[]?; .kind == "text" and .text == $expected)
+			)
+			or (
+				.result.kind == "task"
+				and .result.status.state == "completed"
+				and ((.result.metadata.adk_error_code // "") == "")
+				and (
+					any(.result.artifacts[]?.parts[]?; .kind == "text" and .text == $expected)
+					or any(.result.status.message.parts[]?; .kind == "text" and .text == $expected)
+				)
+			)
+		)
+	' "${work_dir}/a2a-response.json" >/dev/null
 
 allowed_cors_status="$(
 	curl --silent --show-error \

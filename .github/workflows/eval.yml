@@ -90,6 +90,12 @@ jobs:
         shell: bash
         run: cd agents/python && mise run eval:report 2>&1 | tee evals/report-eval.log
 
+      - name: Run the bounded workflow evaluation
+        id: workflow
+        continue-on-error: true
+        shell: bash
+        run: cd agents/python && mise run eval:workflow 2>&1 | tee evals/workflow-eval.log
+
       - name: Run the MLflow evaluation (deterministic scorers, no judge)
         # Without MLFLOW_TRACKING_URI this logs to local SQLite (evals/mlflow.db)
         # with run artifacts under mlruns/, both uploaded below.
@@ -119,6 +125,7 @@ jobs:
           path: |
             agents/python/evals/adk-eval.log
             agents/python/evals/report-eval.log
+            agents/python/evals/workflow-eval.log
             agents/python/evals/cost-eval.log
             agents/python/evals/ground-eval.log
             agents/python/evals/mlflow.db
@@ -127,12 +134,15 @@ jobs:
           retention-days: 30
 
       - name: Surface model-backed evaluation verdicts
-        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure')
+        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure' || steps.workflow.outcome == 'failure')
         run: |
           if [[ "${{ steps.adk.outcome }}" == "failure" ]]; then
             echo "::error::The ADK trajectory evaluation failed — inspect adk-eval.log."
           fi
           if [[ "${{ steps.report.outcome }}" == "failure" ]]; then
             echo "::error::The structured report evaluation failed — inspect report-eval.log."
+          fi
+          if [[ "${{ steps.workflow.outcome }}" == "failure" ]]; then
+            echo "::error::The bounded workflow evaluation failed — inspect workflow-eval.log."
           fi
           exit 1

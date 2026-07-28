@@ -4,10 +4,12 @@ Every production deployment must answer two questions: "how many tokens did
 this session consume?" and "what happens when a session exceeds its budget?".
 ``record_token_usage`` accumulates usage from each model response into session
 state (persisted across turns by the session service) and emits it as OTel
-span attributes and metrics. ``enforce_token_budget`` refuses further model
-calls once ``AGENT_MAX_TOKENS_PER_SESSION`` is spent, with a message that says
-what to do next. Costs are tokens times configurable per-1k prices — 0 by default
-because the reference path is local Ollama; no vendor pricing is hardcoded.
+span attributes and metrics. ``enforce_token_budget`` refuses the next model
+call once tracked usage reaches ``AGENT_MAX_TOKENS_PER_SESSION``. The last
+admitted call can cross the threshold, and responses without usage metadata
+cannot be counted. Costs are tokens times configurable per-1k prices — 0 by
+default because the reference path is local Ollama; no vendor pricing is
+hardcoded.
 """
 
 from __future__ import annotations

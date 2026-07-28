@@ -6,8 +6,19 @@ source "${lib_dir}/lib.sh"
 
 require_cmd jq base
 
+profile=${1:-full}
+readonly profile
+if (($# > 1)); then
+	fail "usage: $0 [core|full]"
+fi
+case "${profile}" in
+core | full) ;;
+*) fail "unknown license profile '${profile}'; expected core or full" ;;
+esac
+
 readonly allowed_licenses_json='[
   "3-Clause BSD License",
+  "Apache 2.0",
   "Apache License 2.0",
   "Apache Software License",
   "Apache Software License; BSD License",
@@ -60,13 +71,14 @@ collect_inventory() {
 	local label=$1
 	local python=$2
 	local output=$3
+	local install_task=$4
 
 	if [[ ! -x ${python} ]]; then
-		printf '%s: missing environment; run mise run install\n' "${python}" >&2
+		printf '%s: missing environment; run mise run %s\n' "${python}" "${install_task}" >&2
 		return 1
 	fi
 	if [[ ! -x ${pip_licenses} ]]; then
-		printf '%s: missing license checker; run mise run install\n' "${pip_licenses}" >&2
+		printf '%s: missing license checker; run mise run install:core\n' "${pip_licenses}" >&2
 		return 1
 	fi
 
@@ -132,26 +144,34 @@ check_embedded_license() {
 }
 
 check_repository_licenses
-collect_inventory "documentation" .venv/bin/python "${inventory_dir}/documentation.json" &
+collect_inventory "documentation" .venv/bin/python "${inventory_dir}/documentation.json" install:core &
 documentation_pid=$!
-collect_inventory "agent" agents/python/.venv/bin/python "${inventory_dir}/agent.json" &
+collect_inventory "agent" agents/python/.venv/bin/python "${inventory_dir}/agent.json" install:core &
 agent_pid=$!
-collect_inventory "MLflow" infra/mlflow/.venv/bin/python "${inventory_dir}/mlflow.json" &
-mlflow_pid=$!
+mlflow_pid=
+if [[ ${profile} == full ]]; then
+	collect_inventory "MLflow" infra/mlflow/.venv/bin/python "${inventory_dir}/mlflow.json" install:maintainer &
+	mlflow_pid=$!
+fi
 
 inventory_failed=0
 wait "${documentation_pid}" || inventory_failed=1
 wait "${agent_pid}" || inventory_failed=1
-wait "${mlflow_pid}" || inventory_failed=1
+if [[ -n ${mlflow_pid} ]]; then
+	wait "${mlflow_pid}" || inventory_failed=1
+fi
 if ((inventory_failed)); then
 	exit 1
 fi
 
 check_python_environment "documentation" "${inventory_dir}/documentation.json"
-check_python_environment "agent" "${inventory_dir}/agent.json" huey skops
-check_python_environment "MLflow" "${inventory_dir}/mlflow.json" google-crc32c huey skops
+check_python_environment "agent" "${inventory_dir}/agent.json" google-crc32c huey skops
+check_embedded_license "agent" "${inventory_dir}/agent.json" google-crc32c 'Apache License'
 check_embedded_license "agent" "${inventory_dir}/agent.json" huey 'Permission is hereby granted'
 check_embedded_license "agent" "${inventory_dir}/agent.json" skops 'MIT License'
-check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" google-crc32c 'Apache License'
-check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" huey 'Permission is hereby granted'
-check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" skops 'MIT License'
+if [[ ${profile} == full ]]; then
+	check_python_environment "MLflow" "${inventory_dir}/mlflow.json" google-crc32c huey skops
+	check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" google-crc32c 'Apache License'
+	check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" huey 'Permission is hereby granted'
+	check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" skops 'MIT License'
+fi

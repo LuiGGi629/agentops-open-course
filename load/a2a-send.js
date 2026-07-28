@@ -37,6 +37,7 @@ export const options = {
   thresholds: {
     // Budget aligned with the shipped AgentTurnLatencyP95High alert (15s):
     // a starting point — slower hardware will breach it, which is the lesson.
+    checks: ['rate==1'],
     http_req_failed: ['rate<0.01'],
     'http_req_duration{op:message_send}': ['p(95)<15000'],
   },
@@ -48,6 +49,21 @@ export function setup() {
   if (res.status !== 200) {
     fail(`agent card fetch failed with HTTP ${res.status}: start the stack before spending model time`);
   }
+}
+
+function hasTextPart(parts) {
+  return (
+    Array.isArray(parts) &&
+    parts.some((part) => part && part.kind === 'text' && typeof part.text === 'string' && part.text.trim() !== '')
+  );
+}
+
+function hasOutput(result) {
+  if (!result) return false;
+  if (result.kind === 'message') return hasTextPart(result.parts);
+  if (result.kind !== 'task') return false;
+  if (result.status && result.status.message && hasTextPart(result.status.message.parts)) return true;
+  return Array.isArray(result.artifacts) && result.artifacts.some((artifact) => hasTextPart(artifact.parts));
 }
 
 export default function () {
@@ -72,13 +88,19 @@ export default function () {
   let message = null;
   try {
     message = JSON.parse(String(res.body || ''));
-  } catch (error) {
+  } catch {
     message = null;
   }
+  const result = message && message.result;
+  const completed =
+    result &&
+    (result.kind === 'message' || (result.kind === 'task' && result.status && result.status.state === 'completed'));
+  const structuredError = result && result.metadata && result.metadata.adk_error_code;
   check(res, {
     'message/send is 200': (r) => r.status === 200,
-    'JSON-RPC result present': () => Boolean(message && message.result && !message.error),
-    'result is a task or message': () =>
-      Boolean(message && message.result && (message.result.kind === 'task' || message.result.kind === 'message')),
+    'JSON-RPC result present': () => Boolean(result && !message.error),
+    'result completed successfully': () => Boolean(completed),
+    'result contains output': () => hasOutput(result),
+    'result has no structured ADK error': () => !structuredError,
   });
 }

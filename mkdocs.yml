@@ -118,14 +118,15 @@ nav:
       - 7.7. Incident Response: 7. Observability/7.7. Incident Response.md
   - 8. Community:
       - Community: 8. Community/index.md
-      - 8.0. Repository: 8. Community/8.0. Repository.md
-      - 8.1. License: 8. Community/8.1. License.md
-      - 8.2. Releases: 8. Community/8.2. Releases.md
-      - 8.3. Templates: 8. Community/8.3. Templates.md
-      - 8.4. Documentation: 8. Community/8.4. Documentation.md
-      - 8.5. Contributions: 8. Community/8.5. Contributions.md
-      - 8.6. AAIF: 8. Community/8.6. AAIF.md
       - 8.7. Capstone: 8. Community/8.7. Capstone.md
+      - Optional OSS maintenance:
+          - 8.0. Repository: 8. Community/8.0. Repository.md
+          - 8.1. License: 8. Community/8.1. License.md
+          - 8.2. Releases: 8. Community/8.2. Releases.md
+          - 8.3. Templates: 8. Community/8.3. Templates.md
+          - 8.4. Documentation: 8. Community/8.4. Documentation.md
+          - 8.5. Contributions: 8. Community/8.5. Contributions.md
+          - 8.6. AAIF: 8. Community/8.6. AAIF.md
 
 # Extra
 extra:
