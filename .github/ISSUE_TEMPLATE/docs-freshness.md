@@ -25,10 +25,10 @@ Time-sensitive claims rot silently. Walk this checklist before each release: ope
 - [ ] agentgateway `v1.3.1` and its `202`-on-`DELETE` session-termination quirk — `docs/5. Gateway/5.2. MCP Gateway.md`, `docs/6. Platform/6.5. Platform Gateway.md`.
 - [ ] kagent charts `0.9.11` and API `kagent.dev/v1alpha2` — `docs/6. Platform/6.2. Platform Install.md`, `docs/6. Platform/6.3. Platform Agents.md`, `infra/helmfile.yaml`.
 - [ ] Wolfi apk exact pins (`python-3.13=...`, `libstdc++=...`) still resolve; refresh if dropped from the rolling repo — `agents/python/Dockerfile`, `docs/6. Platform/6.1. Containers.md`.
-- [ ] Container base-image digests, `uv`, and `trivy-action` pins current (Renovate) — `agents/python/Dockerfile`.
+- [ ] Container base-image digests, `uv`, and `trivy-action` pins current (Dependabot) — `agents/python/Dockerfile`.
 - [ ] The pinned `curlimages/curl` smoke image still resolves for every supported host architecture — `scripts/smoke-host.sh`.
 - [ ] Ollama evaluation release asset and SHA-256 still match the pinned version — `.github/workflows/eval.yml`.
-- [ ] GitHub Actions SHA pins current (Renovate) — `.github/workflows/*.yml`.
+- [ ] GitHub Actions SHA pins current (Dependabot) — `.github/workflows/*.yml`.
 
 ## Benchmarks & measured checkpoints
 

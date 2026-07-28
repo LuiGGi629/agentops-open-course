@@ -157,8 +157,9 @@ No warning suppressed, no test skipped, no assertion weakened to force a pass. I
 
 On GitHub, `CI`, `Scan` and `Docs` are green on `main`. Two scheduled workflows are red for reasons that predate this work and that a code change cannot fix:
 
-1. **`Renovate`** fails with `'token' MUST be passed using its input or the 'RENOVATE_TOKEN' environment variable`. The repository secret was never set — it is the one item still open from the go-public checklist. Only the repository owner can add it.
-1. **`Eval`** fails on the model-quality regression described in item 1. Read that before touching anything.
+1. **`Eval`** fails on the model-quality regression described in item 1. Read that before touching anything. It is the only red workflow left.
+
+Dependency updates moved from self-hosted Renovate to Dependabot, which is native to GitHub and needs no token. `.github/dependabot.yml` watches GitHub Actions, the three `uv` projects, and the two Dockerfiles. It does **not** watch the `mise.toml` tool pins, the Helm chart versions in `infra/helmfile.yaml`, the image digests in `infra/k8s/**`, or the Wolfi `apk` pins — those four are hand-maintained, and the quarterly docs-freshness issue is what makes someone look. If that manual half proves too easy to forget, the honest options are a small scheduled check that compares each pin against its upstream, or going back to Renovate and accepting the PAT.
 
 ### Clean structure
 

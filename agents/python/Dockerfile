@@ -51,9 +51,9 @@ FROM cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594
 
 # Exact apk pins keep the runtime reproducible. Wolfi is a *rolling* repository:
 # it removes superseded package versions, so these pins periodically stop
-# resolving ("no such package") until Renovate opens a PR bumping them. That is
+# resolving ("no such package"). Dependabot does not watch apk pins, so this is
 # expected drift, not a broken course — refresh the pins to the current versions
-# (or `mise run` the Renovate update) and rebuild. See docs 6.1.
+# and rebuild. See docs 6.1.
 RUN apk add --no-cache \
     libstdc++=16.1.0-r4 \
     python-3.13=3.13.14-r3
