@@ -55,7 +55,7 @@ This chapter covers:
 - **[6.4. Platform Tools](./6.4. Platform Tools.md)** _(reference)_: Move the six read-only tools into their own in-cluster MCP deployment.
 - **[6.5. Platform Gateway](./6.5. Platform Gateway.md)** _(reference)_: Keep agentgateway private behind network policy, and keep its secrets encrypted in git.
 - **[6.6. Platform Delivery](./6.6. Platform Delivery.md)** _(hands-on)_: Back up the state, drill a restore, plan optional GKE, and tear down safely.
-- **[6.7. Progressive Delivery](./6.7. Progressive Delivery.md)** _(hands-on)_: Gate a promotion on evaluation, and ship the prompt as the surface you can reverse instantly.
+- **[6.7. Progressive Delivery](./6.7. Progressive Delivery.md)** _(hands-on)_: Review source evidence before promotion, then use an immutable image digest as the rollback surface.
 
 Each page also owns the manifests below, so a symptom maps to one file:
 

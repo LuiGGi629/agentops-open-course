@@ -4,5 +4,13 @@
       "threshold": 1.0,
       "match_type": "IN_ORDER"
     }
+  },
+  "custom_metrics": {
+    "tool_trajectory_avg_score": {
+      "code_config": {
+        "name": "evals.required_trajectory.evaluate_required_tool_trajectory"
+      },
+      "description": "Required tool names and arguments must occur in order; optional actual arguments are allowed."
+    }
   }
 }

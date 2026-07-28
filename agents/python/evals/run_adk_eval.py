@@ -13,7 +13,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-_SUMMARY = re.compile(r"Tests passed:\s*(\d+)\s*\n\s*Tests failed:\s*(\d+)")
+_SUMMARY_HEADER = re.compile(r"(?m)^Eval Run Summary\s*$")
+_SUMMARY = re.compile(
+    r"(?m)^[^\s:\r\n][^:\r\n]*:\s*\r?\n"
+    r"^[ \t]+Tests passed:\s*(\d+)\s*\r?\n"
+    r"^[ \t]+Tests failed:\s*(\d+)\s*$"
+)
 
 
 def verdict(output: str, process_returncode: int, min_pass_rate: float = 1.0) -> tuple[int, str]:
@@ -21,7 +26,13 @@ def verdict(output: str, process_returncode: int, min_pass_rate: float = 1.0) ->
     if process_returncode:
         return process_returncode, f"ADK evaluation process failed with exit code {process_returncode}."
 
-    summaries = [(int(passed), int(failed)) for passed, failed in _SUMMARY.findall(output)]
+    headers = list(_SUMMARY_HEADER.finditer(output))
+    if not headers:
+        return 2, "ADK evaluation produced no run summary."
+    # Model text is untrusted and may contain summary-shaped lines. ADK emits its
+    # authoritative run summary last, after every model response and tool event.
+    summary_section = output[headers[-1].end() :]
+    summaries = [(int(passed), int(failed)) for passed, failed in _SUMMARY.findall(summary_section)]
     if not summaries:
         return 2, "ADK evaluation produced no run summary."
 
@@ -67,9 +78,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to the scheduled lane
     """Stream ADK output, then enforce the reported evaluation verdict."""
     args = parse_args()
-    adk = Path(sys.executable).with_name("adk")
     command = [
-        str(adk),
+        sys.executable,
+        "-m",
+        "google.adk.cli",
         "eval",
         str(args.agent),
         str(args.eval_set),

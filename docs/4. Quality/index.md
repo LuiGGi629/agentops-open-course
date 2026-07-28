@@ -21,7 +21,7 @@ The early checkpoints need no model, account, or bill. Some static checks and su
 - **[4.0. Typing](./4.0. Typing.md)** _(concept · offline)_: Python typing with ty, parsing tool I/O at the boundary.
 - **[4.1. Linting](./4.1. Linting.md)** _(hands-on · model-free; audit may use network)_: Lint and format with ruff and dprint.
 - **[4.2. Testing](./4.2. Testing.md)** _(hands-on · offline)_: Fast, offline unit tests with pytest, against an isolated dataset copy.
-- **[4.3. Metrics](./4.3. Metrics.md)** _(reference · needs a model)_: A concrete scorecard of release gates and observed operational indicators.
+- **[4.3. Metrics](./4.3. Metrics.md)** _(reference · needs a model)_: A scorecard of deterministic gates, model-backed evidence, and observed operational indicators.
 - **[4.4. Evaluations](./4.4. Evaluations.md)** _(hands-on · needs a model)_: ADK trajectories plus full-conversation MLflow lineage and optional judge evidence.
 - **[4.5. Guardrails](./4.5. Guardrails.md)** _(hands-on · offline, except the last checkpoint step)_: Boundary redaction, stable errors, confirmation, transactions, and audit evidence.
 - **[4.6. Security](./4.6. Security.md)** _(hands-on · model-free; scans may use network)_: Threat modeling, offline adversarial regressions, identity, and supply-chain scanning.

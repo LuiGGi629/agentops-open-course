@@ -64,7 +64,7 @@ run = "uv run python evals/run_adk_eval.py evals/ops.evalset.json --min-pass-rat
 [tasks."eval:report"]
 description = "Validate the structured TriageReport path with the configured model"
 env = { _.file = { path = "../../.env", redact = true } }
-run = "uv run python evals/report_eval.py"
+run = "uv run python -m evals.report_eval"
 
 [tasks."eval:workflow"]
 description = "Evaluate the bounded plan and evidence-review workflow with the configured model"
@@ -87,7 +87,7 @@ env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = tru
 run = "uv run python evals/cost_eval.py"
 
 [tasks."eval:ground"]
-description = "Check each answer's entities are grounded in that turn's retrieved evidence"
+description = "Check recognized answer claims against that turn's retrieved evidence"
 env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
 run = "uv run python evals/groundedness_eval.py"
 

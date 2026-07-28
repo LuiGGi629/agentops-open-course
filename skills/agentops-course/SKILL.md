@@ -5,7 +5,7 @@ description: Index of the AgentOps patterns for operating LLM agents in producti
 
 # AgentOps Patterns
 
-Getting an agent to answer correctly once is a demo. **AgentOps** is keeping it correct, safe, affordable, and observable as it runs against real traffic. These skills are the operational patterns, each extracted from one completed reference agent so every pattern is a file you can read and a gate you can run — not a bullet point.
+Getting an agent to answer correctly once is a demo. **AgentOps** is keeping it correct, safe, affordable, and observable as it runs against real traffic. These skills are operational patterns extracted from one completed reference agent, each with a file you can read and a repeatable check or evidence path.
 
 ## When to use
 
@@ -20,12 +20,12 @@ Getting an agent to answer correctly once is a demo. **AgentOps** is keeping it 
 1. **[agent-resilience](../agent-resilience/SKILL.md)** — deadlines, bounded retries, a circuit breaker, and a validated model fallback.
 1. **[agent-token-budget](../agent-token-budget/SKILL.md)** — per-session token ceilings and cost attribution.
 1. **[agent-least-privilege](../agent-least-privilege/SKILL.md)** — split into least-privilege specialists so injection has nothing to call.
-1. **[agent-evaluation](../agent-evaluation/SKILL.md)** — trajectory, groundedness, and cost-regression evals that gate changes.
+1. **[agent-evaluation](../agent-evaluation/SKILL.md)** — deterministic validation gates plus model-backed trajectory, grounding, and cost evidence.
 1. **[agent-incident-response](../agent-incident-response/SKILL.md)** — the detect→triage→mitigate→review→prevent loop for the agent as a workload.
 
 ## How they fit together
 
-Build and instrument first (telemetry), harden the boundaries (guardrails, least privilege), bound the failure modes (resilience, token budget), prove behavior offline (evaluation), and operate the running system (incident response) — feeding every real failure back as a new deterministic gate.
+Build and instrument first (telemetry), harden the boundaries (guardrails, least privilege), bound the failure modes (resilience, token budget), collect behavior evidence (evaluation), and operate the running system (incident response) — feeding every real failure back into the smallest repeatable check or evidence path.
 
 ## The full course
 

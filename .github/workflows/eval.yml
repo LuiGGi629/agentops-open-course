@@ -44,7 +44,6 @@ jobs:
     if: github.repository == 'MLOps-Courses/agentops-open-course'
     timeout-minutes: 120
     env:
-      GITHUB_TOKEN: ${{ github.token }}
       # Route ADK's OSS OpenAI-compatible client directly at the local Ollama server.
       AGENT_MODEL_PROVIDER: openai-compatible
       AGENT_MODEL: ${{ inputs.model || 'qwen3:4b-instruct' }}
@@ -75,6 +74,19 @@ jobs:
           ollama serve &
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:11434/ >/dev/null; do sleep 1; done'
           ollama pull "$AGENT_MODEL"
+          model_digest="$(
+            curl -fsS http://127.0.0.1:11434/api/tags |
+              jq -er --arg model "$AGENT_MODEL" \
+                '.models[] | select(.name == $model or .model == $model) | .digest' |
+              head -n 1
+          )"
+          jq -n \
+            --arg model "$AGENT_MODEL" \
+            --arg digest "$model_digest" \
+            --arg ollama_version "$(ollama --version)" \
+            '{model: $model, digest: $digest, ollama_version: $ollama_version}' \
+            > agents/python/evals/model.json
+          echo "EVAL_MODEL_DIGEST=${model_digest}" >> "$GITHUB_ENV"
 
       - name: Run the ADK trajectory evaluation
         id: adk
@@ -97,9 +109,12 @@ jobs:
         run: cd agents/python && mise run eval:workflow 2>&1 | tee evals/workflow-eval.log
 
       - name: Run the MLflow evaluation (deterministic scorers, no judge)
+        id: mlflow
         # Without MLFLOW_TRACKING_URI this logs to local SQLite (evals/mlflow.db)
         # with run artifacts under mlruns/, both uploaded below.
-        run: cd agents/python && mise run eval:mlflow
+        continue-on-error: true
+        shell: bash
+        run: cd agents/python && mise run eval:mlflow 2>&1 | tee evals/mlflow-eval.log
 
       - name: Check per-case token/cost usage against the baseline
         id: cost
@@ -111,8 +126,8 @@ jobs:
 
       - name: Check answer groundedness against retrieved evidence
         id: ground
-        # Evidence, not a gate: reports any answer entity that was not grounded in
-        # that turn's tool responses or the user's question.
+        # Evidence, not a gate: reports recognized domain claims that were not
+        # grounded in that turn's tool responses or the user's question.
         continue-on-error: true
         shell: bash
         run: cd agents/python && mise run eval:ground 2>&1 | tee evals/ground-eval.log
@@ -126,15 +141,44 @@ jobs:
             agents/python/evals/adk-eval.log
             agents/python/evals/report-eval.log
             agents/python/evals/workflow-eval.log
+            agents/python/evals/mlflow-eval.log
             agents/python/evals/cost-eval.log
+            agents/python/evals/cost-observed.json
+            agents/python/evals/cost_baseline.json
             agents/python/evals/ground-eval.log
+            agents/python/evals/ground-observed.json
+            agents/python/evals/model.json
             agents/python/evals/mlflow.db
             agents/python/mlruns
+            agents/python/src/**/.adk/eval_history/*.evalset_result.json
           if-no-files-found: warn
-          retention-days: 30
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Summarize all evaluation signals
+        if: always()
+        run: |
+          {
+            echo "## Model-backed evaluation"
+            echo
+            echo "| Signal | Outcome | Contract |"
+            echo "| --- | --- | --- |"
+            echo "| ADK trajectory | ${{ steps.adk.outcome }} | Required run verdict: aggregate floor |"
+            echo "| Structured report | ${{ steps.report.outcome }} | Required run verdict: strict case |"
+            echo "| Bounded workflow | ${{ steps.workflow.outcome }} | Required run verdict: strict case |"
+            echo "| MLflow scorers | ${{ steps.mlflow.outcome }} | Required run verdict: scorer floors |"
+            echo "| Cost regression | ${{ steps.cost.outcome }} | Evidence |"
+            echo "| Groundedness | ${{ steps.ground.outcome }} | Evidence |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ steps.cost.outcome }}" == "failure" ]]; then
+            echo "::warning::Cost evidence failed — inspect cost-eval.log and cost-observed.json."
+          fi
+          if [[ "${{ steps.ground.outcome }}" == "failure" ]]; then
+            echo "::warning::Groundedness evidence failed — inspect ground-eval.log and ground-observed.json."
+          fi
 
       - name: Surface model-backed evaluation verdicts
-        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure' || steps.workflow.outcome == 'failure')
+        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure' || steps.workflow.outcome == 'failure' || steps.mlflow.outcome == 'failure')
         run: |
           if [[ "${{ steps.adk.outcome }}" == "failure" ]]; then
             echo "::error::The ADK trajectory evaluation failed — inspect adk-eval.log."
@@ -144,5 +188,8 @@ jobs:
           fi
           if [[ "${{ steps.workflow.outcome }}" == "failure" ]]; then
             echo "::error::The bounded workflow evaluation failed — inspect workflow-eval.log."
+          fi
+          if [[ "${{ steps.mlflow.outcome }}" == "failure" ]]; then
+            echo "::error::The MLflow scorer evaluation failed — inspect mlflow-eval.log."
           fi
           exit 1

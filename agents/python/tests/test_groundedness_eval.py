@@ -14,6 +14,37 @@ def test_service_terms_match_whole_tokens_only() -> None:
     assert claimed_entities("The change was authored last week") == set()
 
 
+def test_ambiguous_search_verb_is_not_a_service_claim() -> None:
+    assert claimed_entities("I can search the logs for more evidence.") == set()
+    assert claimed_entities("I can cache the result for reuse.") == set()
+
+
+def test_ambiguous_service_status_is_still_a_claim() -> None:
+    assert claimed_entities("Search appears degraded.") == {"search"}
+    assert claimed_entities("Search has elevated errors.") == {"search"}
+    assert claimed_entities("Cache is operational.") == {"cache"}
+
+
+def test_ambiguous_service_is_still_checked_with_service_context() -> None:
+    problems = unsupported_claims(
+        ["The search service is degraded."],
+        ['{"service": "inventory", "status": "healthy"}'],
+        ["What is degraded?"],
+    )
+    assert problems == ["turn 1: answer claims 'search' with no supporting evidence"]
+
+
+def test_ambiguous_service_accepts_canonical_nested_name_evidence() -> None:
+    assert (
+        unsupported_claims(
+            ["The search service is degraded."],
+            ['{"service": {"name": "search", "status": "degraded"}}'],
+            ["What is degraded?"],
+        )
+        == []
+    )
+
+
 def test_grounded_answer_has_no_unsupported_claims() -> None:
     responses = ["INC-002 on payments is down."]
     evidence = ['{"id": "INC-002", "service": "payments", "status": "down"}']
@@ -44,6 +75,27 @@ def test_per_turn_grounding_is_independent() -> None:
     questions = ["First?", "Second?"]
     problems = unsupported_claims(responses, evidence, questions)
     assert problems == ["turn 2: answer claims 'inc-002' with no supporting evidence"]
+
+
+def test_measure_retains_the_transcript_needed_to_audit_a_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        groundedness_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "fabricated", "turns": ["Investigate INC-002."]}}],
+    )
+    monkeypatch.setattr(
+        groundedness_eval,
+        "ask",
+        lambda _turns, _eval_id: {
+            "responses": ["INC-999 caused it."],
+            "evidence": ['{"id": "INC-002"}'],
+        },
+    )
+    observed = groundedness_eval.measure()["fabricated"]
+    assert observed["questions"] == ["Investigate INC-002."]
+    assert observed["responses"] == ["INC-999 caused it."]
+    assert observed["evidence"] == ['{"id": "INC-002"}']
+    assert observed["unsupported_claims"] == ["turn 1: answer claims 'inc-999' with no supporting evidence"]
 
 
 def test_main_module_exposes_measure_and_main() -> None:

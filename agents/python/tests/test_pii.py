@@ -5,8 +5,10 @@ run fully offline (no model, no key). The first call loads the small spaCy model
 calls are cached.
 """
 
+import json
 from typing import cast
 
+import pytest
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -34,6 +36,86 @@ def test_redacts_ip_address() -> None:
     assert "<IP_ADDRESS>" in redacted
 
 
+def test_boundary_policy_retains_broad_personal_data_coverage() -> None:
+    redacted = pii.redact_pii("The device MAC address is 00:11:22:33:44:55.")
+    assert "00:11:22:33:44:55" not in redacted
+    assert "<MAC_ADDRESS>" in redacted
+
+
+def test_redacts_personal_data_without_corrupting_domain_identifiers() -> None:
+    redacted = pii.redact_pii("Email jane.doe@acme.com from Paris about INC-002.")
+    assert "jane.doe@acme.com" not in redacted
+    assert "Paris" not in redacted
+    assert "INC-002" in redacted
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "jane@inc-002.com",
+        "jane@v2.4.0.com",
+        "jane@sev1.com",
+        "jane@p95.com",
+    ],
+)
+def test_safe_operational_tokens_inside_email_domains_still_redact(address: str) -> None:
+    redacted = pii.redact_pii(f"Email {address}")
+    assert address not in redacted
+    assert "<EMAIL_ADDRESS>" in redacted
+
+
+def test_safe_operational_tokens_inside_urls_still_redact() -> None:
+    url = "https://inc-002.com/releases/v2.4.0"
+    redacted = pii.redact_pii(f"Visit {url}")
+    assert url not in redacted
+    assert "<URL>" in redacted
+
+
+def test_keeps_service_and_runbook_identifiers() -> None:
+    text = "Search the inventory logs and open service-down for INC-001."
+    assert pii.redact_pii(text) == text
+
+
+@pytest.mark.parametrize("prefix", ["release", "version"])
+def test_keeps_versions_when_the_entity_model_groups_the_prefix(prefix: str) -> None:
+    text = f"{prefix} v2026.07.07-2"
+    assert pii.redact_pii(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("John INC-002", "<PERSON> INC-002"),
+        ("INC-002 John", "INC-002 <PERSON>"),
+    ],
+)
+def test_redacts_person_next_to_protected_incident_identifier(text: str, expected: str) -> None:
+    assert pii.redact_pii(text) == expected
+
+
+@pytest.mark.parametrize("identifier", ["INC-001", "INC-002", "SEV1", "SEV2", "SEV3"])
+def test_keeps_exact_incident_and_severity_identifiers(identifier: str) -> None:
+    assert pii.redact_pii(identifier) == identifier
+    assert pii.redact_persisted_text(identifier) == identifier
+
+
+def test_real_tool_payload_keeps_operational_evidence_while_redacting_pii() -> None:
+    payload = {**tools.list_incidents(), "operator_email": "jane.doe@acme.com"}
+    redacted = pii._redact_value(payload)  # noqa: SLF001 - tool-output boundary
+    rendered = json.dumps(redacted)
+    for evidence in (
+        "INC-009",
+        "SEV2",
+        "p95",
+        "p99",
+        "v2026.07.07-2",
+        "2026-07-08T06:30:00Z",
+    ):
+        assert evidence in rendered
+    assert "jane.doe@acme.com" not in rendered
+    assert "<EMAIL_ADDRESS>" in rendered
+
+
 def test_leaves_pii_free_text_unchanged() -> None:
     clean = "List the open incidents for the checkout service."
     assert pii.redact_pii(clean) == clean
@@ -48,6 +130,24 @@ def test_persisted_text_redacts_pii_and_credentials_but_keeps_domain_ids() -> No
     assert "abcdefghijklmnop" not in redacted
     assert "<EMAIL_ADDRESS>" in redacted
     assert redacted.count("<SECRET>") == 2
+
+
+@pytest.mark.parametrize(
+    ("secret", "visible_fragment"),
+    [
+        ("Bearer abcdefghijklmnop", "abcdefghijklmnop"),
+        ("sk-abcdefghijklmnop", "abcdefghijklmnop"),
+        ('password="correct horse battery staple"', "correct horse"),
+        ("access_token='long lived credential'", "long lived"),
+        ("OPENAI_API_KEY=plain-secret-value", "plain-secret"),
+        ("GOOGLE_API_KEY=another-secret-value", "another-secret"),
+        ('MY_PASSWORD="correct horse battery staple"', "correct horse"),
+    ],
+)
+def test_boundary_policy_redacts_credentials(secret: str, visible_fragment: str) -> None:
+    redacted = pii.redact_pii(f"Do not expose {secret} to the model.")
+    assert visible_fragment not in redacted
+    assert "<SECRET>" in redacted
 
 
 def test_empty_text_is_untouched() -> None:
@@ -68,6 +168,7 @@ def test_callback_redacts_request_parts_in_place() -> None:
     assert redacted is not None
     assert "jane.doe@acme.com" not in redacted
     assert "<EMAIL_ADDRESS>" in redacted
+    assert "INC-002" in redacted
 
 
 def test_callback_tolerates_content_with_no_parts() -> None:
@@ -103,7 +204,12 @@ def test_callback_redacts_function_call_arguments() -> None:
         contents=[
             types.Content(
                 role="model",
-                parts=[types.Part.from_function_call(name="lookup", args={"owner": "jane.doe@acme.com"})],
+                parts=[
+                    types.Part.from_function_call(
+                        name="lookup",
+                        args={"incident_id": "INC-002", "owner": "jane.doe@acme.com"},
+                    )
+                ],
             )
         ]
     )
@@ -113,6 +219,30 @@ def test_callback_redacts_function_call_arguments() -> None:
     function_call = parts[0].function_call
     assert function_call is not None
     assert "jane.doe@acme.com" not in str(function_call.args)
+    assert function_call.args is not None
+    assert function_call.args["incident_id"] == "INC-002"
+
+
+def test_callback_redacts_credentials_in_text_and_structured_values() -> None:
+    request = LlmRequest(
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(text='password="correct horse battery staple"'),
+                    types.Part.from_function_response(
+                        name="lookup",
+                        response={"authorization": "Bearer abcdefghijklmnop"},
+                    ),
+                ],
+            )
+        ]
+    )
+    pii.redact_request_pii(_NO_CONTEXT, request)
+    rendered = str(request.contents[0].parts)
+    assert "correct horse" not in rendered
+    assert "abcdefghijklmnop" not in rendered
+    assert rendered.count("<SECRET>") == 2
 
 
 def test_recursive_redaction_preserves_tuples_and_non_strings() -> None:
@@ -152,11 +282,12 @@ def test_after_model_callback_redacts_function_call_and_skips_clean_output() -> 
 
 def test_after_tool_callback_redacts_nested_output() -> None:
     tool = FunctionTool(func=tools.get_incident)
-    response = {"owner": "jane.doe@acme.com", "hosts": ["10.0.0.5"]}
+    response = {"id": "INC-002", "owner": "jane.doe@acme.com", "hosts": ["10.0.0.5"]}
     redacted = pii.redact_tool_output_pii(tool, {}, _NO_TOOL_CONTEXT, response)
     assert redacted is not None
     assert "jane.doe@acme.com" not in str(redacted)
     assert "10.0.0.5" not in str(redacted)
+    assert redacted["id"] == "INC-002"
 
 
 def test_after_tool_callback_returns_none_for_clean_output() -> None:

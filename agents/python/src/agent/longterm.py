@@ -96,6 +96,13 @@ def save_incident_note(incident_id: str, note: str, tool_context: ToolContext | 
     Returns:
         The saved note (with PII redacted), or an ``error`` for invalid input.
     """
+    if settings.writes_disabled:
+        return {
+            "error": (
+                "Refusing to save an incident note: writes are frozen by the "
+                "AGENT_WRITES_DISABLED kill-switch; reads still work."
+            )
+        }
     normalized = normalize_incident_id(incident_id)
     if normalized is None:
         return {"error": f"Invalid incident id {incident_id!r}; expected an id like INC-002."}

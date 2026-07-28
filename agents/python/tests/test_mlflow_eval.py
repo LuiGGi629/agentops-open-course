@@ -2,6 +2,10 @@
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -21,6 +25,121 @@ _PASSING_METRICS = {
     "response_facts/mean": 1.0,
     "tool_policy/mean": 1.0,
 }
+
+
+def test_tracking_uri_is_selected_before_composition_import_without_env(tmp_path) -> None:
+    """A pinned child must see the evaluator's local store while building its agent."""
+    package = tmp_path / "agent"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "config.py").write_text("settings = object()\n", encoding="utf-8")
+    (package / "composition.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                "import mlflow",
+                "assert mlflow.get_tracking_uri() == os.environ['EXPECTED_TRACKING_URI']",
+                "INSTRUCTION = 'test instruction'",
+                "root_agent = object()",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    expected = f"sqlite:///{Path(mlflow_eval.__file__).parent / 'mlflow.db'}"
+    environment = os.environ.copy()
+    environment.pop("MLFLOW_TRACKING_URI", None)
+    environment["EXPECTED_TRACKING_URI"] = expected
+    python_paths = [str(tmp_path), str(Path(__file__).parents[1])]
+    if existing := environment.get("PYTHONPATH"):
+        python_paths.append(existing)
+    environment["PYTHONPATH"] = os.pathsep.join(python_paths)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import mlflow; import evals.mlflow_eval; print(mlflow.get_tracking_uri())",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert completed.stdout.splitlines()[-1] == expected
+
+
+def test_temp_store_prompt_can_be_registered_then_loaded_by_a_pinned_child(tmp_path) -> None:
+    """The registry URI used to register a prompt is available during child import."""
+    package = tmp_path / "agent"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "config.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                "from types import SimpleNamespace",
+                "settings = SimpleNamespace(prompt_uri=os.environ.get('AGENT_PROMPT_URI'))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (package / "composition.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                "from types import SimpleNamespace",
+                "import mlflow.genai",
+                "INSTRUCTION = 'registered probe instruction'",
+                "uri = os.environ.get('AGENT_PROMPT_URI')",
+                "instruction = mlflow.genai.load_prompt(uri).template if uri else INSTRUCTION",
+                "root_agent = SimpleNamespace(instruction=instruction)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    environment = os.environ.copy()
+    environment["MLFLOW_TRACKING_URI"] = f"sqlite:///{tmp_path / 'tracking.db'}"
+    environment.pop("AGENT_PROMPT_URI", None)
+    python_paths = [str(tmp_path), str(Path(__file__).parents[1])]
+    if existing := environment.get("PYTHONPATH"):
+        python_paths.append(existing)
+    environment["PYTHONPATH"] = os.pathsep.join(python_paths)
+
+    registered = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from evals.mlflow_eval import _evaluation_prompt; print(_evaluation_prompt().uri)",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    prompt_uri = registered.stdout.splitlines()[-1]
+    assert prompt_uri.startswith(f"prompts:/{mlflow_eval._PROMPT_NAME}/")  # noqa: SLF001
+
+    environment["AGENT_PROMPT_URI"] = prompt_uri
+    pinned = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from evals.mlflow_eval import root_agent; print(root_agent.instruction)",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert pinned.stdout.splitlines()[-1] == "registered probe instruction"
 
 
 class _ConfirmationOnlyLlm(BaseLlm):
@@ -475,14 +594,38 @@ def test_ask_isolates_runtime_state_between_cases(monkeypatch) -> None:
     assert seen_state_dirs[0].name.startswith("agentops-eval-case-b-")
 
 
-def test_optional_judge_requires_gateway_configuration(monkeypatch) -> None:
-    monkeypatch.setenv("MLFLOW_JUDGE_MODEL", "judge")
-    for name in ("MLFLOW_JUDGE_BASE_URL", "MLFLOW_JUDGE_API_KEY"):
+@pytest.mark.parametrize(
+    ("configured_name", "configured_value"),
+    [
+        ("MLFLOW_JUDGE_MODEL", "judge"),
+        ("MLFLOW_JUDGE_BASE_URL", "http://localhost:4000/v1"),
+        ("MLFLOW_JUDGE_API_KEY", "marker"),
+    ],
+)
+def test_optional_judge_requires_complete_gateway_configuration(
+    monkeypatch,
+    configured_name: str,
+    configured_value: str,
+) -> None:
+    for name in ("MLFLOW_JUDGE_MODEL", "MLFLOW_JUDGE_BASE_URL", "MLFLOW_JUDGE_API_KEY"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(configured_name, configured_value)
     monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:11434/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "local-ollama")
-    with pytest.raises(ValueError, match="agentgateway URL/key"):
+    with pytest.raises(ValueError, match="must be set together"):
         mlflow_eval._scorers()  # noqa: SLF001
+
+
+def test_min_score_override_can_raise_but_never_weaken_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_EVAL_MIN_SCORE", "0.8")
+    assert mlflow_eval._min_scores() == {  # noqa: SLF001
+        "tool_trajectory/mean": 0.8,
+        "complete_conversation/mean": 1.0,
+        "response_facts/mean": 0.8,
+        "tool_policy/mean": 0.8,
+    }
+    monkeypatch.setenv("AGENT_EVAL_MIN_SCORE", "0.1")
+    assert mlflow_eval._min_scores() == mlflow_eval._DEFAULT_MIN_SCORES  # noqa: SLF001
 
 
 def test_optional_judge_uses_openai_sdk_through_gateway(monkeypatch) -> None:
@@ -520,7 +663,11 @@ def test_optional_judge_uses_openai_sdk_through_gateway(monkeypatch) -> None:
     assert request["model"] == "judge-model"
 
 
-def _stub_run_context(monkeypatch, tags: dict | None = None) -> None:
+def _stub_run_context(
+    monkeypatch,
+    tags: dict | None = None,
+    prompt_links: list[tuple[str, dict[str, object]]] | None = None,
+) -> None:
     """Stub the explicit parent-run wrapper so tests never touch a tracking store."""
     from contextlib import contextmanager
 
@@ -531,6 +678,16 @@ def _stub_run_context(monkeypatch, tags: dict | None = None) -> None:
     monkeypatch.setattr(mlflow_eval.mlflow, "start_run", fake_start_run)
     recorder = tags if tags is not None else {}
     monkeypatch.setattr(mlflow_eval.mlflow, "set_tags", recorder.update)
+    monkeypatch.setattr(mlflow_eval, "_matching_registered_prompt", lambda _template: None)
+    links = prompt_links if prompt_links is not None else []
+    monkeypatch.setattr(
+        mlflow_eval,
+        "MlflowClient",
+        lambda: SimpleNamespace(
+            link_prompt_version_to_model=lambda **kwargs: links.append(("model", kwargs)),
+            link_prompt_version_to_run=lambda **kwargs: links.append(("run", kwargs)),
+        ),
+    )
 
 
 def test_evaluation_prompt_reuses_the_configured_registry_version(monkeypatch) -> None:
@@ -550,9 +707,105 @@ def test_evaluation_prompt_reuses_the_configured_registry_version(monkeypatch) -
     assert mlflow_eval._evaluation_prompt() is expected  # noqa: SLF001 - prompt lineage contract
 
 
-def test_main_links_prompt_version_to_evaluated_model(monkeypatch, capsys) -> None:
+def test_matching_registered_prompt_reuses_the_latest_identical_template(monkeypatch) -> None:
+    latest = SimpleNamespace(template=mlflow_eval.INSTRUCTION, version=7)
+    monkeypatch.setattr(
+        mlflow_eval.mlflow.genai,
+        "load_prompt",
+        lambda *_args, **_kwargs: latest,
+    )
+    monkeypatch.setattr(
+        mlflow_eval,
+        "MlflowClient",
+        lambda: pytest.fail("the latest identical prompt needs no history search"),
+    )
+
+    assert mlflow_eval._matching_registered_prompt(mlflow_eval.INSTRUCTION) is latest  # noqa: SLF001
+
+
+def test_matching_registered_prompt_searches_every_historical_page(monkeypatch) -> None:
+    latest = SimpleNamespace(template="newer text", version=4)
+    historical = SimpleNamespace(template=mlflow_eval.INSTRUCTION, version=1)
+    calls: list[tuple[str, int, str | None]] = []
+
+    class Page(list):
+        def __init__(self, values, token) -> None:
+            super().__init__(values)
+            self.token = token
+
+    def search(name, *, max_results, page_token):
+        calls.append((name, max_results, page_token))
+        if page_token is None:
+            return Page([latest], "next")
+        return Page([historical], None)
+
+    monkeypatch.setattr(
+        mlflow_eval.mlflow.genai,
+        "load_prompt",
+        lambda *_args, **_kwargs: latest,
+    )
+    monkeypatch.setattr(
+        mlflow_eval,
+        "MlflowClient",
+        lambda: SimpleNamespace(search_prompt_versions=search),
+    )
+
+    assert mlflow_eval._matching_registered_prompt(mlflow_eval.INSTRUCTION) is historical  # noqa: SLF001
+    assert calls == [
+        (mlflow_eval._PROMPT_NAME, mlflow_eval._PROMPT_PAGE_SIZE, None),  # noqa: SLF001
+        (mlflow_eval._PROMPT_NAME, mlflow_eval._PROMPT_PAGE_SIZE, "next"),  # noqa: SLF001
+    ]
+
+
+def test_evaluation_prompt_reuses_a_matching_historical_version(monkeypatch) -> None:
+    historical = SimpleNamespace(template=mlflow_eval.INSTRUCTION, version=2)
+    monkeypatch.setattr(mlflow_eval, "settings", SimpleNamespace(prompt_uri=None))
+    monkeypatch.setattr(
+        mlflow_eval,
+        "_matching_registered_prompt",
+        lambda template: historical if template == mlflow_eval.INSTRUCTION else None,
+    )
+    monkeypatch.setattr(
+        mlflow_eval.mlflow.genai,
+        "register_prompt",
+        lambda **_kwargs: pytest.fail("identical historical text must reuse its prompt version"),
+    )
+
+    assert mlflow_eval._evaluation_prompt() is historical  # noqa: SLF001
+
+
+def test_evaluation_prompt_registers_only_when_no_template_matches(monkeypatch) -> None:
+    registered = SimpleNamespace(template=mlflow_eval.INSTRUCTION, version=8)
+    monkeypatch.setattr(mlflow_eval, "settings", SimpleNamespace(prompt_uri=None))
+    monkeypatch.setattr(mlflow_eval, "_matching_registered_prompt", lambda _template: None)
+    monkeypatch.setattr(
+        mlflow_eval.mlflow.genai,
+        "register_prompt",
+        lambda **kwargs: (
+            registered
+            if kwargs
+            == {
+                "name": mlflow_eval._PROMPT_NAME,  # noqa: SLF001
+                "template": mlflow_eval.INSTRUCTION,
+                "commit_message": "AgentOps Agent system instruction",
+            }
+            else pytest.fail(f"unexpected registration: {kwargs}")
+        ),
+    )
+
+    assert mlflow_eval._evaluation_prompt() is registered  # noqa: SLF001
+
+
+def test_main_links_prompt_version_to_evaluated_model_and_parent_run(monkeypatch, capsys) -> None:
     finalized: list[tuple[str, str]] = []
     evaluated: dict[str, object] = {}
+    prompt_links: list[tuple[str, dict[str, object]]] = []
+    registered_prompt = SimpleNamespace(
+        uri="prompts:/agentops-agent-instruction/7",
+        version=7,
+        name="agentops-agent-instruction",
+    )
+    monkeypatch.setenv("EVAL_MODEL_DIGEST", "sha256:canonical")
     monkeypatch.setattr(mlflow_eval.mlflow, "set_tracking_uri", lambda _uri: None)
     monkeypatch.setattr(
         mlflow_eval.mlflow,
@@ -562,12 +815,12 @@ def test_main_links_prompt_version_to_evaluated_model(monkeypatch, capsys) -> No
     monkeypatch.setattr(
         mlflow_eval.mlflow.genai,
         "register_prompt",
-        lambda **_kwargs: SimpleNamespace(
-            uri="prompts:/agentops-agent-instruction/7", version=7, name="agentops-agent-instruction"
-        ),
+        lambda **_kwargs: registered_prompt,
     )
 
     def initialize(**kwargs):
+        assert kwargs["params"]["agent_model_provider"] == "openai-compatible"
+        assert kwargs["params"]["agent_model_digest"] == "sha256:canonical"
         assert kwargs["params"]["prompt_uri"] == "prompts:/agentops-agent-instruction/7"
         assert kwargs["params"]["prompt_version"] == "7"
         return SimpleNamespace(model_id="model-1")
@@ -582,9 +835,22 @@ def test_main_links_prompt_version_to_evaluated_model(monkeypatch, capsys) -> No
     monkeypatch.setattr(mlflow_eval, "_load_cases", list)
     monkeypatch.setattr(mlflow_eval, "_scorers", list)
     tags: dict = {}
-    _stub_run_context(monkeypatch, tags)
+    _stub_run_context(monkeypatch, tags, prompt_links)
     mlflow_eval.main()
     assert tags == {"prompt_name": "agentops-agent-instruction", "prompt_version": "7"}
+    prompt = prompt_links[1][1]["prompt"]
+    assert prompt_links == [
+        (
+            "model",
+            {
+                "name": "agentops-agent-instruction",
+                "version": "7",
+                "model_id": "model-1",
+            },
+        ),
+        ("run", {"run_id": "run-1", "prompt": prompt}),
+    ]
+    assert prompt is registered_prompt
     assert evaluated["model_id"] == "model-1"
     assert finalized == [("model-1", "READY")]
     output = capsys.readouterr().out

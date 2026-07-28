@@ -37,7 +37,7 @@ Native Gemini remains an optional provider path with `AGENT_MODEL_PROVIDER=gemin
 
 - The lazy `src/agent` package exposes one `root_agent` discovery boundary without initializing ADK on a plain import.
 - `AGENT_ENTRYPOINT=agent|workflow|coordinator` selects the composition; the typed configuration rejects every other value.
-- The default instruction plans multi-step investigations and re-reads state before claiming an approved action succeeded.
+- The default instruction asks the model to plan and verify. Dedicated cases score proactive recall, skill loading, and log-before-fix behavior; post-action re-reading remains advisory and is pinned only by a prompt-presence test.
 - `src/agent/structured_report` exposes the schema-validated report agent used by `eval:report`.
 - The workflow selection exposes the bounded, read-only `plan → investigate → evidence_review → recommend` graph.
 - The coordinator selection exposes the least-privilege coordinator and its two specialists.
@@ -79,7 +79,7 @@ src/
     delegation.py   Least-privilege specialist delegation
     guardrails.py   Input and action policy
     actions.py      Approved writes and append-only audit
-    pii.py          Presidio request/response/tool-output callbacks
+    pii.py          PII/credential request, response, and tool-output callbacks
     telemetry.py    Privacy-preserving OpenTelemetry setup
     server.py       Persistent A2A application factory and process
 evals/            ADK trajectories and MLflow evaluation
@@ -103,23 +103,29 @@ All three tasks call the same working `adk run src/agent` command. The two alter
 
 ## Tasks
 
-| Task                     | Network/model use                  | Purpose                                                                   |
-| ------------------------ | ---------------------------------- | ------------------------------------------------------------------------- |
-| `mise run format`        | None                               | Format imports and Python.                                                |
-| `mise run check`         | Vulnerability database may refresh | Check metadata, lock, format, lint, types, and dependencies.              |
-| `mise run test`          | None                               | Run branch-covered offline tests.                                         |
-| `mise run redteam`       | None                               | Run deterministic adversarial regression cases; not a live-model scanner. |
-| `mise run run`           | Model                              | Run the ADK terminal UI.                                                  |
-| `mise run workflow`      | Model                              | Run the bounded read-only planning workflow.                              |
-| `mise run coordinator`   | Model                              | Run the least-privilege specialist coordinator.                           |
-| `mise run web`           | Model                              | Run the ADK developer UI.                                                 |
-| `mise run mcp`           | None                               | Serve MCP over stdio.                                                     |
-| `mise run mcp:http`      | None                               | Serve MCP over HTTP at `127.0.0.1:8000`.                                  |
-| `mise run a2a`           | Depends on requests                | Serve persistent A2A on port `8080`.                                      |
-| `mise run eval`          | Model                              | Run strict ADK trajectories and enforce the aggregate 4B case-pass floor. |
-| `mise run eval:workflow` | Model                              | Exercise the bounded workflow's read-only evidence trajectory.            |
-| `mise run eval:mlflow`   | Model; judge optional              | Log cases, prompt lineage, scorers, and optional judge results to MLflow. |
-| `mise run data:reset`    | None                               | Delete disposable `.state/` and restore on next use.                      |
+| Task                      | Network/model use                  | Purpose                                                                   |
+| ------------------------- | ---------------------------------- | ------------------------------------------------------------------------- |
+| `mise run format`         | None                               | Format imports and Python.                                                |
+| `mise run check`          | Vulnerability database may refresh | Check metadata, lock, format, lint, types, and dependencies.              |
+| `mise run test`           | None                               | Run branch-covered offline tests.                                         |
+| `mise run redteam`        | None                               | Run deterministic adversarial regression cases; not a live-model scanner. |
+| `mise run run`            | Model                              | Run the ADK terminal UI.                                                  |
+| `mise run workflow`       | Model                              | Run the bounded read-only planning workflow.                              |
+| `mise run coordinator`    | Model                              | Run the least-privilege specialist coordinator.                           |
+| `mise run web`            | Model                              | Run the ADK developer UI.                                                 |
+| `mise run mcp`            | None                               | Serve MCP over stdio.                                                     |
+| `mise run mcp:http`       | None                               | Serve MCP over HTTP at `127.0.0.1:8000`.                                  |
+| `mise run a2a`            | Depends on requests                | Serve persistent A2A on port `8080`.                                      |
+| `mise run eval:validate`  | None                               | Validate every eval case and seed reference offline.                      |
+| `mise run eval`           | Model                              | Run strict ADK trajectories and enforce the aggregate 4B case-pass floor. |
+| `mise run eval:report`    | Model                              | Evaluate the schema-validated triage report path.                         |
+| `mise run eval:workflow`  | Model                              | Exercise the bounded workflow's read-only evidence trajectory.            |
+| `mise run eval:mlflow`    | Model; judge optional              | Log cases, prompt lineage, scorers, and optional judge results to MLflow. |
+| `mise run eval:cost`      | Model                              | Compare per-case usage with a reviewed model-identity baseline.           |
+| `mise run eval:ground`    | Model                              | Check recognized answer claims against evidence retrieved that turn.      |
+| `mise run eval:ab`        | Model                              | Compare a baseline and candidate registered prompt version.               |
+| `mise run eval:retrieval` | Embedding model                    | Compare keyword and semantic runbook retrieval.                           |
+| `mise run data:reset`     | None                               | Delete disposable `.state/` and restore on next use.                      |
 
 ## Reset and cleanup
 

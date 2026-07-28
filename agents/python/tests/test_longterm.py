@@ -51,6 +51,13 @@ def test_notes_are_redacted_before_persisting() -> None:
     assert recalled["count"] == 1
 
 
+def test_kill_switch_refuses_note_before_state_write(monkeypatch) -> None:
+    monkeypatch.setattr(longterm.settings, "writes_disabled", True)
+    result = longterm.save_incident_note("INC-002", "Restarted inventory.", _context("engineer", "s1"))
+    assert "AGENT_WRITES_DISABLED" in result["error"]
+    assert not (longterm.settings.state_dir / "memory.db").exists()
+
+
 def test_invalid_inputs_are_rejected() -> None:
     context = _context("engineer", "s1")
     assert "error" in longterm.save_incident_note("ticket-9", "note", context)

@@ -117,9 +117,109 @@
                 }
               },
               {
+                "name": "search_service_logs",
+                "args": {
+                  "service": "inventory"
+                }
+              },
+              {
                 "name": "get_runbook",
                 "args": {
                   "slug": "service-down"
+                }
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "agentops_agent",
+        "user_id": "eval",
+        "state": {}
+      },
+      "creation_timestamp": 0.0
+    },
+    {
+      "eval_id": "investigation-recalls-context",
+      "conversation": [
+        {
+          "invocation_id": "inv-investigation-recalls-context",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Investigate INC-002."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "INC-002 is the open SEV1 inventory incident. No saved context changes that starting point."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "recall_incident_context",
+                "args": {
+                  "incident_id": "INC-002"
+                }
+              },
+              {
+                "name": "get_incident",
+                "args": {
+                  "incident_id": "INC-002"
+                }
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "agentops_agent",
+        "user_id": "eval",
+        "state": {}
+      },
+      "creation_timestamp": 0.0
+    },
+    {
+      "eval_id": "remediation-loads-skill",
+      "conversation": [
+        {
+          "invocation_id": "inv-remediation-loads-skill",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "How should I safely remediate INC-002?"
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "The remediation skill applies. It requires evidence and approval before any write."
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "list_skills",
+                "args": {}
+              },
+              {
+                "name": "load_skill",
+                "args": {
+                  "skill_name": "remediation"
                 }
               }
             ],

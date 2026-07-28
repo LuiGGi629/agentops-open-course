@@ -15,7 +15,7 @@ Nine chapters follow the AgentOps lifecycle, from a first local model call to an
 - **One completed reference:** every chapter inspects and runs the same AgentOps Agent, then the capstone guides you through replacing its fictional domain with your own platform.
 - **OSS-first and account-free:** run the Apache-2.0 open-weight [Qwen3](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) model through Ollama with no account, no mandatory SaaS, and no usage fee.
 - **Real operational boundaries:** tools, Agent Skills, MCP, A2A, human approval, PII redaction, append-only audit records, and persistent sessions are implemented in the reference agent.
-- **Bounded reasoning:** the fast agent plans multi-step work and verifies approved actions; a runnable plan → investigate → evidence review → recommend workflow teaches deeper orchestration.
+- **Bounded reasoning:** the fast agent is instructed to plan multi-step work and verify approved actions; a runnable plan → investigate → evidence review → recommend workflow enforces deeper orchestration structurally.
 - **One data plane:** agentgateway routes and governs MCP, A2A, and OpenAI-compatible model traffic.
 - **One local-to-cloud contract:** the same container and Kubernetes base run on k3d and on a small GKE lab; only overlays and model identity change.
 - **Observable end to end:** optional OTLP telemetry flows to a self-hosted MLflow trace UI and Prometheus/Grafana metrics.
@@ -30,12 +30,13 @@ The completed **AgentOps Agent** is an on-call assistant for a fictional service
 ```text
 > investigate INC-002
   → get_incident(incident_id="INC-002")   INC-002 · inventory · SEV1 · open
-  → get_service_status(service="inventory")   inventory: down
+  → get_service_status(name="inventory")   inventory: down
+  → search_service_logs(service="inventory", query="restart")   restartCount=1 · restartCount=2
   → get_runbook(slug="service-down")
 
-  INC-002 is a SEV1: the inventory service is down and stock lookups fail.
-  The runbook's first step is to restart the service to clear the crash loop.
-  Proposed action — restart_service(service="inventory"). Approve to proceed.
+  INC-002 is a SEV1: inventory is down, its container keeps restarting, and stock lookups fail.
+  After diagnosis, the runbook supports a restart to clear this crash loop.
+  Proposed action — restart_service(name="inventory"). Approve to proceed.
   [awaiting human approval]
 ```
 

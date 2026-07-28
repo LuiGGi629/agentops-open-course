@@ -20,20 +20,45 @@ from typing import Any
 
 import mlflow
 import mlflow.genai
+from google.adk import Workflow
 from google.adk.agents import BaseAgent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
+from mlflow import MlflowClient
 from mlflow.entities import AssessmentSource, Feedback
+from mlflow.entities.model_registry import PromptVersion
 from mlflow.genai.scorers import Scorer, scorer
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from agent.composition import INSTRUCTION, root_agent
 from agent.config import settings
 
-_EVALSET = Path(__file__).parent / "ops.evalset.json"
-_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{Path(__file__).parent / 'mlflow.db'}")
+# A pinned agent loads its prompt while ``agent.composition`` is imported. Select
+# the same tracking store used by the evaluator before that import, including
+# the no-environment local SQLite path used by prompt A/B child processes.
+_EVALS_DIR = Path(__file__).parent
+_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{_EVALS_DIR / 'mlflow.db'}")
+mlflow.set_tracking_uri(_TRACKING_URI)
+
+
+def _load_agent_contract() -> tuple[str, BaseAgent | Workflow]:
+    """Import the prompt-bound agent only after its tracking store is selected."""
+    from agent.composition import INSTRUCTION, root_agent
+
+    return INSTRUCTION, root_agent
+
+
+INSTRUCTION, root_agent = _load_agent_contract()
+
+try:  # package import under pytest and ``python -m`` execution
+    from evals.required_trajectory import contains_required
+except ModuleNotFoundError:  # pragma: no cover - direct script fallback
+    from required_trajectory import contains_required  # ty: ignore[unresolved-import]
+
+_EVALSET = _EVALS_DIR / "ops.evalset.json"
 _EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT_NAME", "agentops-agent")
+_PROMPT_NAME = "agentops-agent-instruction"
+_PROMPT_PAGE_SIZE = 100
 _WRITE_TOOLS = frozenset({"restart_service", "resolve_incident", "save_incident_note"})
 _CONFIRMATION_TARGETS = {
     "restart_service": ("service", "name"),
@@ -42,14 +67,14 @@ _CONFIRMATION_TARGETS = {
 # Floors, not targets. The required course path is qwen3:4b-instruct on the learner's own
 # machine, so these catch a *collapse* — the agent stopped answering, stopped calling tools, or
 # started proposing the wrong guarded write — instead of demanding a perfect run a 4B model will
-# not give. Measured on the CI runner over the 13 committed cases: tool_trajectory 0.38,
-# response_facts 0.23, tool_policy 0.77, complete_conversation 1.00.
+# not give. The live workflow prints the observed scores; these committed values
+# remain collapse floors rather than targets or claims about the current model.
 #
 # `complete_conversation` stays at 1.0 on purpose: it only asks for a non-empty answer per turn,
 # so anything below 1.0 means the run is broken rather than the model weak.
 #
-# Raise the bar on a stronger model with AGENT_EVAL_MIN_SCORE, which applies one floor to every
-# deterministic scorer — `AGENT_EVAL_MIN_SCORE=1.0` demands the perfect run.
+# Raise the bar on a stronger model with AGENT_EVAL_MIN_SCORE. It can only
+# increase each committed floor — `AGENT_EVAL_MIN_SCORE=1.0` demands perfection.
 _DEFAULT_MIN_SCORES = {
     "tool_trajectory/mean": 0.25,
     "complete_conversation/mean": 1.0,
@@ -59,7 +84,7 @@ _DEFAULT_MIN_SCORES = {
 
 
 def _min_scores() -> dict[str, float]:
-    """Return the per-scorer floors, overridden by AGENT_EVAL_MIN_SCORE when it is set."""
+    """Return committed scorer floors, optionally raised by AGENT_EVAL_MIN_SCORE."""
     raw = os.environ.get("AGENT_EVAL_MIN_SCORE")
     if not raw:
         return dict(_DEFAULT_MIN_SCORES)
@@ -69,7 +94,7 @@ def _min_scores() -> dict[str, float]:
         raise SystemExit(f"AGENT_EVAL_MIN_SCORE must be a number between 0 and 1, got {raw!r}.") from None
     if not 0.0 <= floor <= 1.0:
         raise SystemExit(f"AGENT_EVAL_MIN_SCORE must be between 0 and 1, got {floor:g}.")
-    return dict.fromkeys(_DEFAULT_MIN_SCORES, floor)
+    return {name: max(default, floor) for name, default in _DEFAULT_MIN_SCORES.items()}
 
 
 _SERVICE_TERMS = frozenset(
@@ -389,11 +414,11 @@ def ask(turns: list[str], eval_id: str) -> dict[str, Any]:
 
 def _in_order(actual: Any, expected: Any) -> bool:
     """IN_ORDER semantics (same as the ADK eval config): every expected call
-    appears in the actual trajectory, in order, allowing extra calls between."""
+    appears with its required arguments, in order, allowing extras."""
     pending = iter(expected)
     current = next(pending, None)
     for call in actual:
-        if current is not None and call == current:
+        if current is not None and contains_required(call, current):
             current = next(pending, None)
     return current is None
 
@@ -524,16 +549,24 @@ def _gateway_judge(model: str, base_url: str, api_key: str) -> Scorer:
 def _scorers() -> list[Scorer]:
     """Return offline scorers plus an optional agentgateway-backed judge."""
     scorers: list[Scorer] = [tool_trajectory, complete_conversation, response_facts, tool_policy]
-    judge_model = os.environ.get("MLFLOW_JUDGE_MODEL")
-    if not judge_model:
+    judge_config = {
+        "MLFLOW_JUDGE_MODEL": os.environ.get("MLFLOW_JUDGE_MODEL"),
+        "MLFLOW_JUDGE_BASE_URL": os.environ.get("MLFLOW_JUDGE_BASE_URL"),
+        "MLFLOW_JUDGE_API_KEY": os.environ.get("MLFLOW_JUDGE_API_KEY"),
+    }
+    if not any(judge_config.values()):
         return scorers
-    base_url = os.environ.get("MLFLOW_JUDGE_BASE_URL")
-    api_key = os.environ.get("MLFLOW_JUDGE_API_KEY")
-    if not base_url or not api_key:
+    missing = [name for name, value in judge_config.items() if not value]
+    if missing:
         raise ValueError(
-            "MLFLOW_JUDGE_MODEL requires an explicit agentgateway URL/key via "
-            "MLFLOW_JUDGE_BASE_URL and MLFLOW_JUDGE_API_KEY"
+            "MLFLOW_JUDGE_MODEL, MLFLOW_JUDGE_BASE_URL, and MLFLOW_JUDGE_API_KEY "
+            f"must be set together for the agentgateway judge; missing {', '.join(missing)}"
         )
+    judge_model = judge_config["MLFLOW_JUDGE_MODEL"]
+    base_url = judge_config["MLFLOW_JUDGE_BASE_URL"]
+    api_key = judge_config["MLFLOW_JUDGE_API_KEY"]
+    if judge_model is None or base_url is None or api_key is None:  # narrowed by the missing check above
+        raise RuntimeError("complete judge configuration was not retained")
     return [*scorers, _gateway_judge(judge_model, base_url, api_key)]
 
 
@@ -555,12 +588,37 @@ def _required_metric_failures(metrics: dict[str, Any]) -> list[str]:
     return failures
 
 
-def _evaluation_prompt():
+def _matching_registered_prompt(template: str) -> PromptVersion | None:
+    """Return the newest historical version with ``template``, across every page."""
+    latest = mlflow.genai.load_prompt(_PROMPT_NAME, allow_missing=True, link_to_model=False)
+    if latest is None:
+        return None
+    if latest.template == template:
+        return latest
+
+    client = MlflowClient()
+    page_token: str | None = None
+    while True:
+        versions = client.search_prompt_versions(
+            _PROMPT_NAME,
+            max_results=_PROMPT_PAGE_SIZE,
+            page_token=page_token,
+        )
+        if matching := next((version for version in versions if version.template == template), None):
+            return matching
+        page_token = versions.token
+        if not page_token:
+            return None
+
+
+def _evaluation_prompt() -> PromptVersion:
     """Return the exact prompt version used by the already-built root agent."""
     if settings.prompt_uri:
         return mlflow.genai.load_prompt(settings.prompt_uri)
+    if matching := _matching_registered_prompt(INSTRUCTION):
+        return matching
     return mlflow.genai.register_prompt(
-        name="agentops-agent-instruction",
+        name=_PROMPT_NAME,
         template=INSTRUCTION,
         commit_message="AgentOps Agent system instruction",
     )
@@ -571,20 +629,31 @@ def main() -> None:
     mlflow.set_tracking_uri(_TRACKING_URI)
     experiment = mlflow.set_experiment(_EXPERIMENT)
     prompt = _evaluation_prompt()
+    model_params = {
+        "agent_model": settings.model,
+        "agent_model_provider": settings.model_provider.value,
+        "prompt_uri": prompt.uri,
+        "prompt_version": str(prompt.version),
+    }
+    if model_digest := os.environ.get("EVAL_MODEL_DIGEST"):
+        model_params["agent_model_digest"] = model_digest
     logged_model = mlflow.initialize_logged_model(
         name="agentops-agent",
         experiment_id=experiment.experiment_id,
         model_type="agent",
-        params={
-            "agent_model": settings.model,
-            "prompt_uri": prompt.uri,
-            "prompt_version": str(prompt.version),
-        },
+        params=model_params,
     )
     try:
+        client = MlflowClient()
+        client.link_prompt_version_to_model(
+            name=prompt.name,
+            version=str(prompt.version),
+            model_id=logged_model.model_id,
+        )
         # An explicit parent run tagged with the prompt version keeps eval results
         # filterable/comparable across prompt versions in the MLflow UI (Ch. 7.0).
-        with mlflow.start_run(run_name=f"eval-prompt-v{prompt.version}"):
+        with mlflow.start_run(run_name=f"eval-prompt-v{prompt.version}") as run:
+            client.link_prompt_version_to_run(run_id=run.info.run_id, prompt=prompt)
             mlflow.set_tags({"prompt_name": prompt.name, "prompt_version": str(prompt.version)})
             result = mlflow.genai.evaluate(
                 data=_load_cases(),

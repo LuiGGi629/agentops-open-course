@@ -1,6 +1,6 @@
-"""Offline consistency checks for the shared eval set (Ch. 4.4).
+"""Offline consistency checks for the shared eval sets (Ch. 4.4).
 
-The evalset references dataset entities by id; when the seed data evolves,
+The evalsets reference dataset entities by id; when the seed data evolves,
 these checks catch dangling references before a model-backed eval ever runs.
 """
 
@@ -15,16 +15,20 @@ from agent.models import TriageReport
 _EVALSET = Path(__file__).parents[1] / "evals" / "ops.evalset.json"
 _REPORT_EVALSET = Path(__file__).parents[1] / "evals" / "triage-report.evalset.json"
 _WORKFLOW_EVALSET = Path(__file__).parents[1] / "evals" / "workflow.evalset.json"
+_EVALSETS = (_EVALSET, _REPORT_EVALSET, _WORKFLOW_EVALSET)
 _CONFIG = Path(__file__).parents[1] / "evals" / "test_config.json"
+_SKILLS = Path(__file__).parents[2] / "data" / "skills"
 
 # Tool-argument keys that reference dataset entities, per tool name.
 _INCIDENT_ARGS = {
     "get_incident": "incident_id",
+    "recall_incident_context": "incident_id",
     "resolve_incident": "incident_id",
     "save_incident_note": "incident_id",
 }
 _SERVICE_ARGS = {"get_service_status": "name", "restart_service": "name", "search_service_logs": "service"}
 _RUNBOOK_ARGS = {"get_runbook": "slug"}
+_SKILL_ARGS = {"load_skill": "skill_name"}
 
 # Negative cases deliberately reference entities that must NOT exist.
 _EXPECTED_MISSING = {"INC-999", "warehouse"}
@@ -35,10 +39,12 @@ def _evalset() -> dict:
 
 
 def _tool_uses():
-    for case in _evalset()["eval_cases"]:
-        for turn in case["conversation"]:
-            for use in turn["intermediate_data"]["tool_uses"]:
-                yield case["eval_id"], use
+    for path in _EVALSETS:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        for case in document["eval_cases"]:
+            for turn in case["conversation"]:
+                for use in turn["intermediate_data"]["tool_uses"]:
+                    yield case["eval_id"], use
 
 
 def test_evalset_has_a_representative_size() -> None:
@@ -63,6 +69,7 @@ def test_referenced_entities_exist_in_the_seed_data() -> None:
     incidents = {incident.id for incident in data.list_incidents()}
     services = {service.name for service in data.list_services()}
     runbooks = set(data.list_runbook_slugs())
+    skills = {path.parent.name for path in _SKILLS.glob("*/SKILL.md")}
     for eval_id, use in _tool_uses():
         name, args = use["name"], use["args"]
         if name in _INCIDENT_ARGS and (value := args.get(_INCIDENT_ARGS[name])):
@@ -71,6 +78,8 @@ def test_referenced_entities_exist_in_the_seed_data() -> None:
             assert value in services or value in _EXPECTED_MISSING, (eval_id, value)
         if name in _RUNBOOK_ARGS and (value := args.get(_RUNBOOK_ARGS[name])):
             assert value in runbooks, (eval_id, value)
+        if name in _SKILL_ARGS and (value := args.get(_SKILL_ARGS[name])):
+            assert value in skills, (eval_id, value)
 
 
 def test_negative_cases_reference_entities_that_stay_missing() -> None:
@@ -88,6 +97,8 @@ def test_eval_config_uses_in_order_trajectory_matching() -> None:
     # Each case is strict. run_adk_eval.py applies the separately documented
     # aggregate case-pass floor over ADK's final pass/fail tally.
     assert criterion["threshold"] == 1.0
+    custom = config["custom_metrics"]["tool_trajectory_avg_score"]
+    assert custom["code_config"]["name"] == "evals.required_trajectory.evaluate_required_tool_trajectory"
 
 
 def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> None:
@@ -98,6 +109,9 @@ def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> 
         return [use["name"] for use in uses]
 
     assert tool_names("diagnose-with-logs") == ["get_incident", "search_service_logs", "get_runbook"]
+    assert tool_names("recommend-fix") == ["get_incident", "search_service_logs", "get_runbook"]
+    assert tool_names("investigation-recalls-context") == ["recall_incident_context", "get_incident"]
+    assert tool_names("remediation-loads-skill") == ["list_skills", "load_skill"]
     assert tool_names("ambiguous-symptom") == ["search_runbooks"]
     assert tool_names("memory-note-recall", 0) == ["save_incident_note"]
     assert tool_names("memory-note-recall", 1) == ["recall_incident_context"]
@@ -156,6 +170,16 @@ def test_workflow_eval_exercises_plan_review_and_read_only_evidence() -> None:
     [
         ([{"name": "a", "args": {}}], [{"name": "a", "args": {}}], True),
         ([{"name": "x", "args": {}}, {"name": "a", "args": {}}], [{"name": "a", "args": {}}], True),
+        (
+            [{"name": "search", "args": {"service": "inventory", "query": "error", "limit": 10}}],
+            [{"name": "search", "args": {"service": "inventory"}}],
+            True,
+        ),
+        (
+            [{"name": "search", "args": {"service": "checkout", "query": "error"}}],
+            [{"name": "search", "args": {"service": "inventory"}}],
+            False,
+        ),
         (
             [{"name": "b", "args": {}}, {"name": "a", "args": {}}],
             [{"name": "a", "args": {}}, {"name": "b", "args": {}}],

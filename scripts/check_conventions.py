@@ -43,9 +43,9 @@ LANDING_PAGE: Final = "docs/index.md"
 # The kind word in the Time line, which the chapter index repeats next to the page link.
 KINDS: Final = ("concept", "hands-on", "reference", "orientation", "lookup")
 
-# Depth a first-time reader can skip lives behind a collapsible. More than a handful turns the page
-# into a wall of triangles; three is the target and four is the ceiling.
-MAX_COLLAPSIBLES: Final = 4
+# Depth a first-time reader can skip lives behind a collapsible. Three is the
+# documented ceiling; more turns the page into a wall of triangles.
+MAX_COLLAPSIBLES: Final = 3
 
 FRONT_MATTER: Final = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 MACHINE_PATH: Final = re.compile(r"/home/[^ /]+|file:///|k3d-registry\.localhost")

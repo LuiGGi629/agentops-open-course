@@ -9,11 +9,11 @@ Chapter 7.0 (Reproducibility) describes.
 
 Each version runs in its own subprocess with ``AGENT_PROMPT_URI`` set, because
 the agent binds its instruction once at import — a fresh interpreter is the clean
-way to evaluate a different pinned version. It is model-backed, so like the other
-live evals it belongs in the weekly ``eval.yml`` workflow, not ``ci.yml``.
+way to evaluate a different pinned version. It is model-backed and intentionally
+on-demand, outside the deterministic ``ci.yml`` workflow.
 
     uv run python evals/prompt_ab.py \
-      prompts:/agentops-agent-instruction/2 prompts:/agentops-agent-instruction/1
+      prompts:/agentops-agent-instruction/1 prompts:/agentops-agent-instruction/2
 """
 
 from __future__ import annotations
@@ -65,13 +65,18 @@ def score_configured_prompt() -> dict[str, float]:  # pragma: no cover - model-b
     return {name: total / len(cases) for name, total in totals.items()}
 
 
-def format_comparison(label_a: str, scores_a: dict[str, float], label_b: str, scores_b: dict[str, float]) -> str:
-    """Render a deterministic per-scorer pass-rate table with the A→B delta."""
-    lines = [f"{'scorer':<22} {label_a:>12} {label_b:>12} {'delta':>8}"]
+def format_comparison(
+    baseline_label: str,
+    baseline_scores: dict[str, float],
+    candidate_label: str,
+    candidate_scores: dict[str, float],
+) -> str:
+    """Render pass rates with an explicit ``candidate - baseline`` delta."""
+    lines = [f"{'scorer':<22} {baseline_label:>12} {candidate_label:>12} {'delta':>8}"]
     for name in DETERMINISTIC_SCORERS:
-        a = scores_a.get(name, 0.0)
-        b = scores_b.get(name, 0.0)
-        lines.append(f"{name:<22} {a:>12.2f} {b:>12.2f} {b - a:>+8.2f}")
+        baseline = baseline_scores.get(name, 0.0)
+        candidate = candidate_scores.get(name, 0.0)
+        lines.append(f"{name:<22} {baseline:>12.2f} {candidate:>12.2f} {candidate - baseline:>+8.2f}")
     return "\n".join(lines)
 
 
@@ -106,10 +111,13 @@ def main() -> None:  # pragma: no cover - CLI entrypoint (model-backed)
         print(f"{_SCORE_MARKER}{json.dumps(score_configured_prompt())}")  # noqa: T201
         return
     if len(args) != 2:
-        raise SystemExit("Usage: prompt_ab.py <prompt-uri-a> <prompt-uri-b>")
-    scores_a = _score_pinned_prompt(args[0])
-    scores_b = _score_pinned_prompt(args[1])
-    print(format_comparison(args[0], scores_a, args[1], scores_b))  # noqa: T201 - CLI output
+        raise SystemExit("Usage: prompt_ab.py <baseline-prompt-uri> <candidate-prompt-uri>")
+    baseline_uri, candidate_uri = args
+    baseline_scores = _score_pinned_prompt(baseline_uri)
+    candidate_scores = _score_pinned_prompt(candidate_uri)
+    print(  # noqa: T201 - CLI output
+        format_comparison(baseline_uri, baseline_scores, candidate_uri, candidate_scores)
+    )
 
 
 if __name__ == "__main__":

@@ -84,7 +84,7 @@ That is the offline test suite. It constructs the agent, resolves its configurat
 
 The whole run can take several minutes depending on the machine and cache state. It ends with a coverage total checked against the enforced 95% threshold, then a pytest `passed` line. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
 
-A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate gate, owned by [2.5. Dev Loop](./2.5. Dev Loop.md).
+A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate evidence lane, owned by [2.5. Dev Loop](./2.5. Dev Loop.md).
 
 ??? note "Deeper: can you test the model and config wiring on its own?"
 
@@ -96,7 +96,7 @@ A green run proves the agent is assembled correctly, not that it reasons well. M
 
     That focused subset exits cleanly and gives fast feedback. The repository-wide 95% branch-coverage gate belongs to `mise run test`, which adds the coverage flags around the complete suite.
 
-    Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate gate ([2.5. Dev Loop](./2.5. Dev Loop.md)'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
+    Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop](./2.5. Dev Loop.md)'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
 
 **You are done when:**
 

@@ -147,9 +147,9 @@ class Settings(BaseSettings):
     # primary — a smaller local model is the intended account-free fallback.
     model_fallback: str | None = Field(default=None, min_length=1)
 
-    # Emergency kill-switch (Chapter 4.5 / 7.7). When true, every guarded write
-    # action refuses before approval — an instant, redeploy-free way to freeze
-    # all state changes during an incident while reads keep working.
+    # Emergency kill-switch (Chapter 4.5 / 7.7). When true at process startup,
+    # every guarded write action refuses before approval. Roll out the setting
+    # and restart the process to freeze mutations while reads keep working.
     writes_disabled: bool = False
 
     # Default-on prompt-injection hardening for tool/retrieval content (Ch. 4.6):
