@@ -13,7 +13,7 @@
 #
 # Usage: restore-state.sh <snapshot_dir> [state_dir]
 #   state_dir  defaults to agents/python/.state
-set -euo pipefail
+set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 snapshot_dir="${1:?usage: restore-state.sh <snapshot_dir> [state_dir]}"

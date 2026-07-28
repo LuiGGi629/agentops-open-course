@@ -11,7 +11,12 @@
 #   scripts/promote.sh gke             # gate + render the gke overlay
 #   scripts/promote.sh --with-model    # also run the model-backed evals
 
-set -Eeuo pipefail
+lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${lib_dir}/lib.sh"
+
+require_cmd kustomize platform
+require_cmd skaffold platform
 
 overlay=local
 with_model=0

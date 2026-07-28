@@ -118,8 +118,8 @@ run = "dprint fmt"
 description = "Format the Python reference agent"
 run = [
   "cd agents/python && mise run format:python .",
-  "cd agents/python && uv run ruff check --select=I --fix ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py",
-  "cd agents/python && uv run ruff format ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py",
+  "cd agents/python && uv run ruff check --select=I --fix ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/check_conventions.py",
+  "cd agents/python && uv run ruff format ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/check_conventions.py",
 ]
 
 [tasks."format:shell"]
@@ -157,7 +157,7 @@ run = "cd agents/data && mise run check"
 [tasks."check:docs"]
 description = "Build the course site"
 run = [
-  "./scripts/check-docs.sh",
+  "uv run python scripts/check_conventions.py docs",
   "uv run zensical build",
 ]
 
@@ -171,11 +171,11 @@ run = "./scripts/check-infra.sh"
 
 [tasks."check:links"]
 description = "Check repository-local Markdown links without network access"
-run = "lychee --offline README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md 'docs/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md'"
+run = "lychee --offline README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md 'docs/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
 
 [tasks."check:skills"]
 description = "Validate the installable Agent Skills under skills/"
-run = "./scripts/check-skills.sh"
+run = "uv run python scripts/check_conventions.py skills"
 
 [tasks."check:licenses"]
 description = "Verify repository and Python dependency licenses"
@@ -185,14 +185,14 @@ run = "./scripts/check-licenses.sh"
 description = "Lint, type-check, and audit the Python reference agent"
 run = [
   "cd agents/python && mise run check",
-  "cd agents/python && uv run ruff format --check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py",
-  "cd agents/python && uv run ruff check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py",
-  "cd agents/python && uv run ty check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py",
+  "cd agents/python && uv run ruff format --check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/check_conventions.py",
+  "cd agents/python && uv run ruff check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/check_conventions.py",
+  "cd agents/python && uv run ty check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/check_conventions.py",
 ]
 
 [tasks."check:release-metadata"]
 description = "Verify package, citation, changelog, and optional tag versions agree"
-run = "./scripts/check-release-metadata.sh"
+run = "uv run python scripts/check_conventions.py release-metadata"
 
 [tasks."check:shell"]
 description = "Lint repository shell scripts"

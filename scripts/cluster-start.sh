@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${lib_dir}/lib.sh"
+
+require_cmd docker gateway
+require_cmd k3d platform
+require_cmd kubectl platform
+require_cmd jq base
 
 if ! docker info >/dev/null 2>&1; then
 	printf 'docker: daemon is unavailable\n' >&2

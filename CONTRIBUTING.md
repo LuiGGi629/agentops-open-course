@@ -17,6 +17,8 @@ The first command installs the repository's pinned tools. The second installs th
 
 - Keep documentation examples synchronized with the implementation in `agents/` and `infra/`.
 - Keep every `docs/**/*.md` page FAQ-oriented and start it with `description:` front matter.
+- Keep the page frame: an `!!! abstract "In one glance"` block (**You will** / **You need** / **Time**) directly under the H1, and a closing `## What proves this page worked?` section with a **You are done when:** list and a `Continue to …` line. `mise run check:docs` enforces it; `AGENTS.md` documents the full contract.
+- Put depth a first-time reader can skip in a `??? note "Deeper: …"` collapsible rather than deleting it.
 - Use only open-source software dependencies without paid feature gates. A hosted model or cloud may be documented as an optional substrate, never as part of the open-source software claim.
 - Keep the local path usable without a Kubernetes or cloud account.
 - Never commit credentials, generated reports, runtime state, or a populated `.env`.

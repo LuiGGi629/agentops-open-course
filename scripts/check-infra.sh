@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${lib_dir}/lib.sh"
+
+require_cmd yq gateway
+require_cmd kustomize platform
+require_cmd kubeconform platform
+require_cmd kube-linter platform
+require_cmd helmfile platform
+require_cmd skaffold platform
+require_cmd docker gateway
+require_cmd tofu gcp
+require_cmd tflint gcp
 
 mkdir -p .agents/tmp
 tmp_dir=$(mktemp -d .agents/tmp/infra-check.XXXXXX)

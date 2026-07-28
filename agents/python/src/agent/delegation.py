@@ -1,4 +1,4 @@
-"""Multi-agent delegation — a coordinator with least-privilege specialists (Chapter 3.6).
+"""Multi-agent delegation — a coordinator with least-privilege specialists (Chapter 3.7).
 
 Sub-agents are how one agent hands work to another: the coordinator triages, then
 *delegates* by transferring control (ADK routes to the named sub-agent, which shares

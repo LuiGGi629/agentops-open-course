@@ -38,7 +38,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify the tag matches every release metadata surface
-        run: ./scripts/check-release-metadata.sh "${GITHUB_REF_NAME}"
+        # Deliberately a bare python3: this job has only a checkout, and the release gate must not
+        # depend on the project's virtualenv.
+        run: python3 scripts/check_conventions.py release-metadata "${GITHUB_REF_NAME}"
 
       - name: Resolve the lowercase image reference
         id: image

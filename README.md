@@ -6,6 +6,10 @@ Learn the complete lifecycle of a production-shaped AI agent, from a first local
 
 **[Read the course](https://agentops-open-course.fmind.dev/)** | **[Start locally](#local-quickstart)** | **[Build your capstone](https://agentops-open-course.fmind.dev/8.%20Community/8.7.%20Capstone.html)** | **[Contribute](./CONTRIBUTING.md)**
 
+## How is the course structured?
+
+Nine chapters follow the AgentOps lifecycle, from a first local model call to an observable Kubernetes workload. Every page opens with an **In one glance** block — what you will do, what you need first, and how long it takes — and ends with a checkpoint you can verify, so you can skim the opening and skip a page when it is not for you today. Depth that is not needed on a first pass sits behind collapsible sections rather than being cut.
+
 ## What makes this course practical?
 
 - **One completed reference:** every chapter inspects and runs the same AgentOps Agent, then the capstone guides you through replacing its fictional domain with your own platform.
@@ -53,7 +57,15 @@ flowchart LR
 
 ## Local quickstart
 
-This first checkpoint installs the pinned toolchain and runs the complete offline test suite. It makes no model, cloud, container, or deployment calls.
+You need a Unix-like shell (Linux, macOS, or WSL2), git, and basic Python. Two things `mise install` cannot install for you, so start there:
+
+```bash
+curl -fsSL https://mise.run | sh          # then follow its instructions to activate your shell
+curl -fsSL https://ollama.com/install.sh -o /tmp/ollama-install.sh
+sh /tmp/ollama-install.sh                 # macOS and Windows: use the ollama.com/download installer
+```
+
+This first checkpoint then installs the pinned toolchain and runs the complete offline test suite. It makes no model, cloud, container, or deployment calls.
 
 ```bash
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
@@ -72,7 +84,7 @@ The core gate validates course content, data, Python, shell, workflows, links, a
 Required test coverage of 95% reached
 ```
 
-For the first interactive run, install Ollama and pull Qwen3:
+For the first interactive run, pull Qwen3 with the Ollama you installed above (~2.5 GB, Apache-2.0 open weights):
 
 ```bash
 ollama pull qwen3:4b-instruct
@@ -86,7 +98,7 @@ cd agents/python
 mise run run
 ```
 
-Ask `List the open incidents`. The response should use the `list_incidents` tool and ground its answer in the local dataset. That is the whole local loop: an agent that reads real data through typed tools and refuses to invent an answer. Chapter 2 explains how it is wired.
+Ask `List the open incidents`. It should answer with **INC-002, INC-005, and INC-010** — three ids from the committed dataset, not three it invented. That is the whole local loop: an agent that reads real data through typed tools and refuses to make one up. `mise run run` prints the answer, not the tool calls behind it; use `mise run web` and its Events timeline to watch those. Chapter 2 explains how it is wired.
 
 The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html).
 

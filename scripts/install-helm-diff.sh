@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${lib_dir}/lib.sh"
+
+require_cmd curl model
+require_cmd helm platform
 
 readonly expected=3.15.10
 readonly expected_commit=5873f8d94712f014dc2bb329acae63b8ffbf569b

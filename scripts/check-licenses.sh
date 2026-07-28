@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${lib_dir}/lib.sh"
+
+require_cmd jq base
 
 readonly allowed_licenses_json='[
   "3-Clause BSD License",

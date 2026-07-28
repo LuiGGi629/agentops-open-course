@@ -15,7 +15,7 @@
 #    entry survived.
 #
 # Usage: backup-drill.sh
-set -euo pipefail
+set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scripts_dir="${repo_dir}/infra/scripts"

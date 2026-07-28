@@ -13,7 +13,7 @@
 #   backup_root  defaults to .state-backups (gitignored); each run publishes a
 #                UTC-timestamped snapshot directory and keeps the most recent
 #                STATE_BACKUP_KEEP (default 7) completed snapshots.
-set -euo pipefail
+set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 state_dir="${1:-${repo_dir}/agents/python/.state}"

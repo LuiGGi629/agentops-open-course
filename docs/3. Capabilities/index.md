@@ -4,17 +4,38 @@ description: Give the agent real powers — tools, skills, MCP, memory, workflow
 
 # 3. Capabilities
 
+!!! abstract "In one glance"
+
+    - **You will:** Map the eight capabilities this chapter bolts onto the agent you already ran, and learn which one to reach for when.
+    - **You need:** Chapter 2 finished, with `mise run test` green in `agents/python`.
+    - **Time:** about 8 minutes, orientation.
+
 ## Which capabilities will you add?
 
-Your agent can now hold a conversation ([Chapter 2](../2. Agents/)); this chapter gives it bounded capabilities: typed read tools, progressively disclosed procedures, those reads optionally routed over MCP, reviewed-runbook retrieval, a fixed control-flow graph, and an A2A endpoint. Each is a small, single-purpose unit that composes cleanly.
+Your agent can now hold a conversation ([Chapter 2](../2. Agents/)). This chapter gives it things it can do — one capability per page, in reading order:
 
-Everything assembles in one composition root. `agent.py` builds `root_agent` and hands it a single flat tool list; each entry is owned by a different module this chapter teaches, and one branch (`_read_tools()`) decides whether reads run locally or over the governed MCP toolset:
+- **[3.0. Packaging](./3.0. Packaging.md)** _(reference)_: The uv package, the lazy ADK import, and the entrypoints every later page depends on.
+- **[3.1. Tools](./3.1. Tools.md)** _(reference)_: Typed functions the agent calls to read incidents, service status, and logs.
+- **[3.2. Skills](./3.2. Skills.md)** _(reference)_: Written procedures the agent loads only when the task needs them.
+- **[3.3. MCP](./3.3. MCP.md)** _(hands-on)_: Those same read tools served over a protocol, and the server you can call yourself.
+- **[3.4. Memory](./3.4. Memory.md)** _(reference)_: What the agent keeps between turns and sessions, and how it looks a runbook up.
+- **[3.5. Workflows](./3.5. Workflows.md)** _(concept)_: A fixed `triage → diagnose → recommend` graph, for when the order is a requirement.
+- **[3.6. A2A](./3.6. A2A.md)** _(hands-on)_: The network endpoint that lets a separate agent send this one a task.
+- **[3.7. Multi-Agent](./3.7. Multi-Agent.md)** _(concept)_: A coordinator that hands work to specialists holding fewer tools than it does.
+
+Each is a small, single-purpose unit that composes cleanly.
+
+Everything assembles in one _composition root_: the single place that wires an agent's dependencies together. `agent.py` builds `root_agent` and hands it a single flat tool list, and each entry in that list is owned by a different module this chapter teaches:
 
 ```python
 --8<-- "agents/python/src/agent/agent.py:root-agent"
 ```
 
-That one assignment is the map for the whole chapter. The read branch swaps in-process tools for MCP when configured; the guarded writes, long-term memory, and skills always stay in-process; and [3.6. A2A](./3.6. A2A.md) wraps the finished agent for the network:
+Read only the `tools=` line for now. The six callback slots under it are policy, owned by [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
+
+That one assignment is the map for the whole chapter. One branch, `_read_tools()`, decides whether reads run locally or over the governed MCP toolset. **MCP** is the Model Context Protocol: one contract for serving a tool to any agent that speaks it ([0.7. Glossary](../0.%20Overview/0.7.%20Glossary.md#mcp)).
+
+The guarded writes, long-term memory, and skills always stay in-process, and [3.6. A2A](./3.6. A2A.md) wraps the finished agent for the network:
 
 ```mermaid
 flowchart TD
@@ -28,11 +49,11 @@ flowchart TD
     root --> server["agent.server<br/>A2A endpoint · 3.6"]
 ```
 
-Two of the chapter's artifacts sit deliberately outside this composition root: the `triage_workflow` graph ([3.5. Workflows](./3.5. Workflows.md)) and the `coordinator_agent` with its specialists ([3.7. Multi-Agent](./3.7. Multi-Agent.md)). They are demonstrations with no CLI or serving entrypoint — `mise run run`, `mise run web`, and `mise run a2a` all serve `root_agent` — so they are exercised only by their tests. That is honest by design: you learn the pattern without wiring a second deployment you do not yet need.
-
 ## Which composition should you reach for?
 
-This chapter introduces six ways to compose work, scattered across 3.1, 3.3, 3.5, 3.6, and 3.7. Five of them form one ladder — plain Python, one agent, a fixed Workflow graph, in-process delegation, and networked A2A — while MCP is the orthogonal move that publishes a capability outward. The rule for the ladder is the same as everywhere else in the course: **take the cheapest option that fits.** Walk the questions top to bottom and stop at the first "yes".
+Six ways to compose work appear in this chapter. The rule for choosing between them: **take the cheapest option that fits.**
+
+Five of them form one ladder — plain Python, one agent, a fixed Workflow graph, in-process delegation, and networked A2A — while MCP is the orthogonal move that publishes a capability outward. That rule is the same as everywhere else in the course. Walk the questions top to bottom and stop at the first "yes".
 
 ```mermaid
 flowchart TD
@@ -47,14 +68,16 @@ flowchart TD
     Q1 -.->|"expose a function to other agents"| MCP["MCP tool · 3.3<br/>publish a read tool over the wire"]
 ```
 
-- **Plain Python** — no judgment is required, so no model call belongs here ([3.5](./3.5. Workflows.md#what-are-the-alternatives-to-an-adk-workflow-graph) ranks this first for a reason).
-- **One agent** — judgment is needed but one authority and toolset cover the task; this is the `root_agent` of [3.1. Tools](./3.1. Tools.md) that the whole chapter assembles.
-- **Fixed Workflow graph** — the order `triage → diagnose → recommend` is a requirement, not a choice, so you write it down as a graph ([3.5. Workflows](./3.5. Workflows.md#what-is-a-workflow-and-why-does-an-agent-need-one)).
-- **In-process delegation** — different authority per specialist, but same process, trust, and lifecycle: a coordinator transfers to least-privilege sub-agents ([3.7. Multi-Agent](./3.7. Multi-Agent.md)).
-- **Networked A2A** — a separate process, trust, and lifecycle forces a network boundary; delegate to a peer agent over the protocol ([3.6. A2A](./3.6. A2A.md#when-is-a2a-worth-its-cost)).
-- **MCP tool** — the orthogonal move: expose one of your functions so _other_ agents can call it ([3.3. MCP](./3.3. MCP.md)).
+- **Plain Python** — no judgment is required, so no model call belongs here.
+- **One agent** — judgment is needed but one authority and toolset cover the task; this is the `root_agent` that the whole chapter assembles.
+- **Fixed Workflow graph** — the order `triage → diagnose → recommend` is a requirement, not a choice, so you write it down as a graph.
+- **In-process delegation** — different authority per specialist, but same process, trust, and lifecycle: a coordinator transfers to least-privilege sub-agents, each holding only the tools its own job needs.
+- **Networked A2A** — a separate process, trust, and lifecycle forces a network boundary; delegate to a peer agent over the protocol.
+- **MCP tool** — the orthogonal move: expose one of your functions so _other_ agents can call it.
 
 The dashed edge marks MCP as orthogonal to the ladder: it is about publishing a capability outward, not about which composition runs your own work.
+
+Each box names the page that owns its option. The ranking of the orchestration technology itself — plain Python, ADK `Workflow`, a graph library, a durable engine — is owned by [3.5. Workflows](./3.5. Workflows.md#what-are-the-alternatives-to-an-adk-workflow-graph).
 
 ## Which capability lives in which module?
 
@@ -71,19 +94,27 @@ Each capability has exactly one owner, so a failure has one place to look. This 
 | [3.6. A2A](./3.6. A2A.md)                 | The persistent A2A server, card, and task store                              | `server.py`, `delegation.py`                                |
 | [3.7. Multi-Agent](./3.7. Multi-Agent.md) | A coordinator with least-privilege specialists                               | `delegation.py`                                             |
 
+??? note "Deeper: why 3.5 and 3.7 have nothing to run"
+
+    Two of the chapter's artifacts sit deliberately outside this composition root: the `triage_workflow` graph ([3.5. Workflows](./3.5. Workflows.md)) and the `coordinator_agent` with its specialists ([3.7. Multi-Agent](./3.7. Multi-Agent.md)). They are demonstrations with no CLI or serving entrypoint — `mise run run`, `mise run web`, and `mise run a2a` all serve `root_agent` — so they are exercised only by their tests. That is honest by design: you learn the pattern without wiring a second deployment you do not yet need.
+
 ## Which switches change this chapter's behavior?
 
-The reference agent has one behavior by default and three opt-in variants, each a single environment variable parsed once in `config.py`. Knowing them up front tells you what is conditional as you read each page:
-
-| Switch                     | Default | Effect when set                                                                   | Page |
-| -------------------------- | ------- | --------------------------------------------------------------------------------- | ---- |
-| `AGENT_MCP_URL`            | unset   | `_read_tools()` swaps the local read tools for the governed MCP toolset           | 3.3  |
-| `AGENT_SEMANTIC_RETRIEVAL` | `false` | Runbook search uses local-embedding vector retrieval, falling back to keywords    | 3.4  |
-| `AGENT_A2A_STREAMING`      | `false` | The A2A server emits partial per-token events, at the redaction cost 3.6 explains | 3.6  |
+Three environment variables change what the agent does, and all three are off by default.
 
 Each defaults to the offline, deterministic path so the test gate needs no model, no network, and no embedding server. You turn a switch on only after a page has shown you the trade-off it buys.
 
-## How do you verify the whole chapter offline?
+??? note "Deeper: the three switches, one per page"
+
+    The reference agent has one behavior by default and three opt-in variants, each a single environment variable parsed once in `config.py`. Knowing them up front tells you what is conditional as you read each page:
+
+    | Switch                     | Default | Effect when set                                                                   | Page |
+    | -------------------------- | ------- | --------------------------------------------------------------------------------- | ---- |
+    | `AGENT_MCP_URL`            | unset   | `_read_tools()` swaps the local read tools for the governed MCP toolset           | 3.3  |
+    | `AGENT_SEMANTIC_RETRIEVAL` | `false` | Runbook search uses local-embedding vector retrieval, falling back to keywords    | 3.4  |
+    | `AGENT_A2A_STREAMING`      | `false` | The A2A server emits partial per-token events, at the redaction cost 3.6 explains | 3.6  |
+
+## What proves this chapter worked?
 
 The chapter checkpoint is the offline test suite for tools, skills, MCP, retrieval, workflows, delegation, and A2A server construction. It runs without a model or network:
 
@@ -92,4 +123,14 @@ cd agents/python
 mise run test
 ```
 
-That is the umbrella gate (`uv run pytest` over the full suite). Each sub-page also has a scoped checkpoint you can run in isolation — for example `uv run pytest tests/test_tools.py tests/test_data.py` for [3.1](./3.1. Tools.md) or `uv run pytest tests/test_server.py tests/test_delegation.py` for [3.6](./3.6. A2A.md) — so you can verify one capability at a time as you build it. Model-backed behavior remains a separate evaluation gate (`mise run eval`), because a green offline suite proves the wiring, not the reasoning.
+That is the umbrella gate (`uv run pytest` over the full suite). Each sub-page also has a scoped checkpoint you can run in isolation, so you can verify one capability at a time as you build it. Two examples: `uv run pytest tests/test_tools.py tests/test_data.py` for [3.1. Tools](./3.1. Tools.md), and `uv run pytest tests/test_server.py tests/test_delegation.py` for [3.6. A2A](./3.6. A2A.md).
+
+Model-backed behavior remains a separate evaluation gate (`mise run eval`), because a green offline suite proves the wiring, not the reasoning.
+
+**You are done when:**
+
+- `mise run test` passes in `agents/python`, with no model server and no network running.
+- You can name the sub-page that owns each capability, and the module behind it.
+- You can point at the one branch in `agent.py` that decides whether reads run locally or over MCP.
+
+Continue to [3.0. Packaging](./3.0.%20Packaging.md) when the `tools=` line of `root_agent` reads as a map of this chapter rather than a list of unfamiliar names.

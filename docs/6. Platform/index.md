@@ -4,9 +4,28 @@ description: Run the same private AgentOps data plane on local k3d and an option
 
 # 6. Platform
 
+!!! abstract "In one glance"
+
+    - **You will:** See where each piece of the Kubernetes deployment lives, and prove both environments render before you install anything.
+    - **You need:** Chapter 5 finished and `mise run doctor:platform` passing.
+    - **Time:** about 12 minutes, orientation.
+
 ## Where will you run the agent?
 
-Chapters 1-5 ran the reference agent as host processes behind agentgateway. This chapter moves that same validated data plane onto Kubernetes: first onto a local [k3d](https://k3d.io/) cluster driven by [kagent](https://kagent.dev/), then, optionally and without applying, onto a GKE plan. The application, protocol, and model-endpoint contracts do not change; the cluster only adds declarative identity, resource bounds, health probes, network policy, persistent state, and rollout ownership. [6.0. Platform](./6.0. Platform.md) owns that "what changes when you move to Kubernetes" argument — read it first.
+Until now you started the agent yourself and restarted it when it died. From here the cluster does that.
+
+Chapters 1-5 ran the reference agent as host processes behind agentgateway. This chapter moves that same validated data plane onto Kubernetes: first onto a local [k3d](https://k3d.io/) cluster driven by [kagent](https://kagent.dev/), then, optionally and without applying, onto a GKE plan. The application, protocol, and model-endpoint contracts do not change. The cluster only adds six things around them:
+
+1. **Declarative identity**: each workload runs as a service account you declared, not as whoever launched it.
+1. **Resource bounds**: CPU and memory limits, so one pod cannot starve the others.
+1. **Health probes**: the cluster calls an endpoint on a schedule and acts when it stops answering.
+1. **Network policy**: an explicit allowlist of which pod may reach which.
+1. **Persistent state**: a volume that outlives the pod using it.
+1. **Rollout ownership**: the cluster restarts and replaces pods, so you stop doing it by hand.
+
+[6.0. Platform](./6.0. Platform.md) owns that "what changes when you move to Kubernetes" argument — read it first.
+
+This page applies nothing and creates no cluster. `mise run cluster:start` belongs to [6.2. Platform Install](./6.2. Platform Install.md), and the agent workloads are deployed only in [6.6. Platform Delivery](./6.6. Platform Delivery.md).
 
 The install is a short, ordered path, and each step is owned by exactly one sub-page:
 
@@ -25,7 +44,20 @@ flowchart TD
 
 ## Which page owns which platform manifest?
 
-Every platform concern has one owning manifest, so a broken rollout has one place to look. This chapter's pages map onto the `infra/` tree like this:
+Every platform concern has one owning manifest, so a broken rollout has one place to look.
+
+This chapter covers:
+
+- **[6.0. Platform](./6.0. Platform.md)** _(concept)_: Understand what changes when the agent stops being a process you start and becomes a resource you declare.
+- **[6.1. Containers](./6.1. Containers.md)** _(hands-on)_: Build the non-root agent image, then scan the exact artifact you built.
+- **[6.2. Platform Install](./6.2. Platform Install.md)** _(hands-on)_: Create the tracked k3d cluster and registry, then install the pinned kagent chart.
+- **[6.3. Platform Agents](./6.3. Platform Agents.md)** _(reference)_: Read the hardened BYO `Agent` and the `ModelConfig` that points it at the gateway.
+- **[6.4. Platform Tools](./6.4. Platform Tools.md)** _(reference)_: Move the six read-only tools into their own in-cluster MCP deployment.
+- **[6.5. Platform Gateway](./6.5. Platform Gateway.md)** _(reference)_: Keep agentgateway private behind network policy, and keep its secrets encrypted in git.
+- **[6.6. Platform Delivery](./6.6. Platform Delivery.md)** _(hands-on)_: Deploy the whole stack with Skaffold, back up the state, drill a restore, then tear down.
+- **[6.7. Progressive Delivery](./6.7. Progressive Delivery.md)** _(hands-on)_: Gate a promotion on evaluation, and ship the prompt as the surface you can reverse instantly.
+
+Each page also owns the manifests below, so a symptom maps to one file:
 
 | Sub-page                                                    | What it adds                                                    | Owning manifest(s)                                        |
 | ----------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
@@ -40,39 +72,39 @@ Every platform concern has one owning manifest, so a broken rollout has one plac
 
 ## What changes between the local and GKE overlays?
 
-Both overlays layer onto the same `infra/k8s/base` Kustomize base, so ports, the MCP read route, the A2A image contract, the state PVCs, and the OTel pipeline are byte-identical across environments. Only environment-specific values differ, and every one is a small patch you can diff:
+Six values change between local k3d and GKE. Everything else is the same file.
 
-| Concern          | `overlays/local`                        | `overlays/gke`                                               |
-| ---------------- | --------------------------------------- | ------------------------------------------------------------ |
-| Gateway config   | `agentgateway/k3d`                      | `agentgateway/gke`                                           |
-| Model backend    | `qwen3:4b-instruct` (host Ollama)       | `gemini-3.5-flash` (Vertex)                                  |
-| Image registry   | `registry.localhost:5050`               | Artifact Registry (`…-docker.pkg.dev`)                       |
-| Identity         | in-cluster ServiceAccounts              | GKE Workload Identity annotations (`workload-identity.yaml`) |
-| MLflow artifacts | local PVC (`/var/lib/mlflow/artifacts`) | `gs://agentops-open-course-mlflow-artifacts`                 |
-| Egress exception | host Ollama TCP `:11434`                | Vertex `:443` plus the WIF metadata endpoint `:987`/`:988`   |
+**Kustomize** renders YAML from a shared `base/` folder plus a small per-environment `overlays/` folder of patches; `kubectl kustomize <dir>` prints the result.
 
-The model-backend and MLflow-artifacts rows are each a `patches:` entry in exactly one overlay's `kustomization.yaml`, not in both: the model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`, and `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`; conversely the MLflow override (`gs://agentops-open-course-mlflow-artifacts`) lives only in `overlays/gke`, and `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`. The egress rows are `NetworkPolicy` additions [6.5](./6.5. Platform Gateway.md) explains and `scripts/check-infra.sh` asserts. Skaffold selects the overlay with `-p local` or `-p gke` and never mixes the two.
+Both overlays layer onto the same `infra/k8s/base` Kustomize base, so ports, the MCP read route, the A2A image contract, the state PVCs, and the OTel pipeline are byte-identical across environments. A **PersistentVolumeClaim (PVC)** is a disk the cluster keeps and re-attaches to a replacement pod.
 
-## How do you verify the whole platform without a cloud account?
+Skaffold selects the overlay with `-p local` or `-p gke` and never mixes the two.
 
-The chapter checkpoint renders and validates both overlays offline: no live cluster, no GCP project, no model. `mise run check:infra` (which runs `scripts/check-infra.sh`) builds each overlay with `kustomize`, validates every object with `kubeconform` and `kube-linter`, diagnoses both Skaffold profiles, lints the helmfile, and runs `tofu validate` against the GKE plan:
+??? note "Deeper: the row-by-row overlay diff"
 
-```bash
-mise run check:infra
-```
+    Only environment-specific values differ, and every one is a small patch you can diff:
 
-For a faster spot check, render each overlay the way [6.0](./6.0. Platform.md) does and diff the output; the model backend, identity annotations, and MLflow artifact destination should change while the application ports, read-tool route, and A2A image contract stay fixed (the local overlay also adds the Prometheus/Alertmanager stack the GKE overlay omits):
+    | Concern          | `overlays/local`                        | `overlays/gke`                                               |
+    | ---------------- | --------------------------------------- | ------------------------------------------------------------ |
+    | Gateway config   | `agentgateway/k3d`                      | `agentgateway/gke`                                           |
+    | Model backend    | `qwen3:4b-instruct` (host Ollama)       | `gemini-3.5-flash` (Vertex)                                  |
+    | Image registry   | `registry.localhost:5050`               | Artifact Registry (`…-docker.pkg.dev`)                       |
+    | Identity         | in-cluster ServiceAccounts              | GKE Workload Identity annotations (`workload-identity.yaml`) |
+    | MLflow artifacts | local PVC (`/var/lib/mlflow/artifacts`) | `gs://agentops-open-course-mlflow-artifacts`                 |
+    | Egress exception | host Ollama TCP `:11434`                | Vertex `:443` plus the WIF metadata endpoint `:987`/`:988`   |
 
-```bash
-kubectl kustomize infra/k8s/overlays/local >/dev/null
-kubectl kustomize infra/k8s/overlays/gke >/dev/null
-```
+    Two of those rows are a `patches:` entry in exactly one overlay's `kustomization.yaml`, not in both:
 
-The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platform Delivery](./6.6. Platform Delivery.md) walks the plan and the teardown, and no cloud resource is created without a later, explicit approval.
+    1. The model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`; `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`.
+    1. The MLflow override (`gs://agentops-open-course-mlflow-artifacts`) lives only in `overlays/gke`; `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`.
+
+    The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway](./6.5. Platform Gateway.md) explains and `scripts/check-infra.sh` asserts.
 
 ## What breaks first, and where do you look?
 
-The same handful of failures recur across this chapter and the next, and every one is a wiring mistake rather than a bug in the agent. Each row below is a symptom you can observe, the misconfiguration that usually causes it, and the page that owns the fix:
+The same handful of failures recur across this chapter and the next. Every one is a wiring mistake, not a bug in the agent.
+
+Each row below is a symptom you can observe, the misconfiguration that usually causes it, and the page that owns the fix:
 
 | Symptom                                               | Likely cause                                                                                                        | Where to look                                                                                                     |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -81,3 +113,28 @@ The same handful of failures recur across this chapter and the next, and every o
 | Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                          | [6.6. Platform Delivery](./6.6. Platform Delivery.md#how-do-you-run-the-full-local-kubernetes-stack)              |
 | Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                               | [6.6. Platform Delivery](./6.6. Platform Delivery.md#how-do-you-run-the-full-local-kubernetes-stack)              |
 | Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees    | [7.0. Reproducibility](../7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination)      |
+
+## What proves this chapter worked?
+
+One command renders and validates both overlays offline: no live cluster, no GCP project, no model.
+
+```bash
+mise run check:infra
+```
+
+It runs `scripts/check-infra.sh`. That script builds each overlay with `kustomize`, then validates every object with `kubeconform` and `kube-linter` — a schema checker and a best-practice linter. It also diagnoses both Skaffold profiles, lints the helmfile, and runs `tofu validate` against the GKE plan.
+
+The script also runs `tflint` on that plan, so it needs the `opentofu` and `tflint` binaries pinned in `mise.toml`. `mise run doctor:platform` checks for neither, so this gate can fail on a machine whose doctor is green.
+
+For a faster spot check, render each overlay the way [6.0. Platform](./6.0. Platform.md) does and diff the output; its checkpoint owns those two commands. The local overlay also adds the Prometheus/Alertmanager stack the GKE overlay omits.
+
+The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platform Delivery](./6.6. Platform Delivery.md) walks the plan and the teardown, and no cloud resource is created without a later, explicit approval.
+
+**You are done when:**
+
+- `mise run doctor:platform` exits 0.
+- `mise run check:infra` exits 0, having rendered and validated both the `local` and the `gke` overlay.
+- You can name, for any of the eight sub-pages, the manifest it owns.
+- You can say why no cluster exists yet, and which page creates one.
+
+Continue to [6.0. Platform](./6.0.%20Platform.md) when `mise run check:infra` passes without a cluster, a GCP project, or a model.
