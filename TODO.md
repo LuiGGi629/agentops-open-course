@@ -71,6 +71,8 @@ None of this is configured yet: `gcloud config get-value project` returns `fmind
 
 Two cautions: Vertex calls are billed, so keep runs small and prefer `smoke:host` over live model loops where a fake model proves the same composition. And a Gemini run will differ from a Qwen3 run — where a page's expected output is model-dependent, say so on the page rather than pinning Gemini's wording.
 
+**There is already evidence waiting for you.** The scheduled `Eval` workflow is red, and has been since before this work: `mise run eval:mlflow` failed with `tool_trajectory/mean=0.384615 (required 1.0)` — Qwen3-4B on a CPU GitHub runner produced the expected tool trajectory in 5 of the 13 committed cases. That is a genuine signal, not a broken pipeline, and `AGENTS.md` is right that it is scheduled evidence rather than a merge gate. Decide what it means: whether a perfect-trajectory threshold is the right bar for a 4B model on a CPU runner, whether the eval cases over-specify the trajectory, or whether the instruction needs work. **Do not lower the threshold to turn the workflow green** — measure first, on Gemini and on Qwen3, and change the bar only if the evidence says the bar was wrong.
+
 ## 2. Add an exercise at the end of every chapter
 
 Chapters 0, 1, 2, 5, 6 and 8 ship no exercise; Chapter 3 has eight, Chapter 4 has two, Chapter 7 has one. Tracked as [#47](https://github.com/MLOps-Courses/agentops-open-course/issues/47), which lists 0, 1, 2, 5 and 6 — add 8.
@@ -152,6 +154,11 @@ mise run build          # strict Zensical build
 ```
 
 No warning suppressed, no test skipped, no assertion weakened to force a pass. If something is genuinely broken, fix the cause or report it — `AGENTS.md` → "Definition of done".
+
+On GitHub, `CI`, `Scan` and `Docs` are green on `main`. Two scheduled workflows are red for reasons that predate this work and that a code change cannot fix:
+
+1. **`Renovate`** fails with `'token' MUST be passed using its input or the 'RENOVATE_TOKEN' environment variable`. The repository secret was never set — it is the one item still open from the go-public checklist. Only the repository owner can add it.
+1. **`Eval`** fails on the model-quality regression described in item 1. Read that before touching anything.
 
 ### Clean structure
 
