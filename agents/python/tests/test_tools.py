@@ -103,6 +103,16 @@ def test_agent_registers_tools() -> None:
     assert len(root_agent.tools) == expected
 
 
+def test_named_wrapped_read_tools_compose_the_default_surfaces() -> None:
+    assert tools.ALL_TOOLS == [
+        tools.LIST_INCIDENTS_TOOL,
+        tools.GET_INCIDENT_TOOL,
+        tools.GET_SERVICE_STATUS_TOOL,
+        tools.SEARCH_SERVICE_LOGS_TOOL,
+    ]
+    assert memory.KNOWLEDGE_TOOLS == [memory.GET_RUNBOOK_TOOL, memory.SEARCH_RUNBOOKS_TOOL]
+
+
 def test_agent_uses_governed_mcp_read_tools_when_configured(monkeypatch) -> None:
     sentinel = cast("ToolUnion", object())
     monkeypatch.setattr(agent_module.settings, "mcp_url", "http://agentgateway:3000/mcp")

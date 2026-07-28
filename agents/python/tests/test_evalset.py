@@ -140,11 +140,16 @@ def test_structured_report_eval_exercises_a_valid_typed_response() -> None:
     text = turn["final_response"]["parts"][0]["text"]
     report = TriageReport.model_validate_json(text)
     assert report.incident_id == "INC-002"
-    assert [use["name"] for use in turn["intermediate_data"]["tool_uses"]] == [
+    incident = data.get_incident(report.incident_id)
+    assert incident is not None
+    tool_uses = turn["intermediate_data"]["tool_uses"]
+    assert [use["name"] for use in tool_uses] == [
         "get_incident",
         "search_service_logs",
         "get_runbook",
     ]
+    assert tool_uses[1]["args"]["service"] == incident.service
+    assert tool_uses[2]["args"]["slug"] == incident.runbook
 
 
 def test_workflow_eval_exercises_plan_review_and_read_only_evidence() -> None:
@@ -154,15 +159,19 @@ def test_workflow_eval_exercises_plan_review_and_read_only_evidence() -> None:
     assert case["session_input"]["app_name"] == "triage_workflow"
     turn = case["conversation"][0]
     assert "INC-001" in turn["user_content"]["parts"][0]["text"]
-    assert [use["name"] for use in turn["intermediate_data"]["tool_uses"]] == [
+    incident = data.get_incident("INC-001")
+    assert incident is not None
+    tool_uses = turn["intermediate_data"]["tool_uses"]
+    assert [use["name"] for use in tool_uses] == [
         "get_incident",
         "get_service_status",
         "search_service_logs",
         "get_runbook",
     ]
-    assert not {"restart_service", "resolve_incident", "save_incident_note"} & {
-        use["name"] for use in turn["intermediate_data"]["tool_uses"]
-    }
+    assert tool_uses[1]["args"]["name"] == incident.service
+    assert tool_uses[2]["args"]["service"] == incident.service
+    assert tool_uses[3]["args"]["slug"] == incident.runbook
+    assert not {"restart_service", "resolve_incident", "save_incident_note"} & {use["name"] for use in tool_uses}
 
 
 @pytest.mark.parametrize(

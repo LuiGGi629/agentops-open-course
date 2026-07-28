@@ -94,5 +94,10 @@ def test_double_violation_degrades_to_prose_and_counts(monkeypatch, caplog) -> N
 def test_report_agent_enforces_the_schema() -> None:
     assert report.triage_report_agent.output_schema is TriageReport
     assert report_eval_agent is report.triage_report_agent
-    tool_names = {getattr(tool, "__name__", "") for tool in report.triage_report_agent.tools}
-    assert "restart_service" not in tool_names  # structured path stays read-only
+    tool_names = [
+        getattr(tool, "name", None) or getattr(tool, "__name__", "") for tool in report.triage_report_agent.tools
+    ]
+    assert tool_names == ["get_incident", "search_service_logs", "get_runbook"]
+    assert "exact service and runbook fields" in report.REPORT_INSTRUCTION
+    assert "no query filter" in report.REPORT_INSTRUCTION
+    assert "that order" in report.REPORT_INSTRUCTION

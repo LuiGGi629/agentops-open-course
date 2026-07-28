@@ -21,12 +21,12 @@ from pydantic import ValidationError
 from .budget import enforce_token_budget, record_token_usage
 from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
-from .memory import KNOWLEDGE_TOOLS
+from .memory import GET_RUNBOOK_TOOL
 from .model import build_model
 from .models import TriageReport
 from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
-from .tools import ALL_TOOLS
+from .tools import GET_INCIDENT_TOOL, SEARCH_SERVICE_LOGS_TOOL
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,11 @@ _SCHEMA_FAILURES = metrics.get_meter("agentops.agent").create_counter(
 
 REPORT_INSTRUCTION = """\
 You produce a machine-consumable triage report for one incident.
-Use get_incident for the record, search_service_logs for evidence, and get_runbook
-for the remediation guidance. Fill every field of the TriageReport schema from tool
-output only — never invent ids, services, or log lines. Respond with the JSON object
-only: no prose, no Markdown fences.
+Call get_incident first. Read its exact service and runbook fields, then call
+search_service_logs with that service and no query filter, then get_runbook with
+that runbook slug, in that order. Fill every field of the TriageReport schema
+from tool output only — never invent ids, services, runbooks, or log lines.
+Respond with the JSON object only: no prose, no Markdown fences.
 """
 
 # The structured entry point. The conversational root_agent stays unchanged;
@@ -54,7 +55,7 @@ triage_report_agent = Agent(
     name="triage_report_agent",
     description="Produces a schema-validated triage report for a single incident.",
     instruction=REPORT_INSTRUCTION,
-    tools=[*ALL_TOOLS, *KNOWLEDGE_TOOLS],
+    tools=[GET_INCIDENT_TOOL, SEARCH_SERVICE_LOGS_TOOL, GET_RUNBOOK_TOOL],
     output_schema=TriageReport,
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],

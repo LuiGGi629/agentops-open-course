@@ -123,12 +123,20 @@ def search_service_logs(service: str, query: str = "", limit: int = 20) -> dict[
     return {"service": normalized, "count": len(matches), "lines": matches}
 
 
-# The tools registered on the AgentOps Agent, each wrapped with a deadline and bounded
-# retries because reads are idempotent (Ch. 4.5). Guarded actions (restart/resolve)
-# join in Ch. 4.5 and stay unwrapped: retrying a write could apply it twice.
+# Named wrapped tools let specialist agents expose only the reads their contract
+# needs. The default agent still receives the complete list below.
+LIST_INCIDENTS_TOOL: ToolUnion = with_resilience(list_incidents)
+GET_INCIDENT_TOOL: ToolUnion = with_resilience(get_incident)
+GET_SERVICE_STATUS_TOOL: ToolUnion = with_resilience(get_service_status)
+SEARCH_SERVICE_LOGS_TOOL: ToolUnion = with_resilience(search_service_logs)
+
+# The tools registered on the AgentOps Agent, each wrapped with a deadline and
+# bounded retries because reads are idempotent (Ch. 4.5). Guarded actions
+# (restart/resolve) join in Ch. 4.5 and stay unwrapped: retrying a write could
+# apply it twice.
 ALL_TOOLS: list[ToolUnion] = [
-    with_resilience(list_incidents),
-    with_resilience(get_incident),
-    with_resilience(get_service_status),
-    with_resilience(search_service_logs),
+    LIST_INCIDENTS_TOOL,
+    GET_INCIDENT_TOOL,
+    GET_SERVICE_STATUS_TOOL,
+    SEARCH_SERVICE_LOGS_TOOL,
 ]

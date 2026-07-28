@@ -15,16 +15,30 @@ from google.adk.agents.llm_agent import ToolUnion
 from .budget import enforce_token_budget, record_token_usage
 from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
-from .memory import KNOWLEDGE_TOOLS
+from .memory import GET_RUNBOOK_TOOL
 from .model import build_model
 from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
-from .tools import ALL_TOOLS
+from .tools import GET_INCIDENT_TOOL, GET_SERVICE_STATUS_TOOL, LIST_INCIDENTS_TOOL, SEARCH_SERVICE_LOGS_TOOL
 
 setup_telemetry()
 
-# Every tool in this workflow is read-only. Guarded actions remain on the interactive root agent.
-_READ_TOOLS: list[ToolUnion] = [*ALL_TOOLS, *KNOWLEDGE_TOOLS]
+# Each stage receives only the exact reads it needs. Review may verify named
+# sources, and recommendation may reload the handed-off runbook; neither can
+# reopen discovery and drift to a different target.
+_INVESTIGATION_TOOLS: list[ToolUnion] = [
+    GET_INCIDENT_TOOL,
+    GET_SERVICE_STATUS_TOOL,
+    SEARCH_SERVICE_LOGS_TOOL,
+    GET_RUNBOOK_TOOL,
+    LIST_INCIDENTS_TOOL,
+]
+_REVIEW_TOOLS: list[ToolUnion] = [
+    GET_INCIDENT_TOOL,
+    GET_SERVICE_STATUS_TOOL,
+    SEARCH_SERVICE_LOGS_TOOL,
+    GET_RUNBOOK_TOOL,
+]
 
 # 1) Plan: turn the request into a small, observable investigation contract.
 plan = Agent(
@@ -34,8 +48,10 @@ plan = Agent(
     instruction=(
         "Turn the request into an investigation plan with at most four bullets. Preserve the exact "
         "incident or service named by the user. If none is named, plan to select the most urgent "
-        "unresolved incident. State the target, the checks to run, the evidence that would support "
-        "recovery, and the condition for stopping or escalating. Do not diagnose or recommend yet."
+        "unresolved incident. Use only this evidence frame: incident record, affected service "
+        "status, service logs, and the exact runbook linked by the incident record. Do not invent "
+        "symptoms, causes, systems, time windows, hypotheses, or recovery facts absent from the "
+        "request. Do not diagnose or recommend. State the condition for stopping or escalating."
     ),
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
@@ -50,12 +66,19 @@ investigate = Agent(
     name="investigate",
     description="Collects read-only evidence for the planned incident investigation.",
     instruction=(
-        "Execute the investigation plan for one incident. If the plan has no incident id, use "
-        "list_incidents to select the most urgent unresolved incident (lowest SEV number). Read its "
-        "details, service status, relevant logs, and runbook. Return only concise observed evidence "
-        "with source names; label any inference and stop plainly when required evidence is missing."
+        "The plan controls which evidence to collect; it is not evidence. Execute it for one "
+        "incident. If it has no incident id, call list_incidents, filtering by the exact named "
+        "service when present, and select the most urgent unresolved incident (lowest SEV number). "
+        "Call get_incident for the exact id. Derive the service and runbook slug only from that "
+        "record, then call get_service_status with the exact service, search_service_logs with that "
+        "service and no query filter, and get_runbook with the exact linked slug, in that order. Do "
+        "not introduce another domain or substitute fuzzy runbook search. Return only concise "
+        "observed evidence with source names; label any inference and stop plainly when required "
+        "evidence is missing. Preserve the exact incident id, service, and runbook slug in the "
+        "handoff, together with observed service status, unfiltered log evidence, and relevant "
+        "runbook guidance."
     ),
-    tools=_READ_TOOLS,
+    tools=_INVESTIGATION_TOOLS,
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
@@ -69,14 +92,17 @@ evidence_review = Agent(
     name="evidence_review",
     description="Checks whether incident evidence supports a safe recommendation.",
     instruction=(
-        "Review the investigation evidence against the incident, service status, logs, and runbook. "
-        "Re-read a source when needed to resolve one material gap. Separate observations from "
+        "Treat the handed-off investigation as claims, not source truth. When needed to resolve one "
+        "material gap, re-read only its exact incident with get_incident, service with "
+        "get_service_status, unfiltered service logs with search_service_logs, or runbook slug with "
+        "get_runbook; never discover or invent a replacement. Separate observations from "
         "inferences and name missing or conflicting evidence. Return a compact handoff containing "
         "the exact incident id, service, runbook slug, at most four key observations, remaining "
-        "gaps, and a supported, insufficient, or conflicting verdict with one short reason. "
-        "Do not recommend or take an action."
+        "gaps, and a supported, insufficient, or conflicting verdict with one short reason. If an "
+        "exact identifier or required source is absent, return an explicit insufficient verdict "
+        "and name it; never return an opaque error. Do not recommend or take an action."
     ),
-    tools=_READ_TOOLS,
+    tools=_REVIEW_TOOLS,
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,
@@ -90,14 +116,15 @@ recommend = Agent(
     name="recommend",
     description="Recommends concrete, runbook-backed remediation.",
     instruction=(
-        "Recommend only what the evidence review supports. If its verdict is insufficient or "
-        "conflicting, ask for the missing check instead of proposing a write. Otherwise give at "
-        "most three runbook-backed next steps, the expected recovery evidence, and a rollback or "
-        "stop condition, preserving the exact incident and service from the handoff. Flag "
-        "restart_service or resolve_incident as requiring human approval; never call either "
-        "action. Cite the handed-off runbook slug."
+        "Use only the evidence-review handoff and the exact runbook slug it names; never discover "
+        "an alternative. Recommend only what its verdict supports. If the verdict is insufficient "
+        "or conflicting, ask for the missing check instead of proposing a write. Otherwise call "
+        "get_runbook with the handed-off slug, then give at most three runbook-backed next steps, "
+        "the expected recovery evidence, and a rollback or stop condition, preserving the exact "
+        "incident and service from the handoff. Flag restart_service or resolve_incident as "
+        "requiring human approval; never call either action. Cite the handed-off runbook slug."
     ),
-    tools=KNOWLEDGE_TOOLS,
+    tools=[GET_RUNBOOK_TOOL],
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
     after_model_callback=[record_token_usage, redact_response_pii],
     after_tool_callback=secure_tool_output,

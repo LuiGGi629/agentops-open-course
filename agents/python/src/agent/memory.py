@@ -120,6 +120,12 @@ def search_runbooks(query: str, limit: int = 3) -> dict[str, Any]:
     }
 
 
-# The knowledge tools registered on the AgentOps Agent (Ch. 3.4), wrapped with the
-# same deadline/retry policy as the read tools — runbook reads are idempotent.
-KNOWLEDGE_TOOLS: list[ToolUnion] = [with_resilience(get_runbook), with_resilience(search_runbooks)]
+# Named wrapped tools let a specialist fetch a known runbook without also
+# receiving open-ended search. The default agent still receives both.
+GET_RUNBOOK_TOOL: ToolUnion = with_resilience(get_runbook)
+SEARCH_RUNBOOKS_TOOL: ToolUnion = with_resilience(search_runbooks)
+
+# The knowledge tools registered on the AgentOps Agent (Ch. 3.4), wrapped with
+# the same deadline/retry policy as the read tools — runbook reads are
+# idempotent.
+KNOWLEDGE_TOOLS: list[ToolUnion] = [GET_RUNBOOK_TOOL, SEARCH_RUNBOOKS_TOOL]
