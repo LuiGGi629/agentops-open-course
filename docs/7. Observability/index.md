@@ -88,7 +88,7 @@ Which scraper — the process that pulls metrics from an endpoint on a schedule 
 
 ??? note "Deeper: what each deployment profile ships"
 
-    Which scraper and UI actually exist depends on the deployment profile, and every sibling page re-states this split:
+    This table is the canonical deployment-profile split; sibling pages link back instead of restating it. Both collector profiles expose span-derived metrics at `:8889`. The Kubernetes collector also scrapes agentgateway `:15020`, so its `:8889` endpoint includes gateway metrics.
 
     | Profile           | Config                             | Scraper + alert rules                                                        | Grafana      | How you reach it                                |
     | ----------------- | ---------------------------------- | ---------------------------------------------------------------------------- | ------------ | ----------------------------------------------- |

@@ -6,7 +6,7 @@ description: "Make the agent correct and trustworthy: typing, linting, testing, 
 
 !!! abstract "In one glance"
 
-    - **You will:** See how the seven quality gates in this chapter fit together, and which ones block a merge versus which ones only inform you.
+    - **You will:** See how the chapter's seven quality layers fit together and which page owns each check.
     - **You need:** Chapter 3 finished and `mise run test` passing.
     - **Time:** about 5 minutes, orientation.
 
@@ -28,42 +28,9 @@ The early checkpoints need no model, account, or bill. Some static checks and su
 
 Two pages end in a hands-on build step, so expect to write code, not just read. [4.4. Evaluations](./4.4. Evaluations.md) has you add an eval case, and [4.5. Guardrails](./4.5. Guardrails.md) has you turn a guardrail into a test that fails if it ever weakens.
 
-## Where does each quality gate run?
+## Where is gate versus evidence explained?
 
-The same `mise run` tasks execute at three different moments, and the moment decides whether a red result blocks you or just informs you:
-
-```mermaid
-flowchart TD
-    subgraph blocking["Blocking — a red gate stops the change"]
-        direction TB
-        PC["pre-commit hook (lefthook.yml)<br/>format · check · secure:staged"]
-        PP["pre-push hook (lefthook.yml)<br/>test"]
-        CI["CI merge gate (ci.yml)<br/>check · test · redteam · eval:validate"]
-        PC --> PP --> CI
-    end
-    subgraph evidence["Evidence — a red run is a signal, not a block"]
-        direction TB
-        EV["weekly model run (eval.yml)<br/>eval · eval:report · eval:mlflow · eval:cost · eval:ground"]
-    end
-    CI -. after merge, on schedule .-> EV
-    EV -.-> PROD["production signals (Chapter 7)"]
-```
-
-The rule is short. The local hooks and the CI **merge gate** — the check a change must pass before it can merge — block a change; the weekly model run only informs.
-
-??? note "Deeper: which task runs in which workflow"
-
-    1. **Local hooks (`lefthook.yml`)** run the model-free gates before code leaves your machine: `format` and `check` (typing, lint, docs, links, licenses) plus `secure:staged` on commit, then `test` on push. The dependency audit inside `check` may use package-index network access.
-    1. **The CI merge gate (`.github/workflows/ci.yml`)** re-runs the same `check` and `test` on a clean runner and adds two named signals — the deterministic `redteam` suite and offline `eval:validate` — so a regression blocks the merge instead of hiding in one line of the full log. No gate above this point calls a model, uses a provider key, or creates model cost; `test`, `redteam`, and `eval:validate` are fully offline.
-    1. **The weekly model-backed workflow (`.github/workflows/eval.yml`, Monday 07:00 UTC or manual dispatch)** is the only tier that calls a model; it provisions a local Ollama server on the runner and runs `eval`, `eval:report`, `eval:mlflow`, `eval:cost`, and `eval:ground` against the fixed seed data. It is scheduled evidence, never a PR gate: a failed run points you at uploaded artifacts to inspect, not at a blocked merge.
-
-So the chapter stays model-free until [4.3. Metrics](./4.3. Metrics.md) explicitly asks for a configured provider; everything before it runs with no account and no bill.
-
-Be equally clear about the ceiling. Three things prove less than their names suggest: the `redteam` suite, the optional MLflow judge, and the audit trail. A green interactive demo cannot substitute for any of these gates.
-
-??? note "Deeper: what these gates do not prove"
-
-    The `redteam` suite is a deterministic offline regression, not live model red-teaming; the optional MLflow judge is advisory evidence with no enforced pass threshold unless a release policy sets one; and the audit trail is an append-only SQLite log on a writable volume, not an externally immutable or externally shipped sink.
+[4.4. Evaluations](./4.4.%20Evaluations.md#which-evaluation-task-should-you-run-and-when) owns the definition, workflow map, and task-by-task decision. This index only marks each page's prerequisites so you can enter the chapter without learning the same policy twice.
 
 ## What proves this chapter worked?
 
@@ -81,7 +48,7 @@ Neither needs a model, a provider key, or a network.
 
 - `mise run test` passes, including the enforced 95% branch-coverage floor.
 - `mise run redteam` passes every adversarial case in `tests/test_security.py`.
-- You can name which moments block a change (the local hooks, the CI merge gate) and which one only reports (the weekly model run).
-- You can say which pages ahead need a configured model and which run offline.
+- You can use the page markers above to say which checkpoints need a configured model and which run offline.
+- You can point to [4.4. Evaluations](./4.4.%20Evaluations.md#which-evaluation-task-should-you-run-and-when) for the chapter's gate-versus-evidence policy.
 
-Continue to [4.0. Typing](./4.0.%20Typing.md) when you can tell a gate that blocks a merge from a run that only produces evidence.
+Continue to [4.0. Typing](./4.0.%20Typing.md) when you know the first three pages need no model or provider account.

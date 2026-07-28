@@ -50,34 +50,9 @@ Staging keeps the base learning path account-free and free of containers, cluste
 
 ## Which tier does each chapter actually require?
 
-`scripts/doctor.sh` takes a profile argument and checks the exact tools that path uses. A **profile** is a scoped prerequisite check, not proof that every other profile passes. Run the doctors named by the chapter you are entering:
+[1.0. System](./1.0.%20System.md) owns the exact profile-to-chapter map, independence rule, probes, and matching install tiers. Run the doctor named by the chapter you are entering; later pages repeat only the command they ask you to use.
 
-```mermaid
-flowchart LR
-    base["base — Ch. 1<br/>git, uv, dprint, both venvs"]
-    model["model — Ch. 2-4<br/>+ curl, jq, ollama,<br/>qwen3:4b-instruct probe"]
-    gateway["gateway — Ch. 5<br/>+ curl, docker, jq, yq,<br/>docker info"]
-    platform["platform — Ch. 6<br/>+ rg, k3d, kubectl, helm, helmfile,<br/>skaffold, kustomize, kubeconform,<br/>kube-linter, agentgateway, helm-diff"]
-    gcp["gcp — optional<br/>+ tofu, tflint, gcloud, ADC"]
-    base --> model
-    base --> gateway --> platform --> gcp
-```
-
-- **`mise run doctor` (base):** `git`, `uv`, `dprint`, and both the `.venv` and `agents/python/.venv` Python environments; it also reports whether an optional `.env` is present.
-- **`mise run doctor:model` (Chapters 2-4):** the base plus `curl`, `jq`, `ollama`, and a live probe that `qwen3:4b-instruct` is served on the local Ollama endpoint.
-- **`mise run doctor:gateway` (Chapter 5):** the base plus `curl`, `docker`, `jq`, `yq`, a `docker info` daemon check, and `docker compose version`.
-- **`mise run doctor:platform` (Chapter 6):** the gateway set plus the pinned Kubernetes tools and a `kubectl` context report.
-- **`mise run doctor:gcp` (optional lab):** the platform set plus `tofu`, `tflint`, `gcloud`, an active project, and Application Default Credentials — the local Google Cloud login that client libraries pick up automatically.
-
-??? note "Deeper: every tool the platform profile checks"
-
-    Spelled out, the tools it adds to the gateway set are `rg`, `k3d`, `kubectl`, `helm`, `helmfile`, `skaffold`, `kustomize`, `kubeconform`, `kube-linter`, `agentgateway`, and the `helm-diff 3.15.10` plugin. See [`scripts/doctor.sh`](https://github.com/MLOps-Courses/agentops-open-course/blob/main/scripts/doctor.sh).
-
-`mise run check:core` is the model-, container-, cluster-, and cloud-free learner gate you will use. It excludes the separate MLflow server and platform checks. Its `pip-audit` step may use the network for advisory data, so only the test and `eval:validate` suites are accurately called offline. The full `mise run check` is the maintainer gate and needs the later toolchain.
-
-??? note "Deeper: what each of those two gates runs"
-
-    The base learning path's quality gate is `mise run check:core`. It validates the learner-facing docs, data, agent, scripts, skills, and repository conventions without the MLflow or platform toolchains. The full `mise run check` adds maintainer-owned checks for every shipped surface. That distinction has a consequence: contributing a commit exercises the full gate, while a learner who only reads and runs the agent stays on `check:core`.
+[1.5. Workspace](./1.5.%20Workspace.md) owns the learner-versus-maintainer gate boundary, including the advisory-network caveat. Chapter 1 uses `mise run check:core`; the closing checkpoint below is its canonical command list.
 
 ## What is deliberately not part of this chapter?
 
