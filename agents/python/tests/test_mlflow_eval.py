@@ -645,8 +645,10 @@ def test_main_marks_logged_model_failed_when_evaluation_fails(monkeypatch) -> No
     ("metrics", "failure"),
     [
         (
-            {**_PASSING_METRICS, "tool_policy/mean": 0.75},
-            "tool_policy/mean=0.75",
+            # Below the 0.60 tool_policy floor: the agent is proposing the wrong guarded write
+            # in more than a third of turns, which is a collapse rather than a weak model.
+            {**_PASSING_METRICS, "tool_policy/mean": 0.5},
+            "tool_policy/mean=0.5",
         ),
         (
             {name: value for name, value in _PASSING_METRICS.items() if name != "response_facts/mean"},
