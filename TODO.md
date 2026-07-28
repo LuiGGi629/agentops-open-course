@@ -71,7 +71,18 @@ None of this is configured yet: `gcloud config get-value project` returns `fmind
 
 Two cautions: Vertex calls are billed, so keep runs small and prefer `smoke:host` over live model loops where a fake model proves the same composition. And a Gemini run will differ from a Qwen3 run — where a page's expected output is model-dependent, say so on the page rather than pinning Gemini's wording.
 
-**There is already evidence waiting for you.** The scheduled `Eval` workflow is red, and has been since before this work: `mise run eval:mlflow` failed with `tool_trajectory/mean=0.384615 (required 1.0)` — Qwen3-4B on a CPU GitHub runner produced the expected tool trajectory in 5 of the 13 committed cases. That is a genuine signal, not a broken pipeline, and `AGENTS.md` is right that it is scheduled evidence rather than a merge gate. Decide what it means: whether a perfect-trajectory threshold is the right bar for a 4B model on a CPU runner, whether the eval cases over-specify the trajectory, or whether the instruction needs work. **Do not lower the threshold to turn the workflow green** — measure first, on Gemini and on Qwen3, and change the bar only if the evidence says the bar was wrong.
+**There is already evidence waiting for you, and this is the fastest way to read it.** The scheduled `Eval` workflow has been red since before this work. `mise run eval:mlflow` on Qwen3-4B, on a CPU GitHub runner, over the 13 committed cases:
+
+| Scorer                  | Score         | What it means                                                                   |
+| ----------------------- | ------------- | ------------------------------------------------------------------------------- |
+| `complete_conversation` | **passes**    | Every turn got a non-empty answer, so the harness and model both ran.           |
+| `tool_policy`           | 0.769 (10/13) | The proposed guarded writes matched expectations in 10 turns.                   |
+| `tool_trajectory`       | 0.385 (5/13)  | The expected tool calls appeared, in order, in 5 turns.                         |
+| `response_facts`        | 0.231 (3/13)  | The answer stated the required facts and avoided the forbidden ones in 3 turns. |
+
+Read those together before touching a threshold. `complete_conversation` passing rules out a crash, a timeout, or empty output — the model answered every turn and answered them **wrongly**. `tool_trajectory` already allows extra calls and only checks that expected calls appear in order, so 5/13 is not metric pedantry. And `tool_policy` scores what the model _proposed_, not whether the runtime guardrail held: `require_confirmation=True`, `validate_actions` and the write/audit transaction are covered by the offline suite, which is green at 318 tests. The safety control works; the 4B model's judgement about which write to propose does not, three times in thirteen.
+
+**One Gemini run answers the open question.** If Gemini scores near 1.0 on the same eval set, this is a model-capability finding about the local path, and it belongs in the course (2.2. Models already teaches "measure, do not assume" — this is the measurement). If Gemini also scores poorly, the eval set or the harness is over-specified and the fix is there, not in the thresholds.
 
 ## 2. Add an exercise at the end of every chapter
 
@@ -157,7 +168,12 @@ No warning suppressed, no test skipped, no assertion weakened to force a pass. I
 
 On GitHub, `CI`, `Scan` and `Docs` are green on `main`. Two scheduled workflows are red for reasons that predate this work and that a code change cannot fix:
 
-1. **`Eval`** fails on the model-quality regression described in item 1. Read that before touching anything. It is the only red workflow left.
+1. **`Eval`** fails on the model-quality result described in item 1. It is the only red workflow left, and it should not be made green by lowering a number. The recommended shape, once item 1 has measured it:
+
+   1. `complete_conversation` stays an absolute **1.0**. It is liveness; it passes today; below 1.0 means something is broken, not creative.
+   1. `tool_policy` stays an absolute **1.0** on the reference model path. Proposing the right guarded write is a claim the course makes loudly, and a safety-adjacent bar that is allowed to fail is not a bar.
+   1. `tool_trajectory` and `response_facts` become **baseline-relative**, the way `agents/python/evals/cost_eval.py` already works: a committed baseline, a tolerance, and `--update` to regenerate it from a real measurement. Fail on a drop from the baseline, not on "not perfect". Reuse that pattern rather than inventing a second one, and honour its rule — no fabricated numbers are committed until they are measured.
+   1. Make the workflow's red mean something. `AGENTS.md` calls these scheduled evidence rather than gates, so publish the numbers every run and fail on regressions plus the two absolute metrics. A workflow that is red forever is a workflow nobody reads.
 
 Dependency updates moved from self-hosted Renovate to Dependabot, which is native to GitHub and needs no token. `.github/dependabot.yml` watches GitHub Actions, the three `uv` projects, and the two Dockerfiles. It does **not** watch the `mise.toml` tool pins, the Helm chart versions in `infra/helmfile.yaml`, the image digests in `infra/k8s/**`, or the Wolfi `apk` pins — those four are hand-maintained, and the quarterly docs-freshness issue is what makes someone look. If that manual half proves too easy to forget, the honest options are a small scheduled check that compares each pin against its upstream, or going back to Renovate and accepting the PAT.
 
