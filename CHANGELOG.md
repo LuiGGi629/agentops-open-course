@@ -15,7 +15,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Reworked the learning path so setup stays read-only, the first model interaction happens in Chapter 2, Kubernetes deployment precedes inspection, and the capstone is the primary finish before optional project maintenance.
 - Unified ADK discovery behind one validated `AGENT_ENTRYPOINT=agent|workflow|coordinator` package boundary while constructing only the selected composition.
 - Made promotion a truthful offline preflight by default, with model-backed evidence required before it prints deploy and rollback commands.
-- Bound scheduled model evidence to one provider, immutable prompt, model digest, evaluation contract, and source revision while reusing the exact MLflow transcript for cost and groundedness checks.
+- Bound scheduled model evidence to one provider, immutable prompt, model digest, evaluation contract, source revision, serving context, and sampling configuration while reusing the exact MLflow transcript for required cost and groundedness verdicts.
 
 ### Fixed
 

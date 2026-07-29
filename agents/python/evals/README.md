@@ -34,6 +34,8 @@ To evaluate through agentgateway, change `OPENAI_BASE_URL` to `http://127.0.0.1:
 
 Keep `AGENT_MODEL_FALLBACK` unset during every behavioral evaluation. Otherwise one run could silently combine two models while attributing every answer to the primary. Evaluate the alternate separately by making it `AGENT_MODEL`.
 
+The scheduled workflow treats all six live tasks as required verdicts for that evidence run, including cost and groundedness. It remains separate from pull requests, so model variance never blocks the deterministic merge gate.
+
 The MLflow tracking URI defaults to local SQLite unless `MLFLOW_TRACKING_URI` is set; `MLFLOW_EXPERIMENT_NAME` defaults to `agentops-agent`. Chapter 7 starts the self-hosted server at `http://localhost:5000`. The command prints the authoritative destination and suggests a local `mlflow ui` command only for a `sqlite:` URI, never for an HTTP server.
 
 ## Configure an optional MLflow judge

@@ -135,8 +135,8 @@ jobs:
 
       - name: Check per-case token/cost usage against the baseline
         id: cost
-        # Evidence, not a gate: records a baseline on first run (nothing committed)
-        # and reports drift beyond tolerance once cost_baseline.json is committed.
+        # Required scheduled evidence, never a PR gate: records a baseline on
+        # first run and reports drift once cost_baseline.json is committed.
         # Reuse the exact source/prompt/model/eval-bound transcript MLflow scored.
         continue-on-error: true
         shell: bash
@@ -147,9 +147,9 @@ jobs:
 
       - name: Check answer groundedness against retrieved evidence
         id: ground
-        # Evidence, not a gate: reports recognized domain claims that were not
-        # grounded in that turn's tool responses or the user's question. Reuse
-        # the exact source/prompt/model/eval-bound transcript MLflow scored.
+        # Required scheduled evidence, never a PR gate: recognized domain claims
+        # must be grounded in that turn's tool responses or the user's question.
+        # Reuse the exact transcript MLflow scored.
         continue-on-error: true
         shell: bash
         env:
@@ -192,18 +192,12 @@ jobs:
             echo "| Structured report | ${{ steps.report.outcome }} | Required run verdict: strict case |"
             echo "| Bounded workflow | ${{ steps.workflow.outcome }} | Required run verdict: strict case |"
             echo "| MLflow scorers | ${{ steps.mlflow.outcome }} | Required run verdict: scorer floors |"
-            echo "| Cost regression | ${{ steps.cost.outcome }} | Evidence |"
-            echo "| Groundedness | ${{ steps.ground.outcome }} | Evidence |"
+            echo "| Cost regression | ${{ steps.cost.outcome }} | Required run verdict: reviewed baseline |"
+            echo "| Groundedness | ${{ steps.ground.outcome }} | Required run verdict: no provider errors or unsupported recognized claims |"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "${{ steps.cost.outcome }}" == "failure" ]]; then
-            echo "::warning::Cost evidence failed — inspect cost-eval.log and cost-observed.json."
-          fi
-          if [[ "${{ steps.ground.outcome }}" == "failure" ]]; then
-            echo "::warning::Groundedness evidence failed — inspect ground-eval.log and ground-observed.json."
-          fi
 
       - name: Surface model-backed evaluation verdicts
-        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure' || steps.workflow.outcome == 'failure' || steps.mlflow.outcome == 'failure')
+        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure' || steps.workflow.outcome == 'failure' || steps.mlflow.outcome == 'failure' || steps.cost.outcome == 'failure' || steps.ground.outcome == 'failure')
         run: |
           if [[ "${{ steps.adk.outcome }}" == "failure" ]]; then
             echo "::error::The ADK trajectory evaluation failed — inspect adk-eval.log."
@@ -216,5 +210,11 @@ jobs:
           fi
           if [[ "${{ steps.mlflow.outcome }}" == "failure" ]]; then
             echo "::error::The MLflow scorer evaluation failed — inspect mlflow-eval.log."
+          fi
+          if [[ "${{ steps.cost.outcome }}" == "failure" ]]; then
+            echo "::error::The cost evaluation failed — inspect cost-eval.log and cost-observed.json."
+          fi
+          if [[ "${{ steps.ground.outcome }}" == "failure" ]]; then
+            echo "::error::The groundedness evaluation failed — inspect ground-eval.log and ground-observed.json."
           fi
           exit 1

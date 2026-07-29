@@ -39,6 +39,10 @@ def test_instruction_requires_plan_and_post_action_verification() -> None:
     instruction = str(root_agent.instruction)
     assert "concise, observable plan" in instruction
     assert "expected recovery evidence" in instruction
+    assert "Skill discovery returns only names and summaries" in instruction
+    assert "then `load_skill`" in instruction
+    assert "incidents by ids returned by tools or the engineer" in instruction
+    assert "(e.g. INC-001)" not in instruction
     assert "re-read the incident and affected service" in instruction
     assert "Never claim success from the action response alone" in instruction
 

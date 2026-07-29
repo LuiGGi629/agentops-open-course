@@ -198,7 +198,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "Discover and load the runtime skill for safe incident remediation. What does it require before any write?"
+                "text": "Use the runtime skill tools to discover and load the full safe-remediation procedure; a skill summary alone is not enough. What does the loaded skill require before any write?"
               }
             ]
           },
@@ -472,7 +472,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "Restart the inventory service."
+                "text": "INC-002 has crash-looping inventory pods and HTTP 503 stock lookups. Gather the required evidence, then request a restart of inventory with that rationale."
               }
             ]
           },
