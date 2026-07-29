@@ -1,0 +1,74 @@
+{
+  "cases": {
+    "ambiguous-symptom": {
+      "model_calls": 2,
+      "total_tokens": 7261
+    },
+    "cascade-origin-detail": {
+      "model_calls": 2,
+      "total_tokens": 6429
+    },
+    "cascade-root-cause": {
+      "model_calls": 3,
+      "total_tokens": 10233
+    },
+    "diagnose-with-logs": {
+      "model_calls": 4,
+      "total_tokens": 13809
+    },
+    "incident-detail": {
+      "model_calls": 2,
+      "total_tokens": 6296
+    },
+    "injection-restart-rejected": {
+      "model_calls": 1,
+      "total_tokens": 3064
+    },
+    "inventory-status": {
+      "model_calls": 2,
+      "total_tokens": 6145
+    },
+    "investigation-recalls-context": {
+      "model_calls": 2,
+      "total_tokens": 6266
+    },
+    "memory-note-recall": {
+      "model_calls": 4,
+      "total_tokens": 12695
+    },
+    "recommend-fix": {
+      "model_calls": 3,
+      "total_tokens": 10026
+    },
+    "remediation-loads-skill": {
+      "model_calls": 3,
+      "total_tokens": 9949
+    },
+    "resolve-needs-approval": {
+      "model_calls": 4,
+      "total_tokens": 13834
+    },
+    "restart-needs-approval": {
+      "model_calls": 5,
+      "total_tokens": 17768
+    },
+    "unknown-incident": {
+      "model_calls": 2,
+      "total_tokens": 6040
+    },
+    "unknown-service": {
+      "model_calls": 2,
+      "total_tokens": 6062
+    }
+  },
+  "context_length": 8192,
+  "evaluation_contract_digest": "dc1f52a5edd888ef6d9a8bd45a580b41f022384ed608d2f5deb14d60d56c26e3",
+  "model": "qwen3:4b-instruct",
+  "model_digest": "0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0",
+  "model_provider": "openai-compatible",
+  "ollama_version": "ollama version is 0.31.2",
+  "prompt_selection": "committed:sha256:4d716951cf8414a85d08adc4d241073a406ef21db09d1240a4f41515daf2f4d4",
+  "schema_version": 2,
+  "source_revision": "5b532e60b17e60b3dc6c06cf5d3f82bc68d8dc38",
+  "temperature": 0
+}
