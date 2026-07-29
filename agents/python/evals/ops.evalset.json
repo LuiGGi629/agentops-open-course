@@ -198,7 +198,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "How should I safely remediate INC-002?"
+                "text": "Discover and load the runtime skill for safe incident remediation. What does it require before any write?"
               }
             ]
           },
