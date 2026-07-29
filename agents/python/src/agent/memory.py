@@ -37,7 +37,8 @@ def get_runbook(slug: str) -> dict[str, Any]:
     """Fetch a runbook by its exact slug (e.g. an incident's ``runbook`` field).
 
     Args:
-        slug: The runbook identifier, e.g. ``high-latency`` or ``service-down``.
+        slug: The exact runbook identifier returned by ``get_incident``, e.g.
+            ``high-latency`` or ``service-down``. Never derive it from the service name.
 
     Returns:
         A dict with the ``slug`` and its markdown ``content``, or an ``error`` if unknown.

@@ -19,7 +19,12 @@ from google.genai import types
 
 
 def contains_required(actual: Any, required: Any) -> bool:
-    """Return whether ``actual`` contains every recursively required value."""
+    """Return whether ``actual`` contains every recursively required value.
+
+    An expected empty string accepts an omitted actual key because ADK records
+    only model-supplied arguments and the corresponding function default is
+    empty. Supplying any non-empty value still fails that explicit contract.
+    """
     if isinstance(required, list):
         return (
             isinstance(actual, list)
@@ -35,7 +40,14 @@ def contains_required(actual: Any, required: Any) -> bool:
         return actual == required
     if not isinstance(actual, Mapping):
         return False
-    return all(key in actual and contains_required(actual[key], value) for key, value in required.items())
+    for key, value in required.items():
+        if key not in actual:
+            if isinstance(value, str) and value == "":
+                continue
+            return False
+        if not contains_required(actual[key], value):
+            return False
+    return True
 
 
 def required_tools_in_order(

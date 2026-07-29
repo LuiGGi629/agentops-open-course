@@ -63,7 +63,8 @@ def get_incident(incident_id: str) -> dict[str, Any]:
 
     Returns:
         ``{"incident": {...}}`` with the record (including ``runbook`` and ``summary``),
-        or an ``error`` if unknown.
+        or an ``error`` if unknown. Wait for this result, then reuse its returned
+        ``service`` and ``runbook`` values verbatim in dependent tool calls.
     """
     normalized = normalize_incident_id(incident_id)
     if normalized is None:
@@ -104,6 +105,8 @@ def search_service_logs(service: str, query: str = "", limit: int = 20) -> dict[
     Args:
         service: Service slug, e.g. ``checkout`` or ``inventory``.
         query: Optional case-insensitive text that each returned line must contain.
+            Leave empty for the first diagnostic read; filter only after reviewing
+            the unfiltered sample.
         limit: Maximum lines to return, from 1 to 100.
 
     Returns:

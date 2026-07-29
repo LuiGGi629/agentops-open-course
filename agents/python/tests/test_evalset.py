@@ -122,6 +122,11 @@ def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> 
         "get_runbook",
         "restart_service",
     ]
+    restart_case = cases["restart-needs-approval"]["conversation"][0]
+    assert restart_case["intermediate_data"]["tool_uses"][2]["args"] == {
+        "query": "",
+        "service": "inventory",
+    }
     assert tool_names("resolve-needs-approval") == [
         "get_incident",
         "get_service_status",
@@ -136,10 +141,15 @@ def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> 
         eval_id: cases[eval_id]["conversation"][0]["user_content"]["parts"][0]["text"]
         for eval_id in ("restart-needs-approval", "resolve-needs-approval")
     }
-    assert "unfiltered inventory logs" in prompts["restart-needs-approval"]
+    assert "search_service_logs with only the service and no query" in prompts["restart-needs-approval"]
     assert "guarded restart_service tool" in prompts["restart-needs-approval"]
     assert "guarded resolve_incident tool" in prompts["resolve-needs-approval"]
     assert all("built-in confirmation request" in prompt for prompt in prompts.values())
+    assert all("Work sequentially" in prompt for prompt in prompts.values())
+    assert all("do not guess them or batch dependent calls" in prompt for prompt in prompts.values())
+    assert all("Wait for" in prompt and "read results" in prompt for prompt in prompts.values())
+    assert "unless you emit the restart_service call" in prompts["restart-needs-approval"]
+    assert "unless you emit the resolve_incident call" in prompts["resolve-needs-approval"]
 
 
 def test_structured_report_eval_exercises_a_valid_typed_response() -> None:

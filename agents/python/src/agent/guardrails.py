@@ -2,10 +2,11 @@
 
 Guardrails run around tool execution. ``validate_actions`` (before) fails fast on
 malformed inputs to the mutating actions. ``secure_tool_output`` (after) treats
-tool/retrieval content — logs, runbook Markdown, MCP results — as attacker-influenceable:
+retrieved content — logs, runbook Markdown, MCP results — as attacker-influenceable:
 with ``AGENT_SANITIZE_TOOL_OUTPUT=true`` it neutralizes known injection markers and
-spotlights free-text blocks as data-not-instructions, then always applies PII redaction.
-Sanitization is best-effort defense-in-depth, not a guarantee.
+spotlights free-text blocks as data-not-instructions. The exact ``load_skill`` boundary
+instead preserves reviewed runtime instructions. PII redaction always applies to both
+trust classes. Sanitization is best-effort defense-in-depth, not a guarantee.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Tools that change state — the ones worth validating strictly before they run.
 _ACTION_TOOLS = frozenset({"restart_service", "resolve_incident"})
+_TRUSTED_INSTRUCTION_TOOL = "load_skill"
 
 # Known injection markers in retrieved content. Text is NFKC-normalized first so
 # homoglyph/fullwidth spellings collapse to their ASCII forms before matching.
@@ -127,14 +129,14 @@ def secure_tool_output(
     tool_context: ToolContext,
     tool_response: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """``after_tool_callback``: harden untrusted output (default-on), then redact PII.
+    """``after_tool_callback``: harden untrusted output, preserve trusted skill instructions, then redact PII.
 
     One composed callback instead of a chain: ADK's callback lists short-circuit
     on the first non-``None`` return, which would drop whichever transform runs
     second. Explicit composition keeps both.
     """
     current = tool_response
-    if settings.sanitize_tool_output:
+    if settings.sanitize_tool_output and tool.name != _TRUSTED_INSTRUCTION_TOOL:
         current = sanitize_tool_response(current)
     redacted = redact_tool_output_pii(tool, args, tool_context, current)
     if redacted is not None:

@@ -136,6 +136,7 @@ def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to
         names = ", ".join(repr(name) for name in sorted(unknown_required))
         raise SystemExit(f"Required ADK cases are absent from {args.eval_set}: {names}.")
     total_passed = total_failed = 0
+    failed_required_cases: list[str] = []
     # ADK defaults to four concurrent inference cases. A single local CPU model
     # queues those requests until their client timeouts expire, so select one
     # case per subprocess and preserve ADK's native evaluator/output unchanged.
@@ -179,15 +180,19 @@ def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to
         total_passed += counts[0]
         total_failed += counts[1]
         if eval_id in required_cases and counts != (1, 0):
-            print(  # noqa: T201 - preserve the truthful process verdict
-                f"Required ADK case {eval_id!r} failed its strict trajectory contract.",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
+            failed_required_cases.append(eval_id)
 
     returncode, message = verdict_counts(total_passed, total_failed, args.min_pass_rate)
     print(message, file=sys.stderr if returncode else sys.stdout)
-    if required_cases and not returncode:
+    if failed_required_cases:
+        names = ", ".join(repr(name) for name in failed_required_cases)
+        print(  # noqa: T201 - preserve the truthful process verdict
+            f"Required ADK cases failed their strict trajectory contracts: {names}.",
+            file=sys.stderr,
+        )
+        if not returncode:
+            returncode = 1
+    elif required_cases and not returncode:
         names = ", ".join(sorted(required_cases))
         print(f"Required strict ADK cases passed: {names}.")  # noqa: T201
     raise SystemExit(returncode)

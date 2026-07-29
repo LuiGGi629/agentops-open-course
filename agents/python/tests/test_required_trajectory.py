@@ -47,6 +47,16 @@ def test_required_calls_allow_extra_calls_and_optional_arguments() -> None:
     assert required_tools_in_order(actual, expected)
 
 
+def test_required_empty_string_accepts_default_omission_but_rejects_a_filter() -> None:
+    expected = [_call("search_service_logs", service="inventory", query="")]
+    assert required_tools_in_order([_call("search_service_logs", service="inventory")], expected)
+    assert required_tools_in_order([_call("search_service_logs", service="inventory", query="")], expected)
+    assert not required_tools_in_order(
+        [_call("search_service_logs", service="inventory", query="crash")],
+        expected,
+    )
+
+
 def test_required_calls_reject_wrong_values_and_order() -> None:
     expected = [_call("get_incident", incident_id="INC-002"), _call("get_runbook", slug="service-down")]
     assert not required_tools_in_order([_call("get_incident", incident_id="INC-001")], expected)

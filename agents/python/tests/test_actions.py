@@ -258,6 +258,11 @@ def test_action_tools_require_confirmation() -> None:
     for tool in actions.ACTION_TOOLS:
         assert tool.name in {"restart_service", "resolve_incident"}
         assert tool._require_confirmation is True  # noqa: SLF001 — asserting the HITL guard is on
+        declaration = tool._get_declaration()  # noqa: SLF001 — inspect model-facing schema
+        assert declaration is not None
+        description = declaration.description or ""
+        assert "creates a confirmation request" in description
+        assert "Never claim a request exists without calling this tool" in description
 
 
 def test_unconfirmed_call_pauses_for_approval() -> None:

@@ -110,14 +110,18 @@ def _approval_error(action: str, reason: str) -> dict[str, Any]:
 
 
 def restart_service(name: str, tool_context: ToolContext | None = None) -> dict[str, Any]:
-    """Restart a service (mock) — flips it back to operational and writes an audit entry.
+    """Request a guarded mock restart through ADK's built-in confirmation.
+
+    Calling this tool creates a confirmation request and pauses before this
+    function runs. Only an approval with a rationale restarts the service and
+    writes the audit entry. Never claim a request exists without calling this tool.
 
     Args:
         name: The service to restart, e.g. ``inventory``.
 
     Returns:
-        A dict describing the outcome, or an ``error`` if the service is unknown
-        or the approval carried no rationale.
+        After approval, a dict describing the outcome; otherwise ADK pauses
+        before execution. Direct unapproved calls fail closed with an ``error``.
     """
     if settings.writes_disabled:
         return _approval_error(f"restart of {name!r}", _WRITES_DISABLED_REASON)
@@ -147,14 +151,18 @@ def restart_service(name: str, tool_context: ToolContext | None = None) -> dict[
 
 
 def resolve_incident(incident_id: str, tool_context: ToolContext | None = None) -> dict[str, Any]:
-    """Resolve an incident (mock) — marks it resolved and writes an audit entry.
+    """Request a guarded mock resolution through ADK's built-in confirmation.
+
+    Calling this tool creates a confirmation request and pauses before this
+    function runs. Only an approval with a rationale resolves the incident and
+    writes the audit entry. Never claim a request exists without calling this tool.
 
     Args:
         incident_id: The incident to resolve, e.g. ``INC-002``.
 
     Returns:
-        A dict describing the outcome, or an ``error`` if the incident is unknown,
-        already resolved, or the approval carried no rationale.
+        After approval, a dict describing the outcome; otherwise ADK pauses
+        before execution. Direct unapproved calls fail closed with an ``error``.
     """
     if settings.writes_disabled:
         return _approval_error(f"resolution of {incident_id!r}", _WRITES_DISABLED_REASON)

@@ -205,14 +205,22 @@ def test_main_stops_on_the_first_nonzero_adk_process(monkeypatch, tmp_path) -> N
     assert len(calls) == 1
 
 
-def test_main_fails_when_a_required_case_misses_even_above_the_aggregate_floor(
+def test_main_reports_every_required_case_miss_after_running_later_cases(
     monkeypatch,
     tmp_path,
     capsys,
 ) -> None:
     eval_set = tmp_path / "cases.evalset.json"
     eval_set.write_text(
-        json.dumps({"eval_cases": [{"eval_id": "critical"}, {"eval_id": "optional"}]}),
+        json.dumps(
+            {
+                "eval_cases": [
+                    {"eval_id": "critical-first"},
+                    {"eval_id": "optional"},
+                    {"eval_id": "critical-last"},
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(
@@ -223,15 +231,18 @@ def test_main_fails_when_a_required_case_misses_even_above_the_aggregate_floor(
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.25,
-            required_case=["critical"],
+            required_case=["critical-first", "critical-last"],
         ),
     )
     results = [
         ("Eval Run Summary\nset:\n  Tests passed: 0\n  Tests failed: 1\n", 0),
         ("Eval Run Summary\nset:\n  Tests passed: 1\n  Tests failed: 0\n", 0),
+        ("Eval Run Summary\nset:\n  Tests passed: 0\n  Tests failed: 1\n", 0),
     ]
+    selectors = []
 
-    def popen(_command, **_kwargs):
+    def popen(command, **_kwargs):
+        selectors.append(command[5])
         output, returncode = results.pop(0)
         return SimpleNamespace(stdout=io.StringIO(output), wait=lambda: returncode)
 
@@ -241,8 +252,17 @@ def test_main_fails_when_a_required_case_misses_even_above_the_aggregate_floor(
         run_adk_eval.main()
 
     assert exit_info.value.code == 1
-    assert "Required ADK case 'critical' failed" in capsys.readouterr().err
-    assert len(results) == 1
+    captured = capsys.readouterr()
+    assert "1/3 (33%); required aggregate floor: 25%. Floor met." in captured.out
+    assert (
+        "Required ADK cases failed their strict trajectory contracts: 'critical-first', 'critical-last'."
+    ) in captured.err
+    assert selectors == [
+        f"{eval_set}:critical-first",
+        f"{eval_set}:optional",
+        f"{eval_set}:critical-last",
+    ]
+    assert not results
 
 
 def test_main_rejects_an_unknown_required_case_before_model_work(monkeypatch, tmp_path) -> None:

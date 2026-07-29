@@ -41,11 +41,16 @@ def test_instruction_requires_plan_and_post_action_verification() -> None:
     assert "expected recovery evidence" in instruction
     assert "Skill discovery returns only names and summaries" in instruction
     assert "then `load_skill`" in instruction
+    assert "Evidence reads with data dependencies are sequential" in instruction
+    assert "never guess or batch dependent calls" in instruction
     assert "unfiltered sample logs" in instruction
-    assert "Never infer a cause from an empty result" in instruction
+    assert "infer a cause from an empty filtered result" in instruction
     assert "ADK creates its confirmation request" in instruction
+    assert "gather and wait for every decision-context result" in instruction
     assert "never replace the" in instruction
     assert "built-in confirmation with a prose question" in instruction
+    assert "Never claim confirmation was requested unless you" in instruction
+    assert "emitted the guarded tool call in this turn" in instruction
     assert "incidents by ids returned by tools or the engineer" in instruction
     assert "(e.g. INC-001)" not in instruction
     assert "re-read the incident and affected service" in instruction

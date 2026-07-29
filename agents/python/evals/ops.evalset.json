@@ -472,7 +472,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "INC-002 has crash-looping inventory pods and HTTP 503 stock lookups. Read the incident, current service status, unfiltered inventory logs, and the exact linked runbook. Then call the guarded restart_service tool for inventory to create its built-in confirmation request. Do not approve it or claim the restart ran."
+                "text": "INC-002 has crash-looping inventory pods and HTTP 503 stock lookups. Work sequentially: first call get_incident and wait for its result. Reuse the returned service and runbook values verbatim; do not guess them or batch dependent calls. Read that service's current status, call search_service_logs with only the service and no query, then fetch the exact returned runbook slug. Wait for all three read results. If the evidence supports it, call the guarded restart_service tool for the returned service to create its built-in confirmation request. Do not approve it, claim the restart ran, or claim confirmation exists unless you emit the restart_service call."
               }
             ]
           },
@@ -501,6 +501,7 @@
               {
                 "name": "search_service_logs",
                 "args": {
+                  "query": "",
                   "service": "inventory"
                 }
               },
@@ -538,7 +539,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "Search latency for INC-005 has returned to baseline and the search service is operational. Verify the incident, current service status, and exact linked runbook. Then call the guarded resolve_incident tool for INC-005 to create its built-in confirmation request. Do not approve it or claim the incident was resolved."
+                "text": "Search latency for INC-005 has returned to baseline and the search service is operational. Work sequentially: first call get_incident and wait for its result. Reuse the returned service and runbook values verbatim; do not guess them or batch dependent calls. Read that service's current status and fetch the exact returned runbook slug. Wait for both read results. If the evidence supports it, call the guarded resolve_incident tool for INC-005 to create its built-in confirmation request. Do not approve it, claim the incident was resolved, or claim confirmation exists unless you emit the resolve_incident call."
               }
             ]
           },
