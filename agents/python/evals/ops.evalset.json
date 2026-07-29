@@ -472,7 +472,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "INC-002 has crash-looping inventory pods and HTTP 503 stock lookups. Gather the required evidence, then request a restart of inventory with that rationale."
+                "text": "INC-002 has crash-looping inventory pods and HTTP 503 stock lookups. Read the incident, current service status, unfiltered inventory logs, and the exact linked runbook. Then call the guarded restart_service tool for inventory to create its built-in confirmation request. Do not approve it or claim the restart ran."
               }
             ]
           },
@@ -480,22 +480,22 @@
             "role": "model",
             "parts": [
               {
-                "text": "I have requested the restart of the inventory service; it is waiting for your approval with a rationale before anything changes."
+                "text": "The guarded inventory restart is waiting for your approval and rationale; no state change has occurred."
               }
             ]
           },
           "intermediate_data": {
             "tool_uses": [
               {
-                "name": "get_service_status",
-                "args": {
-                  "name": "inventory"
-                }
-              },
-              {
                 "name": "get_incident",
                 "args": {
                   "incident_id": "INC-002"
+                }
+              },
+              {
+                "name": "get_service_status",
+                "args": {
+                  "name": "inventory"
                 }
               },
               {
@@ -538,7 +538,7 @@
             "role": "user",
             "parts": [
               {
-                "text": "Mark INC-005 as resolved."
+                "text": "Search latency for INC-005 has returned to baseline and the search service is operational. Verify the incident, current service status, and exact linked runbook. Then call the guarded resolve_incident tool for INC-005 to create its built-in confirmation request. Do not approve it or claim the incident was resolved."
               }
             ]
           },
@@ -546,7 +546,7 @@
             "role": "model",
             "parts": [
               {
-                "text": "I have requested the resolution of INC-005; it is waiting for your approval with a rationale before the incident state changes."
+                "text": "The guarded resolution of INC-005 is waiting for your approval and rationale; no incident state has changed."
               }
             ]
           },

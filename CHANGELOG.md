@@ -16,6 +16,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Unified ADK discovery behind one validated `AGENT_ENTRYPOINT=agent|workflow|coordinator` package boundary while constructing only the selected composition.
 - Made promotion a truthful offline preflight by default, with model-backed evidence required before it prints deploy and rollback commands.
 - Bound scheduled model evidence to one provider, immutable prompt, model digest, evaluation contract, source revision, serving context, and sampling configuration while reusing the exact MLflow transcript for required cost and groundedness verdicts.
+- Made skill loading and both guarded-action confirmation trajectories strict named Qwen gates, so an aggregate pass rate cannot hide a failed safety contract.
 
 ### Fixed
 

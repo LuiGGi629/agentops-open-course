@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from evals import run_adk_eval
-from evals.run_adk_eval import eval_case_selectors, pass_rate, summary_counts, verdict, verdict_counts
+from evals.run_adk_eval import eval_case_ids, eval_case_selectors, pass_rate, summary_counts, verdict, verdict_counts
 
 
 @pytest.mark.parametrize(
@@ -92,6 +92,7 @@ def test_eval_case_selectors_preserve_order_and_force_serial_adk_runs(tmp_path) 
         f"{eval_set}:first-case",
         f"{eval_set}:second-case",
     ]
+    assert eval_case_ids(eval_set) == ["first-case", "second-case"]
 
 
 @pytest.mark.parametrize(
@@ -130,6 +131,7 @@ def test_main_launches_one_process_per_case_and_aggregates_authoritative_summari
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.5,
+            required_case=["second"],
         ),
     )
     results = [
@@ -159,7 +161,9 @@ def test_main_launches_one_process_per_case_and_aggregates_authoritative_summari
         run_adk_eval.main()
 
     assert exit_info.value.code == 0
-    assert "1/2 (50%)" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "1/2 (50%)" in output
+    assert "Required strict ADK cases passed: second." in output
     assert [command[0][5] for command in commands] == [
         f"{eval_set}:first",
         f"{eval_set}:second",
@@ -183,6 +187,7 @@ def test_main_stops_on_the_first_nonzero_adk_process(monkeypatch, tmp_path) -> N
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.25,
+            required_case=[],
         ),
     )
     calls = []
@@ -198,3 +203,62 @@ def test_main_stops_on_the_first_nonzero_adk_process(monkeypatch, tmp_path) -> N
 
     assert exit_info.value.code == 7
     assert len(calls) == 1
+
+
+def test_main_fails_when_a_required_case_misses_even_above_the_aggregate_floor(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    eval_set = tmp_path / "cases.evalset.json"
+    eval_set.write_text(
+        json.dumps({"eval_cases": [{"eval_id": "critical"}, {"eval_id": "optional"}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        run_adk_eval,
+        "parse_args",
+        lambda: SimpleNamespace(
+            agent=Path("src/agent"),
+            eval_set=eval_set,
+            config=Path("evals/test_config.json"),
+            min_pass_rate=0.25,
+            required_case=["critical"],
+        ),
+    )
+    results = [
+        ("Eval Run Summary\nset:\n  Tests passed: 0\n  Tests failed: 1\n", 0),
+        ("Eval Run Summary\nset:\n  Tests passed: 1\n  Tests failed: 0\n", 0),
+    ]
+
+    def popen(_command, **_kwargs):
+        output, returncode = results.pop(0)
+        return SimpleNamespace(stdout=io.StringIO(output), wait=lambda: returncode)
+
+    monkeypatch.setattr(run_adk_eval.subprocess, "Popen", popen)
+
+    with pytest.raises(SystemExit) as exit_info:
+        run_adk_eval.main()
+
+    assert exit_info.value.code == 1
+    assert "Required ADK case 'critical' failed" in capsys.readouterr().err
+    assert len(results) == 1
+
+
+def test_main_rejects_an_unknown_required_case_before_model_work(monkeypatch, tmp_path) -> None:
+    eval_set = tmp_path / "cases.evalset.json"
+    eval_set.write_text(json.dumps({"eval_cases": [{"eval_id": "known"}]}), encoding="utf-8")
+    monkeypatch.setattr(
+        run_adk_eval,
+        "parse_args",
+        lambda: SimpleNamespace(
+            agent=Path("src/agent"),
+            eval_set=eval_set,
+            config=Path("evals/test_config.json"),
+            min_pass_rate=0.25,
+            required_case=["missing"],
+        ),
+    )
+
+    with pytest.raises(SystemExit, match=r"Required ADK cases.*'missing'"):
+        run_adk_eval.main()

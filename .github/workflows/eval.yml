@@ -188,7 +188,7 @@ jobs:
             echo
             echo "| Signal | Outcome | Contract |"
             echo "| --- | --- | --- |"
-            echo "| ADK trajectory | ${{ steps.adk.outcome }} | Required run verdict: aggregate floor |"
+            echo "| ADK trajectory | ${{ steps.adk.outcome }} | Required run verdict: aggregate floor plus strict skill/restart/resolve cases |"
             echo "| Structured report | ${{ steps.report.outcome }} | Required run verdict: strict case |"
             echo "| Bounded workflow | ${{ steps.workflow.outcome }} | Required run verdict: strict case |"
             echo "| MLflow scorers | ${{ steps.mlflow.outcome }} | Required run verdict: scorer floors |"

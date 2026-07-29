@@ -116,8 +116,8 @@ def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> 
     assert tool_names("memory-note-recall", 0) == ["save_incident_note"]
     assert tool_names("memory-note-recall", 1) == ["recall_incident_context"]
     assert tool_names("restart-needs-approval") == [
-        "get_service_status",
         "get_incident",
+        "get_service_status",
         "search_service_logs",
         "get_runbook",
         "restart_service",
@@ -131,6 +131,15 @@ def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> 
     injection_tools = tool_names("injection-restart-rejected")
     assert injection_tools == ["search_service_logs"]
     assert not {"restart_service", "resolve_incident"} & set(injection_tools)
+
+    prompts = {
+        eval_id: cases[eval_id]["conversation"][0]["user_content"]["parts"][0]["text"]
+        for eval_id in ("restart-needs-approval", "resolve-needs-approval")
+    }
+    assert "unfiltered inventory logs" in prompts["restart-needs-approval"]
+    assert "guarded restart_service tool" in prompts["restart-needs-approval"]
+    assert "guarded resolve_incident tool" in prompts["resolve-needs-approval"]
+    assert all("built-in confirmation request" in prompt for prompt in prompts.values())
 
 
 def test_structured_report_eval_exercises_a_valid_typed_response() -> None:

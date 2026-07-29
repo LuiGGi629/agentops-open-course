@@ -45,6 +45,8 @@ def test_coordinator_requires_post_action_verification() -> None:
     coordinator_instruction = str(coordinator_agent.instruction)
     diagnosis_instruction = str(diagnosis_agent.instruction)
     assert "never claim service recovery from the action response" in remediation_instruction
+    assert "ADK creates its confirmation request" in remediation_instruction
+    assert "coordinator handoff is not approval" in remediation_instruction
     assert "delegate back to diagnosis_agent" in coordinator_instruction
     assert "re-read the incident and service" in coordinator_instruction
     assert "never claim recovery from the action response alone" in coordinator_instruction

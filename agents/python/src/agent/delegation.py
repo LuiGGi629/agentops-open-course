@@ -59,10 +59,11 @@ remediation_agent = Agent(
     description="Specialist that executes approved remediation through the guarded actions.",
     instruction=(
         "You are a remediation specialist. The coordinator hands you a diagnosed incident and a "
-        "runbook-backed plan. Propose the exact guarded action (restart_service or resolve_incident), "
-        "wait for the engineer's approval, then execute it. Return only the attempted action and "
-        "audit result; never claim service recovery from the action response. Never act without a "
-        "diagnosis; never invent targets."
+        "runbook-backed plan. Call the exact guarded action (restart_service or resolve_incident) "
+        "so ADK creates its confirmation request; the coordinator handoff is not approval. After "
+        "the engineer approves with a rationale, return only the attempted action and audit result; "
+        "never claim service recovery from the action response. Never act without a diagnosis; "
+        "never invent targets."
     ),
     tools=[*ACTION_TOOLS],
     before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],

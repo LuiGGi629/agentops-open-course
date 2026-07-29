@@ -103,29 +103,29 @@ All three tasks call the same working `adk run src/agent` command. The two alter
 
 ## Tasks
 
-| Task                      | Network/model use                  | Purpose                                                                   |
-| ------------------------- | ---------------------------------- | ------------------------------------------------------------------------- |
-| `mise run format`         | None                               | Format imports and Python.                                                |
-| `mise run check`          | Vulnerability database may refresh | Check metadata, lock, format, lint, types, and dependencies.              |
-| `mise run test`           | None                               | Run branch-covered offline tests.                                         |
-| `mise run redteam`        | None                               | Run deterministic adversarial regression cases; not a live-model scanner. |
-| `mise run run`            | Model                              | Run the ADK terminal UI.                                                  |
-| `mise run workflow`       | Model                              | Run the bounded read-only planning workflow.                              |
-| `mise run coordinator`    | Model                              | Run the least-privilege specialist coordinator.                           |
-| `mise run web`            | Model                              | Run the ADK developer UI.                                                 |
-| `mise run mcp`            | None                               | Serve MCP over stdio.                                                     |
-| `mise run mcp:http`       | None                               | Serve MCP over HTTP at `127.0.0.1:8000`.                                  |
-| `mise run a2a`            | Depends on requests                | Serve persistent A2A on port `8080`.                                      |
-| `mise run eval:validate`  | None                               | Validate every eval case and seed reference offline.                      |
-| `mise run eval`           | Model                              | Run strict ADK trajectories and enforce the aggregate 4B case-pass floor. |
-| `mise run eval:report`    | Model                              | Evaluate the schema-validated triage report path.                         |
-| `mise run eval:workflow`  | Model                              | Exercise the bounded workflow's read-only evidence trajectory.            |
-| `mise run eval:mlflow`    | Model; judge optional              | Log cases, prompt lineage, scorers, and optional judge results to MLflow. |
-| `mise run eval:cost`      | Model                              | Compare per-case usage with a reviewed model-identity baseline.           |
-| `mise run eval:ground`    | Model                              | Check recognized answer claims against evidence retrieved that turn.      |
-| `mise run eval:ab`        | Model                              | Compare a baseline and candidate registered prompt version.               |
-| `mise run eval:retrieval` | Embedding model                    | Compare keyword and semantic runbook retrieval.                           |
-| `mise run data:reset`     | None                               | Delete disposable `.state/` and restore on next use.                      |
+| Task                      | Network/model use                  | Purpose                                                                    |
+| ------------------------- | ---------------------------------- | -------------------------------------------------------------------------- |
+| `mise run format`         | None                               | Format imports and Python.                                                 |
+| `mise run check`          | Vulnerability database may refresh | Check metadata, lock, format, lint, types, and dependencies.               |
+| `mise run test`           | None                               | Run branch-covered offline tests.                                          |
+| `mise run redteam`        | None                               | Run deterministic adversarial regression cases; not a live-model scanner.  |
+| `mise run run`            | Model                              | Run the ADK terminal UI.                                                   |
+| `mise run workflow`       | Model                              | Run the bounded read-only planning workflow.                               |
+| `mise run coordinator`    | Model                              | Run the least-privilege specialist coordinator.                            |
+| `mise run web`            | Model                              | Run the ADK developer UI.                                                  |
+| `mise run mcp`            | None                               | Serve MCP over stdio.                                                      |
+| `mise run mcp:http`       | None                               | Serve MCP over HTTP at `127.0.0.1:8000`.                                   |
+| `mise run a2a`            | Depends on requests                | Serve persistent A2A on port `8080`.                                       |
+| `mise run eval:validate`  | None                               | Validate every eval case and seed reference offline.                       |
+| `mise run eval`           | Model                              | Run strict ADK trajectories and enforce aggregate plus critical 4B floors. |
+| `mise run eval:report`    | Model                              | Evaluate the schema-validated triage report path.                          |
+| `mise run eval:workflow`  | Model                              | Exercise the bounded workflow's read-only evidence trajectory.             |
+| `mise run eval:mlflow`    | Model; judge optional              | Log cases, prompt lineage, scorers, and optional judge results to MLflow.  |
+| `mise run eval:cost`      | Model                              | Compare per-case usage with a reviewed model-identity baseline.            |
+| `mise run eval:ground`    | Model                              | Check recognized answer claims against evidence retrieved that turn.       |
+| `mise run eval:ab`        | Model                              | Compare a baseline and candidate registered prompt version.                |
+| `mise run eval:retrieval` | Embedding model                    | Compare keyword and semantic runbook retrieval.                            |
+| `mise run data:reset`     | None                               | Delete disposable `.state/` and restore on next use.                       |
 
 ## Reset and cleanup
 

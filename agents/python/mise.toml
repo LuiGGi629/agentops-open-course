@@ -57,9 +57,15 @@ run = "uv run pytest --cov=agent --cov-branch --cov-report=term-missing:skip-cov
 
 [tasks.eval]
 alias = "e"
-description = "Run strict ADK cases and enforce the measured aggregate pass-rate floor"
+description = "Run strict ADK cases and enforce the aggregate plus critical-case floors"
 env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
-run = "uv run python evals/run_adk_eval.py evals/ops.evalset.json --min-pass-rate 0.25"
+run = """
+uv run python evals/run_adk_eval.py evals/ops.evalset.json \
+  --min-pass-rate 0.25 \
+  --required-case remediation-loads-skill \
+  --required-case restart-needs-approval \
+  --required-case resolve-needs-approval
+"""
 
 [tasks."eval:report"]
 description = "Validate the structured TriageReport path with the configured model"

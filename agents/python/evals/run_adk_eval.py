@@ -77,8 +77,8 @@ def pass_rate(value: str) -> float:
     return parsed
 
 
-def eval_case_selectors(eval_set: Path) -> list[str]:
-    """Return one ADK file selector per case so local-model inference stays serial."""
+def eval_case_ids(eval_set: Path) -> list[str]:
+    """Return validated case ids in their committed order."""
     try:
         document = json.loads(eval_set.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -95,6 +95,12 @@ def eval_case_selectors(eval_set: Path) -> list[str]:
         if eval_id in eval_ids:
             raise SystemExit(f"{eval_set} contains duplicate eval_id {eval_id!r}.")
         eval_ids.append(eval_id)
+    return eval_ids
+
+
+def eval_case_selectors(eval_set: Path) -> list[str]:
+    """Return one ADK file selector per case so local-model inference stays serial."""
+    eval_ids = eval_case_ids(eval_set)
     return [f"{eval_set}:{eval_id}" for eval_id in eval_ids]
 
 
@@ -110,6 +116,12 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="minimum aggregate fraction of strictly passing eval cases (default: 1.0)",
     )
+    parser.add_argument(
+        "--required-case",
+        action="append",
+        default=[],
+        help="eval id that must pass its strict case contract regardless of the aggregate floor (repeatable)",
+    )
     return parser.parse_args()
 
 
@@ -117,11 +129,18 @@ def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to
     """Stream ADK output, then enforce the reported evaluation verdict."""
     require_attributable_runtime()
     args = parse_args()
+    eval_ids = eval_case_ids(args.eval_set)
+    required_cases = set(args.required_case)
+    unknown_required = required_cases - set(eval_ids)
+    if unknown_required:
+        names = ", ".join(repr(name) for name in sorted(unknown_required))
+        raise SystemExit(f"Required ADK cases are absent from {args.eval_set}: {names}.")
     total_passed = total_failed = 0
     # ADK defaults to four concurrent inference cases. A single local CPU model
     # queues those requests until their client timeouts expire, so select one
     # case per subprocess and preserve ADK's native evaluator/output unchanged.
-    for selector in eval_case_selectors(args.eval_set):
+    for eval_id in eval_ids:
+        selector = f"{args.eval_set}:{eval_id}"
         with tempfile.TemporaryDirectory(prefix="agentops-adk-eval-") as state_dir:
             command = [
                 sys.executable,
@@ -159,9 +178,18 @@ def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to
             raise SystemExit(2)
         total_passed += counts[0]
         total_failed += counts[1]
+        if eval_id in required_cases and counts != (1, 0):
+            print(  # noqa: T201 - preserve the truthful process verdict
+                f"Required ADK case {eval_id!r} failed its strict trajectory contract.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
 
     returncode, message = verdict_counts(total_passed, total_failed, args.min_pass_rate)
     print(message, file=sys.stderr if returncode else sys.stdout)
+    if required_cases and not returncode:
+        names = ", ".join(sorted(required_cases))
+        print(f"Required strict ADK cases passed: {names}.")  # noqa: T201
     raise SystemExit(returncode)
 
 
