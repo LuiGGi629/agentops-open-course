@@ -18,6 +18,11 @@ from agent import data
 from agent.memory import search_runbooks
 from agent.retrieval import semantic_search
 
+try:  # package import under pytest; direct CLI runs with ``evals/`` on sys.path[0]
+    from evals.runtime import isolated_state
+except ModuleNotFoundError:  # pragma: no cover - direct script fallback
+    from runtime import isolated_state  # ty: ignore[unresolved-import]
+
 _TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{Path(__file__).parent / 'mlflow.db'}")
 _EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT_NAME", "agentops-agent")
 _K_VALUES = (1, 3)
@@ -50,10 +55,11 @@ def main() -> None:
     """Score both retrievers, log the comparison to MLflow, and print a verdict."""
     mlflow.set_tracking_uri(_TRACKING_URI)
     mlflow.set_experiment(_EXPERIMENT)
-    metrics: dict[str, float] = {}
-    for k in _K_VALUES:
-        metrics[f"keyword_hit_rate_at_{k}"] = hit_rate(keyword_slugs, k)
-        metrics[f"semantic_hit_rate_at_{k}"] = hit_rate(semantic_slugs, k)
+    with isolated_state("agentops-retrieval-eval-"):
+        metrics: dict[str, float] = {}
+        for k in _K_VALUES:
+            metrics[f"keyword_hit_rate_at_{k}"] = hit_rate(keyword_slugs, k)
+            metrics[f"semantic_hit_rate_at_{k}"] = hit_rate(semantic_slugs, k)
     with mlflow.start_run(run_name="retrieval-eval"):
         mlflow.log_metrics(metrics)
         mlflow.set_tag("eval", "retrieval-quality")

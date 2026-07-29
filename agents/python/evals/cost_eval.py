@@ -3,9 +3,11 @@
 A prompt or model change can keep every behavioral scorer green while quietly
 doubling the tokens or model calls a case costs. The trajectory scorers match
 `IN_ORDER` and deliberately tolerate extra reads (Chapter 4.4), so they never
-catch that waste. This script runs each committed eval case, records its token
-and model-call usage, and compares it against a committed baseline; a case that
-grows beyond the tolerance is reported as a regression.
+catch that waste. This script measures each committed eval case, records its
+token and model-call usage, and compares it against a committed baseline; a case
+that grows beyond the tolerance is reported as a regression. It calls the model
+when run alone and can reuse the immediately preceding MLflow transcript in the
+scheduled workflow.
 
 It is model-backed evidence, not a merge gate — like the other live evals it
 belongs in the weekly `eval.yml` workflow (Chapter 4.3), not `ci.yml`. No token
@@ -26,9 +28,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 try:  # pytest imports this as ``evals.cost_eval``; the CLI runs it with ``evals/`` on sys.path[0]
-    from evals.mlflow_eval import _load_cases, ask
+    from evals.mlflow_eval import _load_cases, ask, load_model_observations, provider_error_messages
 except ModuleNotFoundError:  # pragma: no cover - script-invocation fallback
-    from mlflow_eval import _load_cases, ask  # ty: ignore[unresolved-import]
+    from mlflow_eval import (  # ty: ignore[unresolved-import]
+        _load_cases,
+        ask,
+        load_model_observations,
+        provider_error_messages,
+    )
 
 from agent.config import settings
 
@@ -69,12 +76,26 @@ def regressions(
 
 
 def measure() -> dict[str, dict[str, int]]:
-    """Run every committed eval case and return its per-case usage totals."""
+    """Measure every committed eval case and return its per-case usage totals."""
+    cases = _load_cases()
+    observed_path = os.environ.get("AGENT_EVAL_OBSERVED_PATH")
+    retained = (
+        load_model_observations(
+            Path(observed_path),
+            expected_cases=cases,
+            model_digest=_model_digest(),
+        )
+        if observed_path
+        else None
+    )
     observed: dict[str, dict[str, int]] = {}
-    for case in _load_cases():
+    for case in cases:
         inputs: dict[str, Any] = case["inputs"]
         eval_id = inputs["eval_id"]
-        usage = ask(inputs["turns"], eval_id).get("usage")
+        result = retained[eval_id] if retained is not None else ask(inputs["turns"], eval_id)
+        if errors := provider_error_messages(result):
+            raise SystemExit(f"Measured model usage case {eval_id!r} contains provider errors: {'; '.join(errors)}")
+        usage = result.get("usage")
         observed[eval_id] = _usage_cases(
             {eval_id: usage},
             source="Measured model usage",

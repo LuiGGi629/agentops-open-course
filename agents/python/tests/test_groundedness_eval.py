@@ -1,7 +1,14 @@
 """Offline tests for the deterministic groundedness / citation-coverage logic."""
 
+import pytest
+
 from evals import groundedness_eval
 from evals.groundedness_eval import claimed_entities, unsupported_claims
+
+
+@pytest.fixture(autouse=True)
+def ignore_retained_workflow_transcripts(monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_EVAL_OBSERVED_PATH", raising=False)
 
 
 def test_claimed_entities_extracts_ids_services_and_runbooks() -> None:
@@ -89,13 +96,69 @@ def test_measure_retains_the_transcript_needed_to_audit_a_failure(monkeypatch) -
         lambda _turns, _eval_id: {
             "responses": ["INC-999 caused it."],
             "evidence": ['{"id": "INC-002"}'],
+            "provider_errors": [[]],
         },
     )
     observed = groundedness_eval.measure()["fabricated"]
     assert observed["questions"] == ["Investigate INC-002."]
     assert observed["responses"] == ["INC-999 caused it."]
     assert observed["evidence"] == ['{"id": "INC-002"}']
+    assert observed["provider_errors"] == []
     assert observed["unsupported_claims"] == ["turn 1: answer claims 'inc-999' with no supporting evidence"]
+
+
+def test_measure_retains_provider_failure_instead_of_reporting_vacuous_grounding(monkeypatch) -> None:
+    monkeypatch.setattr(
+        groundedness_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "degraded", "turns": ["Investigate INC-002."]}}],
+    )
+    monkeypatch.setattr(
+        groundedness_eval,
+        "ask",
+        lambda _turns, _eval_id: {
+            "responses": ["The model provider is unavailable."],
+            "evidence": [""],
+            "provider_errors": [[{"code": "MODEL_UNAVAILABLE", "message": "Model request failed safely."}]],
+        },
+    )
+
+    observed = groundedness_eval.measure()["degraded"]
+    assert observed["provider_errors"] == ["turn 1: MODEL_UNAVAILABLE: Model request failed safely."]
+    assert observed["unsupported_claims"] == []
+
+
+def test_measure_reuses_the_exact_mlflow_transcript_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_EVAL_OBSERVED_PATH", "evals/model-observed.json")
+    monkeypatch.setenv("EVAL_MODEL_DIGEST", "sha256:canonical")
+    monkeypatch.setattr(
+        groundedness_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "lookup", "turns": ["Investigate INC-002."]}}],
+    )
+
+    def load(path, *, expected_cases, model_digest):
+        assert str(path) == "evals/model-observed.json"
+        assert expected_cases == [{"inputs": {"eval_id": "lookup", "turns": ["Investigate INC-002."]}}]
+        assert model_digest == "sha256:canonical"
+        return {
+            "lookup": {
+                "responses": ["INC-002 is open."],
+                "evidence": ['{"id": "INC-002"}'],
+                "provider_errors": [[]],
+            }
+        }
+
+    monkeypatch.setattr(groundedness_eval, "load_model_observations", load)
+    monkeypatch.setattr(
+        groundedness_eval,
+        "ask",
+        lambda *_args: pytest.fail("retained evidence must avoid a new model call"),
+    )
+
+    observed = groundedness_eval.measure()["lookup"]
+    assert observed["responses"] == ["INC-002 is open."]
+    assert observed["unsupported_claims"] == []
 
 
 def test_main_module_exposes_measure_and_main() -> None:

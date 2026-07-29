@@ -1,10 +1,13 @@
 """Offline tests for the full-conversation MLflow evaluation harness."""
 
 import asyncio
+import contextvars
 import json
 import os
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -20,11 +23,20 @@ from agent.guardrails import validate_actions
 from evals import mlflow_eval
 
 _PASSING_METRICS = {
+    "provider_available/mean": 1.0,
     "tool_trajectory/mean": 1.0,
     "complete_conversation/mean": 1.0,
     "response_facts/mean": 1.0,
     "tool_policy/mean": 1.0,
 }
+
+
+@pytest.fixture(autouse=True)
+def isolate_model_observations(monkeypatch, tmp_path) -> Path:
+    """Keep model-backed transcript output out of the source tree in unit tests."""
+    path = tmp_path / "model-observed.json"
+    monkeypatch.setattr(mlflow_eval, "_MODEL_OBSERVED", path)
+    return path
 
 
 def test_tracking_uri_is_selected_before_composition_import_without_env(tmp_path) -> None:
@@ -33,6 +45,7 @@ def test_tracking_uri_is_selected_before_composition_import_without_env(tmp_path
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "config.py").write_text("settings = object()\n", encoding="utf-8")
+    (package / "model.py").write_text("async def close_model(_model): pass\n", encoding="utf-8")
     (package / "composition.py").write_text(
         "\n".join(
             [
@@ -41,6 +54,7 @@ def test_tracking_uri_is_selected_before_composition_import_without_env(tmp_path
                 "assert mlflow.get_tracking_uri() == os.environ['EXPECTED_TRACKING_URI']",
                 "INSTRUCTION = 'test instruction'",
                 "root_agent = object()",
+                "build_conversational_agent = lambda: root_agent",
             ]
         )
         + "\n",
@@ -76,6 +90,7 @@ def test_temp_store_prompt_can_be_registered_then_loaded_by_a_pinned_child(tmp_p
     package = tmp_path / "agent"
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "model.py").write_text("async def close_model(_model): pass\n", encoding="utf-8")
     (package / "config.py").write_text(
         "\n".join(
             [
@@ -97,6 +112,7 @@ def test_temp_store_prompt_can_be_registered_then_loaded_by_a_pinned_child(tmp_p
                 "uri = os.environ.get('AGENT_PROMPT_URI')",
                 "instruction = mlflow.genai.load_prompt(uri).template if uri else INSTRUCTION",
                 "root_agent = SimpleNamespace(instruction=instruction)",
+                "build_conversational_agent = lambda: root_agent",
             ]
         )
         + "\n",
@@ -274,6 +290,8 @@ def test_run_reuses_one_session_and_closes_runner(monkeypatch) -> None:
             )
             response = SimpleNamespace(name=f"tool-{self.calls}", response={"turn": self.calls})
             event = SimpleNamespace(
+                error_code="MODEL_UNAVAILABLE" if self.calls == 2 else None,
+                error_message="Model request failed safely." if self.calls == 2 else None,
                 get_function_calls=lambda: [call, confirmation],
                 get_function_responses=lambda: [response],
                 is_final_response=lambda: True,
@@ -291,6 +309,10 @@ def test_run_reuses_one_session_and_closes_runner(monkeypatch) -> None:
     result = asyncio.run(mlflow_eval._run(["one", "two"], "multi"))  # noqa: SLF001
     # Events carry no usage_metadata here, so the usage totals stay at zero.
     assert result["usage"] == {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "model_calls": 0}
+    assert result["provider_errors"] == [
+        [],
+        [{"code": "MODEL_UNAVAILABLE", "message": "Model request failed safely."}],
+    ]
     assert {"responses": result["responses"], "tools": result["tools"]} == {
         "responses": ["answer-1-complete", "answer-2-complete"],
         "tools": [
@@ -388,7 +410,11 @@ def test_run_accumulates_token_and_call_usage(monkeypatch) -> None:
 
 
 def test_deterministic_scorers_cover_turn_boundaries() -> None:
-    outputs = {"responses": ["answer"], "tools": [[{"name": "lookup", "args": {}}]]}
+    outputs = {
+        "responses": ["answer"],
+        "tools": [[{"name": "lookup", "args": {}}]],
+        "provider_errors": [[]],
+    }
     expectations = {
         "expected_responses": ["reference"],
         "expected_tools": [[{"name": "lookup", "args": {}}]],
@@ -402,10 +428,24 @@ def test_deterministic_scorers_cover_turn_boundaries() -> None:
         ],
     }
     assert mlflow_eval.tool_trajectory(outputs=outputs, expectations=expectations) is True
+    assert mlflow_eval.provider_available(outputs=outputs, expectations=expectations) is True
+    assert (
+        mlflow_eval.provider_available(
+            outputs={**outputs, "provider_errors": []},
+            expectations=expectations,
+        )
+        is False
+    )
     assert mlflow_eval.complete_conversation(outputs=outputs, expectations=expectations) is True
     assert mlflow_eval.response_facts(outputs=outputs, expectations=expectations) is True
     assert mlflow_eval.tool_policy(outputs=outputs, expectations=expectations) is True
     assert mlflow_eval.complete_conversation(outputs={"responses": [""]}, expectations=expectations) is False
+    assert (
+        mlflow_eval.provider_available(
+            outputs={"provider_errors": [[{"code": "MODEL_UNAVAILABLE", "message": "failed"}]]}
+        )
+        is False
+    )
 
 
 def test_response_and_policy_scorers_reject_false_green_results() -> None:
@@ -577,21 +617,129 @@ def test_tool_policy_requires_exact_writes_but_allows_extra_reads() -> None:
 
 def test_ask_isolates_runtime_state_between_cases(monkeypatch) -> None:
     seen_state_dirs = []
+    seen_event_loops = []
+    evaluation_threads = []
+    caller_threads = []
+    closed_models = []
+    fresh_agents = []
+    marker = contextvars.ContextVar("eval_case_marker")
 
-    async def fake_run(turns, eval_id):
+    async def fake_run(turns, eval_id, evaluation_agent):
         del turns
+        seen_event_loops.append(asyncio.get_running_loop())
+        evaluation_threads.append(threading.get_ident())
+        fresh_agents.append(evaluation_agent)
         state_dir = mlflow_eval.settings.state_dir
         assert not (state_dir / "marker").exists()
         state_dir.mkdir(parents=True, exist_ok=True)
         (state_dir / "marker").write_text(eval_id, encoding="utf-8")
         seen_state_dirs.append(state_dir)
-        return {"responses": [eval_id], "tools": [[]]}
+        return {"responses": [f"{eval_id}:{marker.get()}"], "tools": [[]]}
 
+    async def fake_close_model(model):
+        closed_models.append((model, asyncio.get_running_loop(), threading.get_ident()))
+
+    built_agents = [SimpleNamespace(model=object()), SimpleNamespace(model=object())]
     monkeypatch.setattr(mlflow_eval, "_run", fake_run)
-    assert mlflow_eval.ask(["second"], "../case-b")["responses"] == ["../case-b"]
-    assert mlflow_eval.ask(["first"], "case-a")["responses"] == ["case-a"]
+    monkeypatch.setattr(mlflow_eval, "close_model", fake_close_model)
+    monkeypatch.setattr(mlflow_eval, "build_conversational_agent", lambda: built_agents.pop(0))
+    caller_threads.append(threading.get_ident())
+    marker.set("main-call")
+    assert mlflow_eval.ask(["second"], "../case-b")["responses"] == ["../case-b:main-call"]
+
+    def worker_call():
+        caller_threads.append(threading.get_ident())
+        marker.set("worker-call")
+        return mlflow_eval.ask(["first"], "case-a")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        assert executor.submit(worker_call).result()["responses"] == ["case-a:worker-call"]
     assert len(set(seen_state_dirs)) == 2
     assert seen_state_dirs[0].name.startswith("agentops-eval-case-b-")
+    assert seen_event_loops[0] is not seen_event_loops[1]
+    assert evaluation_threads == caller_threads
+    assert len({id(agent) for agent in fresh_agents}) == 2
+    assert [model for model, _, _ in closed_models] == [agent.model for agent in fresh_agents]
+    assert [loop for _, loop, _ in closed_models] == seen_event_loops
+    assert [thread_id for _, _, thread_id in closed_models] == evaluation_threads
+
+
+def test_provider_error_messages_reject_malformed_evidence() -> None:
+    assert mlflow_eval.provider_error_messages({}) == ["provider error evidence is missing"]
+    assert mlflow_eval.provider_error_messages({"provider_errors": "broken"}) == [
+        "provider error evidence is malformed"
+    ]
+
+
+def test_mlflow_trace_validation_does_not_make_an_extra_prediction(monkeypatch) -> None:
+    from mlflow.genai.utils.trace_utils import convert_predict_fn
+
+    calls: list[dict] = []
+    sample = {"turns": ["status?"], "eval_id": "lookup"}
+
+    def predict(**inputs):
+        calls.append(inputs)
+        return {"responses": ["ok"]}
+
+    monkeypatch.setenv(mlflow_eval._SKIP_TRACE_VALIDATION, "false")  # noqa: SLF001
+    with mlflow_eval._without_mlflow_prediction_probe():  # noqa: SLF001
+        converted = convert_predict_fn(predict, sample)
+        assert calls == []
+        assert converted(sample) == {"responses": ["ok"]}
+
+    assert calls == [sample]
+    assert os.environ[mlflow_eval._SKIP_TRACE_VALIDATION] == "false"  # noqa: SLF001
+
+
+def test_model_observations_require_exact_identity_and_case_set(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "observed.json"
+    monkeypatch.setattr(mlflow_eval.settings, "model", "qwen3:4b-instruct")
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    expected_cases = [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}]
+    document = {
+        "schema_version": 1,
+        "model_provider": str(mlflow_eval.settings.model_provider),
+        "model": "qwen3:4b-instruct",
+        "model_digest": "sha256:canonical",
+        "prompt_selection": mlflow_eval._prompt_selection(),  # noqa: SLF001
+        "resolved_prompt_uri": "prompts:/agentops-agent-instruction/7",
+        "evaluation_contract_digest": mlflow_eval._evaluation_contract_digest(expected_cases),  # noqa: SLF001
+        "source_revision": "abc123",
+        "cases": {"lookup": {"responses": ["ok"]}},
+    }
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    assert (
+        mlflow_eval.load_model_observations(
+            path,
+            expected_cases=expected_cases,
+            model_digest="sha256:canonical",
+        )
+        == document["cases"]
+    )
+    with pytest.raises(
+        SystemExit, match="does not match the configured model, prompt, source revision, or eval contract"
+    ):
+        mlflow_eval.load_model_observations(
+            path,
+            expected_cases=expected_cases,
+            model_digest="sha256:different",
+        )
+    with pytest.raises(
+        SystemExit, match="does not match the configured model, prompt, source revision, or eval contract"
+    ):
+        mlflow_eval.load_model_observations(
+            path,
+            expected_cases=[{"inputs": {"eval_id": "another-case", "turns": ["different"]}}],
+            model_digest="sha256:canonical",
+        )
+    monkeypatch.delenv("GITHUB_SHA")
+    with pytest.raises(SystemExit, match="requires non-empty EVAL_MODEL_DIGEST and GITHUB_SHA"):
+        mlflow_eval.load_model_observations(
+            path,
+            expected_cases=expected_cases,
+            model_digest="sha256:canonical",
+        )
 
 
 @pytest.mark.parametrize(
@@ -619,6 +767,7 @@ def test_optional_judge_requires_complete_gateway_configuration(
 def test_min_score_override_can_raise_but_never_weaken_defaults(monkeypatch) -> None:
     monkeypatch.setenv("AGENT_EVAL_MIN_SCORE", "0.8")
     assert mlflow_eval._min_scores() == {  # noqa: SLF001
+        "provider_available/mean": 1.0,
         "tool_trajectory/mean": 0.8,
         "complete_conversation/mean": 1.0,
         "response_facts/mean": 0.8,
@@ -705,6 +854,16 @@ def test_evaluation_prompt_reuses_the_configured_registry_version(monkeypatch) -
     )
 
     assert mlflow_eval._evaluation_prompt() is expected  # noqa: SLF001 - prompt lineage contract
+
+
+def test_evaluation_prompt_rejects_mutable_aliases(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mlflow_eval,
+        "settings",
+        SimpleNamespace(prompt_uri="prompts:/agentops-agent-instruction@latest"),
+    )
+    with pytest.raises(SystemExit, match="immutable numeric prompt version"):
+        mlflow_eval._evaluation_prompt()  # noqa: SLF001
 
 
 def test_matching_registered_prompt_reuses_the_latest_identical_template(monkeypatch) -> None:
@@ -796,7 +955,11 @@ def test_evaluation_prompt_registers_only_when_no_template_matches(monkeypatch) 
     assert mlflow_eval._evaluation_prompt() is registered  # noqa: SLF001
 
 
-def test_main_links_prompt_version_to_evaluated_model_and_parent_run(monkeypatch, capsys) -> None:
+def test_main_links_prompt_version_to_evaluated_model_and_parent_run(
+    monkeypatch,
+    capsys,
+    isolate_model_observations,
+) -> None:
     finalized: list[tuple[str, str]] = []
     evaluated: dict[str, object] = {}
     prompt_links: list[tuple[str, dict[str, object]]] = []
@@ -806,6 +969,7 @@ def test_main_links_prompt_version_to_evaluated_model_and_parent_run(monkeypatch
         name="agentops-agent-instruction",
     )
     monkeypatch.setenv("EVAL_MODEL_DIGEST", "sha256:canonical")
+    monkeypatch.setenv(mlflow_eval._SKIP_TRACE_VALIDATION, "false")  # noqa: SLF001
     monkeypatch.setattr(mlflow_eval.mlflow, "set_tracking_uri", lambda _uri: None)
     monkeypatch.setattr(
         mlflow_eval.mlflow,
@@ -826,13 +990,30 @@ def test_main_links_prompt_version_to_evaluated_model_and_parent_run(monkeypatch
         return SimpleNamespace(model_id="model-1")
 
     def evaluate(**kwargs):
+        assert os.environ[mlflow_eval._SKIP_TRACE_VALIDATION] == "true"  # noqa: SLF001
         evaluated.update(kwargs)
+        kwargs["predict_fn"](["status?"], "lookup")
         return SimpleNamespace(metrics=_PASSING_METRICS)
 
     monkeypatch.setattr(mlflow_eval.mlflow, "initialize_logged_model", initialize)
     monkeypatch.setattr(mlflow_eval.mlflow, "finalize_logged_model", lambda *_args: finalized.append(_args))
     monkeypatch.setattr(mlflow_eval.mlflow.genai, "evaluate", evaluate)
-    monkeypatch.setattr(mlflow_eval, "_load_cases", list)
+    monkeypatch.setattr(
+        mlflow_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}],
+    )
+    monkeypatch.setattr(
+        mlflow_eval,
+        "ask",
+        lambda turns, eval_id: {
+            "responses": [f"{eval_id}:{turns[0]}"],
+            "tools": [[]],
+            "usage": {"total_tokens": 10, "model_calls": 1},
+            "evidence": [""],
+            "provider_errors": [[]],
+        },
+    )
     monkeypatch.setattr(mlflow_eval, "_scorers", list)
     tags: dict = {}
     _stub_run_context(monkeypatch, tags, prompt_links)
@@ -852,7 +1033,14 @@ def test_main_links_prompt_version_to_evaluated_model_and_parent_run(monkeypatch
     ]
     assert prompt is registered_prompt
     assert evaluated["model_id"] == "model-1"
+    observed = json.loads(isolate_model_observations.read_text(encoding="utf-8"))
+    assert observed["model_digest"] == "sha256:canonical"
+    assert observed["prompt_selection"].startswith("committed:sha256:")
+    assert observed["resolved_prompt_uri"] == "prompts:/agentops-agent-instruction/7"
+    assert observed["evaluation_contract_digest"]
+    assert observed["cases"]["lookup"]["responses"] == ["lookup:status?"]
     assert finalized == [("model-1", "READY")]
+    assert os.environ[mlflow_eval._SKIP_TRACE_VALIDATION] == "false"  # noqa: SLF001
     output = capsys.readouterr().out
     assert "MLflow eval complete" in output
     assert f"Tracking URI: {mlflow_eval._TRACKING_URI}" in output  # noqa: SLF001
@@ -892,8 +1080,12 @@ def test_remote_tracking_uri_does_not_print_a_local_ui_command(monkeypatch, caps
     assert "Local UI:" not in output
 
 
-def test_main_marks_logged_model_failed_when_evaluation_fails(monkeypatch) -> None:
+def test_main_marks_logged_model_failed_when_evaluation_fails(
+    monkeypatch,
+    isolate_model_observations,
+) -> None:
     finalized: list[tuple[str, str]] = []
+    isolate_model_observations.write_text("stale", encoding="utf-8")
     monkeypatch.setattr(mlflow_eval.mlflow, "set_tracking_uri", lambda _uri: None)
     monkeypatch.setattr(
         mlflow_eval.mlflow,
@@ -922,6 +1114,7 @@ def test_main_marks_logged_model_failed_when_evaluation_fails(monkeypatch) -> No
     with pytest.raises(RuntimeError, match="fail"):
         mlflow_eval.main()
     assert finalized == [("model-1", "FAILED")]
+    assert not isolate_model_observations.exists()
 
 
 @pytest.mark.parametrize(

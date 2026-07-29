@@ -116,6 +116,27 @@ class FallbackLlm(BaseLlm):
             yield response
 
 
+async def close_model(llm: str | BaseLlm) -> None:
+    """Close materialized clients owned by a disposable model."""
+    if isinstance(llm, FallbackLlm):
+        await close_model(llm.primary)
+        await close_model(llm.fallback)
+        return
+    if isinstance(llm, Gemini):
+        client = llm.__dict__.get("api_client")
+        if client is not None:
+            await client.aio.aclose()
+            client.close()
+        return
+    if not isinstance(llm, ResilientOpenAILlm):
+        return
+    # Reading the cached-property slot avoids constructing a client merely to
+    # close an unused model.
+    client = llm.__dict__.get("_openai_client")
+    if isinstance(client, AsyncOpenAI):
+        await client.close()
+
+
 def _build_openai_compatible(model: str) -> ResilientOpenAILlm:
     """Build the OSS OpenAI-compatible client for a specific model name."""
     if not settings.openai_base_url or not settings.openai_api_key:

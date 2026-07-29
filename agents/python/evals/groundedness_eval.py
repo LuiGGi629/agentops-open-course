@@ -14,22 +14,36 @@ context: the tool responses the agent received that turn, plus the user's own
 question (you may always echo the asker). A recognized entity in the answer
 that is in neither is reported as an unsupported claim.
 
-Like the cost baseline, it is model-backed evidence, not a merge gate — it runs
-the agent, so it belongs in the weekly ``eval.yml`` workflow, not ``ci.yml``.
-The scoring logic itself is pure and unit-tested offline with fixed transcripts.
+Like the cost baseline, it is model-backed evidence, not a merge gate. It calls
+the agent when run alone and can reuse the immediately preceding MLflow
+transcript in the weekly ``eval.yml`` workflow. The scoring logic itself is pure
+and unit-tested offline with fixed transcripts.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 try:  # pytest imports this as ``evals.groundedness_eval``; the CLI runs it with ``evals/`` on sys.path[0]
-    from evals.mlflow_eval import _SERVICE_TERMS, _load_cases, ask
+    from evals.mlflow_eval import (
+        _SERVICE_TERMS,
+        _load_cases,
+        ask,
+        load_model_observations,
+        provider_error_messages,
+    )
 except ModuleNotFoundError:  # pragma: no cover - script-invocation fallback
-    from mlflow_eval import _SERVICE_TERMS, _load_cases, ask  # ty: ignore[unresolved-import]
+    from mlflow_eval import (  # ty: ignore[unresolved-import]
+        _SERVICE_TERMS,
+        _load_cases,
+        ask,
+        load_model_observations,
+        provider_error_messages,
+    )
 
 # Runbook slugs shipped under agents/data/runbooks; a runbook the answer cites
 # must have surfaced in a tool response (get_runbook / search_runbooks) that turn.
@@ -118,16 +132,29 @@ def unsupported_claims(responses: list[str], evidence: list[str], questions: lis
 
 
 def measure() -> dict[str, dict[str, Any]]:
-    """Run each case and retain the transcript needed to audit every claim."""
+    """Measure each case and retain the transcript needed to audit every claim."""
+    cases = _load_cases()
+    observed_path = os.environ.get("AGENT_EVAL_OBSERVED_PATH")
+    retained = (
+        load_model_observations(
+            Path(observed_path),
+            expected_cases=cases,
+            model_digest=os.environ.get("EVAL_MODEL_DIGEST"),
+        )
+        if observed_path
+        else None
+    )
     observed: dict[str, dict[str, Any]] = {}
-    for case in _load_cases():
+    for case in cases:
         inputs: dict[str, Any] = case["inputs"]
         eval_id = inputs["eval_id"]
-        result = ask(inputs["turns"], eval_id)
+        result = retained[eval_id] if retained is not None else ask(inputs["turns"], eval_id)
+        provider_errors = provider_error_messages(result)
         observed[eval_id] = {
             "questions": inputs["turns"],
             "responses": result["responses"],
             "evidence": result["evidence"],
+            "provider_errors": provider_errors,
             "unsupported_claims": unsupported_claims(result["responses"], result["evidence"], inputs["turns"]),
         }
     return observed
@@ -140,11 +167,18 @@ def main() -> None:
     problems: list[str] = []
     for eval_id in sorted(observed):
         claims = observed[eval_id]["unsupported_claims"]
-        status = "ok" if not claims else f"{len(claims)} unsupported"
+        provider_errors = observed[eval_id]["provider_errors"]
+        status_parts: list[str] = []
+        if provider_errors:
+            status_parts.append(f"{len(provider_errors)} provider errors")
+        if claims:
+            status_parts.append(f"{len(claims)} unsupported")
+        status = ", ".join(status_parts) if status_parts else "ok"
         print(f"  {eval_id}: {status}")  # noqa: T201 - CLI output
+        problems.extend(f"{eval_id} {error}" for error in provider_errors)
         problems.extend(f"{eval_id} {claim}" for claim in claims)
     if problems:
-        raise SystemExit("Ungrounded answers:\n  " + "\n  ".join(problems))
+        raise SystemExit("Groundedness evidence failed:\n  " + "\n  ".join(problems))
     print("\nEvery recognized entity was grounded in that turn's evidence or question.")  # noqa: T201
 
 

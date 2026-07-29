@@ -8,19 +8,20 @@ path is used. Live agent and judge calls remain outside the offline test suite.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import os
 import re
-import tempfile
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import mlflow
 import mlflow.genai
-from google.adk import Workflow
+from google.adk import Agent, Workflow
 from google.adk.agents import BaseAgent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
@@ -32,28 +33,37 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from agent.config import settings
+from agent.model import close_model
 
-# A pinned agent loads its prompt while ``agent.composition`` is imported. Select
-# the same tracking store used by the evaluator before that import, including
-# the no-environment local SQLite path used by prompt A/B child processes.
+# Prompt selection is configured before ``agent.composition`` is imported.
+# Select the same tracking store used by the evaluator before that import,
+# including the no-environment SQLite path used by prompt A/B child processes.
 _EVALS_DIR = Path(__file__).parent
 _TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", f"sqlite:///{_EVALS_DIR / 'mlflow.db'}")
+_MODEL_OBSERVED = _EVALS_DIR / "model-observed.json"
+_SKIP_TRACE_VALIDATION = "MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION"
 mlflow.set_tracking_uri(_TRACKING_URI)
 
 
-def _load_agent_contract() -> tuple[str, BaseAgent | Workflow]:
-    """Import the prompt-bound agent only after its tracking store is selected."""
-    from agent.composition import INSTRUCTION, root_agent
+def _load_agent_contract() -> tuple[str, Callable[[], Agent], BaseAgent | Workflow]:
+    """Import the prompt and fresh-agent factory after selecting its store."""
+    from agent.composition import INSTRUCTION, build_conversational_agent, root_agent
 
-    return INSTRUCTION, root_agent
+    return INSTRUCTION, build_conversational_agent, root_agent
 
 
-INSTRUCTION, root_agent = _load_agent_contract()
+INSTRUCTION, build_conversational_agent, root_agent = _load_agent_contract()
 
 try:  # package import under pytest and ``python -m`` execution
     from evals.required_trajectory import contains_required
+    from evals.runtime import immutable_prompt_uri, isolated_state, require_attributable_runtime
 except ModuleNotFoundError:  # pragma: no cover - direct script fallback
     from required_trajectory import contains_required  # ty: ignore[unresolved-import]
+    from runtime import (  # ty: ignore[unresolved-import]
+        immutable_prompt_uri,
+        isolated_state,
+        require_attributable_runtime,
+    )
 
 _EVALSET = _EVALS_DIR / "ops.evalset.json"
 _EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT_NAME", "agentops-agent")
@@ -76,6 +86,7 @@ _CONFIRMATION_TARGETS = {
 # Raise the bar on a stronger model with AGENT_EVAL_MIN_SCORE. It can only
 # increase each committed floor — `AGENT_EVAL_MIN_SCORE=1.0` demands perfection.
 _DEFAULT_MIN_SCORES = {
+    "provider_available/mean": 1.0,
     "tool_trajectory/mean": 0.25,
     "complete_conversation/mean": 1.0,
     "response_facts/mean": 0.15,
@@ -343,14 +354,15 @@ def _confirmation_pause_response(call: Mapping[str, Any]) -> str | None:
     )
 
 
-async def _run(turns: list[str], eval_id: str) -> dict[str, Any]:
+async def _run(turns: list[str], eval_id: str, evaluation_agent: BaseAgent | None = None) -> dict[str, Any]:
     """Run all turns in one session and retain each answer and tool trajectory."""
     if not turns:
         raise ValueError("An evaluation conversation needs at least one turn")
-    if not isinstance(root_agent, BaseAgent):
+    selected_agent = evaluation_agent or root_agent
+    if not isinstance(selected_agent, BaseAgent):
         raise RuntimeError("MLflow evaluation requires AGENT_ENTRYPOINT=agent.")
     user_id = _eval_user_id(eval_id)
-    runner = InMemoryRunner(agent=root_agent, app_name=_EXPERIMENT)
+    runner = InMemoryRunner(agent=selected_agent, app_name=_EXPERIMENT)
     try:
         session = await runner.session_service.create_session(app_name=_EXPERIMENT, user_id=user_id)
         responses: list[str] = []
@@ -362,11 +374,13 @@ async def _run(turns: list[str], eval_id: str) -> dict[str, Any]:
         # Accumulate token/model-call usage over the whole conversation so a cost
         # regression (Chapter 4.4) can be judged per case, not just per turn.
         input_tokens = output_tokens = model_calls = 0
+        provider_errors: list[list[dict[str, str]]] = []
         for turn in turns:
             message = types.Content(role="user", parts=[types.Part(text=turn)])
             answer_parts: list[str] = []
             tool_calls: list[dict[str, Any]] = []
             evidence_parts: list[str] = []
+            turn_provider_errors: list[dict[str, str]] = []
             confirmation_pause: str | None = None
             async for event in runner.run_async(user_id=user_id, session_id=session.id, new_message=message):
                 usage = getattr(event, "usage_metadata", None)
@@ -374,6 +388,13 @@ async def _run(turns: list[str], eval_id: str) -> dict[str, Any]:
                     input_tokens += getattr(usage, "prompt_token_count", 0) or 0
                     output_tokens += getattr(usage, "candidates_token_count", 0) or 0
                     model_calls += 1
+                if error_code := getattr(event, "error_code", None):
+                    turn_provider_errors.append(
+                        {
+                            "code": str(error_code),
+                            "message": str(getattr(event, "error_message", "") or ""),
+                        }
+                    )
                 for call in event.get_function_calls():
                     if not call.name:
                         continue
@@ -390,26 +411,189 @@ async def _run(turns: list[str], eval_id: str) -> dict[str, Any]:
             responses.append(response if response.strip() else confirmation_pause or "")
             trajectories.append(tool_calls)
             evidence.append(" ".join(evidence_parts))
+            provider_errors.append(turn_provider_errors)
         usage_totals = {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
             "model_calls": model_calls,
         }
-        return {"responses": responses, "tools": trajectories, "usage": usage_totals, "evidence": evidence}
+        return {
+            "responses": responses,
+            "tools": trajectories,
+            "usage": usage_totals,
+            "evidence": evidence,
+            "provider_errors": provider_errors,
+        }
     finally:
         await runner.close()
 
 
+async def _run_disposable(turns: list[str], eval_id: str, evaluation_agent: Agent) -> dict[str, Any]:
+    """Run and close one fresh model on the same event loop."""
+    try:
+        return await _run(turns, eval_id, evaluation_agent)
+    finally:
+        await close_model(evaluation_agent.model)
+
+
 def ask(turns: list[str], eval_id: str) -> dict[str, Any]:
     """Run one conversation with an isolated user and disposable runtime state."""
-    with _EVAL_STATE_LOCK, tempfile.TemporaryDirectory(prefix=f"agentops-{_eval_user_id(eval_id)}-") as state_dir:
-        original_state_dir = settings.state_dir
-        settings.state_dir = Path(state_dir)
-        try:
-            return asyncio.run(_run(turns, eval_id))
-        finally:
-            settings.state_dir = original_state_dir
+    require_attributable_runtime()
+    with _EVAL_STATE_LOCK, isolated_state(f"agentops-{_eval_user_id(eval_id)}-"):
+        evaluation_agent = build_conversational_agent()
+        return asyncio.run(_run_disposable(turns, eval_id, evaluation_agent))
+
+
+def provider_error_messages(outputs: Mapping[str, Any]) -> list[str]:
+    """Return stable per-turn provider failures retained by the evaluator."""
+    if "provider_errors" not in outputs:
+        return ["provider error evidence is missing"]
+    raw_turns = outputs["provider_errors"]
+    if not isinstance(raw_turns, list):
+        return ["provider error evidence is malformed"]
+    messages: list[str] = []
+    for turn_index, raw_errors in enumerate(raw_turns, start=1):
+        if not isinstance(raw_errors, list):
+            messages.append(f"turn {turn_index}: provider error evidence is malformed")
+            continue
+        for raw_error in raw_errors:
+            if not isinstance(raw_error, Mapping):
+                messages.append(f"turn {turn_index}: provider error evidence is malformed")
+                continue
+            code = raw_error.get("code")
+            message = raw_error.get("message")
+            if not isinstance(code, str) or not code:
+                messages.append(f"turn {turn_index}: provider error evidence is malformed")
+                continue
+            suffix = f": {message}" if isinstance(message, str) and message else ""
+            messages.append(f"turn {turn_index}: {code}{suffix}")
+    return messages
+
+
+def _recording_predictor(observed: dict[str, dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Wrap ``ask`` while retaining the exact outputs scored by MLflow."""
+    observed_lock = threading.Lock()
+
+    def predict(turns: list[str], eval_id: str) -> dict[str, Any]:
+        result = ask(turns, eval_id)
+        with observed_lock:
+            observed[eval_id] = result
+        return result
+
+    return predict
+
+
+@contextmanager
+def _without_mlflow_prediction_probe():
+    """Skip MLflow's extra sample prediction while keeping an explicit trace."""
+    original = os.environ.get(_SKIP_TRACE_VALIDATION)
+    os.environ[_SKIP_TRACE_VALIDATION] = "true"
+    try:
+        yield
+    finally:
+        if original is None:
+            os.environ.pop(_SKIP_TRACE_VALIDATION, None)
+        else:
+            os.environ[_SKIP_TRACE_VALIDATION] = original
+
+
+def _evaluation_contract_digest(cases: list[dict[str, Any]]) -> str:
+    """Identify the exact normalized inputs and expectations being scored."""
+    encoded = json.dumps(cases, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _prompt_selection() -> str:
+    """Identify the configured immutable prompt version or committed prompt text."""
+    if settings.prompt_uri:
+        prompt_uri = immutable_prompt_uri(settings.prompt_uri)
+        if prompt_uri is None:  # narrowed by the branch above
+            raise RuntimeError("configured prompt URI was not retained")
+        return prompt_uri
+    digest = hashlib.sha256(INSTRUCTION.encode()).hexdigest()
+    return f"committed:sha256:{digest}"
+
+
+def _case_ids(cases: list[dict[str, Any]]) -> set[str]:
+    """Return the normalized eval ids used by MLflow and reuse consumers."""
+    return {case["inputs"]["eval_id"] for case in cases}
+
+
+def _write_model_observations(
+    observed: dict[str, dict[str, Any]],
+    cases: list[dict[str, Any]],
+    *,
+    resolved_prompt_uri: str,
+) -> None:
+    """Persist one fully-identified transcript per committed case."""
+    prompt_selection = _prompt_selection()
+    if settings.prompt_uri and resolved_prompt_uri != prompt_selection:
+        raise RuntimeError(
+            f"Resolved prompt {resolved_prompt_uri!r} does not match configured version {prompt_selection!r}."
+        )
+    expected_ids = _case_ids(cases)
+    actual_ids = set(observed)
+    if actual_ids != expected_ids:
+        missing = sorted(expected_ids - actual_ids)
+        unexpected = sorted(actual_ids - expected_ids)
+        raise RuntimeError(f"MLflow observations do not match the evalset: missing={missing}, unexpected={unexpected}")
+    document = {
+        "schema_version": 1,
+        "model_provider": str(settings.model_provider),
+        "model": settings.model,
+        "model_digest": os.environ.get("EVAL_MODEL_DIGEST"),
+        "prompt_selection": prompt_selection,
+        "resolved_prompt_uri": resolved_prompt_uri,
+        "evaluation_contract_digest": _evaluation_contract_digest(cases),
+        "source_revision": os.environ.get("GITHUB_SHA"),
+        "cases": observed,
+    }
+    _MODEL_OBSERVED.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def load_model_observations(
+    path: Path,
+    *,
+    expected_cases: list[dict[str, Any]],
+    model_digest: str | None,
+) -> dict[str, dict[str, Any]]:
+    """Load a transcript only when its model, prompt, source, and cases match."""
+    source_revision = os.environ.get("GITHUB_SHA")
+    if not model_digest or not source_revision:
+        raise SystemExit(
+            "Transcript reuse requires non-empty EVAL_MODEL_DIGEST and GITHUB_SHA identities; "
+            "run this task standalone instead."
+        )
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"{path} is unreadable or invalid JSON: {error}") from None
+    if (
+        not isinstance(document, dict)
+        or type(document.get("schema_version")) is not int
+        or document["schema_version"] != 1
+        or document.get("model_provider") != str(settings.model_provider)
+        or document.get("model") != settings.model
+        or document.get("model_digest") != model_digest
+        or document.get("prompt_selection") != _prompt_selection()
+        or not isinstance(document.get("resolved_prompt_uri"), str)
+        or not document["resolved_prompt_uri"]
+        or document.get("evaluation_contract_digest") != _evaluation_contract_digest(expected_cases)
+        or document.get("source_revision") != os.environ.get("GITHUB_SHA")
+        or not isinstance(document.get("cases"), dict)
+    ):
+        raise SystemExit(f"{path} does not match the configured model, prompt, source revision, or eval contract.")
+    cases = document["cases"]
+    expected_ids = _case_ids(expected_cases)
+    actual_ids = set(cases)
+    if actual_ids != expected_ids:
+        missing = sorted(expected_ids - actual_ids)
+        unexpected = sorted(actual_ids - expected_ids)
+        raise SystemExit(f"{path} does not match the evalset: missing={missing}, unexpected={unexpected}.")
+    if not all(isinstance(eval_id, str) and isinstance(result, dict) for eval_id, result in cases.items()):
+        raise SystemExit(f"{path} contains malformed case observations.")
+    return cases
 
 
 def _in_order(actual: Any, expected: Any) -> bool:
@@ -421,6 +605,22 @@ def _in_order(actual: Any, expected: Any) -> bool:
         if current is not None and contains_required(call, current):
             current = next(pending, None)
     return current is None
+
+
+@scorer
+def provider_available(outputs: dict[str, Any], expectations: dict[str, Any] | None = None) -> bool:
+    """Require every model turn to complete without a provider failure."""
+    if provider_error_messages(outputs):
+        return False
+    if expectations is None:
+        return True
+    expected_responses = expectations.get("expected_responses")
+    provider_errors = outputs.get("provider_errors")
+    return (
+        isinstance(expected_responses, list)
+        and isinstance(provider_errors, list)
+        and len(provider_errors) == len(expected_responses)
+    )
 
 
 @scorer
@@ -548,7 +748,13 @@ def _gateway_judge(model: str, base_url: str, api_key: str) -> Scorer:
 
 def _scorers() -> list[Scorer]:
     """Return offline scorers plus an optional agentgateway-backed judge."""
-    scorers: list[Scorer] = [tool_trajectory, complete_conversation, response_facts, tool_policy]
+    scorers: list[Scorer] = [
+        provider_available,
+        tool_trajectory,
+        complete_conversation,
+        response_facts,
+        tool_policy,
+    ]
     judge_config = {
         "MLFLOW_JUDGE_MODEL": os.environ.get("MLFLOW_JUDGE_MODEL"),
         "MLFLOW_JUDGE_BASE_URL": os.environ.get("MLFLOW_JUDGE_BASE_URL"),
@@ -612,9 +818,9 @@ def _matching_registered_prompt(template: str) -> PromptVersion | None:
 
 
 def _evaluation_prompt() -> PromptVersion:
-    """Return the exact prompt version used by the already-built root agent."""
+    """Return the exact prompt version selected for the fresh eval agents."""
     if settings.prompt_uri:
-        return mlflow.genai.load_prompt(settings.prompt_uri)
+        return mlflow.genai.load_prompt(_prompt_selection())
     if matching := _matching_registered_prompt(INSTRUCTION):
         return matching
     return mlflow.genai.register_prompt(
@@ -626,6 +832,10 @@ def _evaluation_prompt() -> PromptVersion:
 
 def main() -> None:
     """Link the resolved prompt to a logged model, then evaluate that model."""
+    # A failed run must not leave a previous transcript available to later
+    # evidence steps in the same workflow or shell.
+    _MODEL_OBSERVED.unlink(missing_ok=True)
+    require_attributable_runtime()
     mlflow.set_tracking_uri(_TRACKING_URI)
     experiment = mlflow.set_experiment(_EXPERIMENT)
     prompt = _evaluation_prompt()
@@ -644,6 +854,8 @@ def main() -> None:
         params=model_params,
     )
     try:
+        cases = _load_cases()
+        observed: dict[str, dict[str, Any]] = {}
         client = MlflowClient()
         client.link_prompt_version_to_model(
             name=prompt.name,
@@ -655,11 +867,20 @@ def main() -> None:
         with mlflow.start_run(run_name=f"eval-prompt-v{prompt.version}") as run:
             client.link_prompt_version_to_run(run_id=run.info.run_id, prompt=prompt)
             mlflow.set_tags({"prompt_name": prompt.name, "prompt_version": str(prompt.version)})
-            result = mlflow.genai.evaluate(
-                data=_load_cases(),
-                predict_fn=ask,
-                scorers=_scorers(),
-                model_id=logged_model.model_id,
+            predictor = mlflow.trace(_recording_predictor(observed), name="agentops_eval_case")
+            # MLflow normally probes the first sample to detect tracing. A model
+            # prediction is not a harmless probe, so trace explicitly and skip it.
+            with _without_mlflow_prediction_probe():
+                result = mlflow.genai.evaluate(
+                    data=cases,
+                    predict_fn=predictor,
+                    scorers=_scorers(),
+                    model_id=logged_model.model_id,
+                )
+            _write_model_observations(
+                observed,
+                cases,
+                resolved_prompt_uri=prompt.uri,
             )
             metric_failures = _required_metric_failures(result.metrics)
             if metric_failures:

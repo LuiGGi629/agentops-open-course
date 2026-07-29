@@ -1,12 +1,15 @@
 """Unit tests for OpenAI-compatible and optional Gemini model selection."""
 
+import asyncio
 from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock
 
 import pytest
 from google.adk.models import Gemini, OpenAILlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from openai import AsyncOpenAI
 from pydantic import SecretStr
 
 from agent import model
@@ -146,8 +149,6 @@ def test_build_model_with_fallback_wraps_two_distinct_models(monkeypatch) -> Non
 
 
 def test_fallback_engages_only_when_primary_fails_before_responding() -> None:
-    import asyncio
-
     primary = _StubLlm(model="primary", fail=True)
     fallback = _StubLlm(model="fallback", reply="from fallback")
     chain = FallbackLlm(model="primary", primary=primary, fallback=fallback)
@@ -155,8 +156,6 @@ def test_fallback_engages_only_when_primary_fails_before_responding() -> None:
 
 
 def test_healthy_primary_is_used_and_fallback_untouched() -> None:
-    import asyncio
-
     primary = _StubLlm(model="primary", reply="from primary")
     fallback = _StubLlm(model="fallback", fail=True)  # would raise if ever called
     chain = FallbackLlm(model="primary", primary=primary, fallback=fallback)
@@ -164,8 +163,6 @@ def test_healthy_primary_is_used_and_fallback_untouched() -> None:
 
 
 def test_mid_stream_failure_is_not_masked_by_fallback() -> None:
-    import asyncio
-
     primary = _StubLlm(model="primary", reply="partial", fail_after_yield=True)
     fallback = _StubLlm(model="fallback", reply="from fallback")
     chain = FallbackLlm(model="primary", primary=primary, fallback=fallback)
@@ -174,10 +171,82 @@ def test_mid_stream_failure_is_not_masked_by_fallback() -> None:
 
 
 def test_both_models_down_surfaces_the_fallback_error() -> None:
-    import asyncio
-
     primary = _StubLlm(model="primary", fail=True)
     fallback = _StubLlm(model="fallback", fail=True)
     chain = FallbackLlm(model="primary", primary=primary, fallback=fallback)
     with pytest.raises(ConnectionError, match="fallback is down"):
         asyncio.run(_collect(chain))
+
+
+def test_close_model_closes_materialized_primary_and_fallback_clients(monkeypatch) -> None:
+    closed = []
+
+    async def record_close() -> None:
+        closed.append(asyncio.get_running_loop())
+
+    primary = model.ResilientOpenAILlm(
+        model="primary",
+        openai_base_url="http://localhost:11434/v1",
+        openai_api_key=SecretStr("local-marker"),
+        timeout_s=10,
+        retries=0,
+    )
+    fallback = model.ResilientOpenAILlm(
+        model="fallback",
+        openai_base_url="http://localhost:11434/v1",
+        openai_api_key=SecretStr("local-marker"),
+        timeout_s=10,
+        retries=0,
+    )
+    primary_client = AsyncMock(spec=AsyncOpenAI)
+    primary_client.close.side_effect = record_close
+    fallback_client = AsyncMock(spec=AsyncOpenAI)
+    fallback_client.close.side_effect = record_close
+    monkeypatch.setitem(primary.__dict__, "_openai_client", primary_client)
+    monkeypatch.setitem(fallback.__dict__, "_openai_client", fallback_client)
+    chain = FallbackLlm(model="primary", primary=primary, fallback=fallback)
+
+    async def close() -> None:
+        expected_loop = asyncio.get_running_loop()
+        await model.close_model(chain)
+        assert closed == [expected_loop, expected_loop]
+
+    asyncio.run(close())
+
+
+def test_close_model_does_not_materialize_an_unused_client() -> None:
+    configured = model.ResilientOpenAILlm(
+        model="unused",
+        openai_base_url="http://localhost:11434/v1",
+        openai_api_key=SecretStr("local-marker"),
+        timeout_s=10,
+        retries=0,
+    )
+
+    asyncio.run(model.close_model(configured))
+
+    assert "_openai_client" not in configured.__dict__
+
+
+def test_close_model_closes_materialized_gemini_async_and_sync_clients(monkeypatch) -> None:
+    calls = []
+
+    class AsyncClient:
+        async def aclose(self) -> None:
+            calls.append(("async", asyncio.get_running_loop()))
+
+    class Client:
+        aio = AsyncClient()
+
+        def close(self) -> None:
+            calls.append(("sync", asyncio.get_running_loop()))
+
+    configured = Gemini(model="gemini-test")
+    monkeypatch.setitem(configured.__dict__, "api_client", Client())
+
+    async def close() -> None:
+        expected_loop = asyncio.get_running_loop()
+        await model.close_model(configured)
+        assert calls == [("async", expected_loop), ("sync", expected_loop)]
+
+    asyncio.run(close())

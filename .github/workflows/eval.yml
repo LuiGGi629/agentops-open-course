@@ -49,8 +49,10 @@ jobs:
       AGENT_MODEL: ${{ inputs.model || 'qwen3:4b-instruct' }}
       OPENAI_BASE_URL: http://127.0.0.1:11434/v1
       OPENAI_API_KEY: local-ollama # non-secret marker; the local server has no auth
-      # ADK starts four cases in parallel. One 180-second attempt avoids stacking
-      # duplicate local CPU generations while preserving the learner defaults.
+      # The repository wrapper runs ADK cases serially so one local CPU model
+      # never queues four requests behind the same client timeout. One
+      # 180-second attempt avoids duplicate generations while preserving the
+      # learner defaults.
       # The shared retry setting also keeps fixed-data read tools single-attempt;
       # their failures remain visible instead of being hidden by this evidence job.
       AGENT_MODEL_TIMEOUT_S: "180"
@@ -126,16 +128,22 @@ jobs:
         id: cost
         # Evidence, not a gate: records a baseline on first run (nothing committed)
         # and reports drift beyond tolerance once cost_baseline.json is committed.
+        # Reuse the exact source/prompt/model/eval-bound transcript MLflow scored.
         continue-on-error: true
         shell: bash
+        env:
+          AGENT_EVAL_OBSERVED_PATH: evals/model-observed.json
         run: cd agents/python && mise run eval:cost 2>&1 | tee evals/cost-eval.log
 
       - name: Check answer groundedness against retrieved evidence
         id: ground
         # Evidence, not a gate: reports recognized domain claims that were not
-        # grounded in that turn's tool responses or the user's question.
+        # grounded in that turn's tool responses or the user's question. Reuse
+        # the exact source/prompt/model/eval-bound transcript MLflow scored.
         continue-on-error: true
         shell: bash
+        env:
+          AGENT_EVAL_OBSERVED_PATH: evals/model-observed.json
         run: cd agents/python && mise run eval:ground 2>&1 | tee evals/ground-eval.log
 
       - name: Upload evaluation results
@@ -153,6 +161,7 @@ jobs:
             agents/python/evals/cost_baseline.json
             agents/python/evals/ground-eval.log
             agents/python/evals/ground-observed.json
+            agents/python/evals/model-observed.json
             agents/python/evals/model.json
             agents/python/evals/mlflow.db
             agents/python/mlruns

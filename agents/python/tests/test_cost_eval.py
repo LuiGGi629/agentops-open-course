@@ -8,6 +8,11 @@ import pytest
 from evals import cost_eval
 
 
+@pytest.fixture(autouse=True)
+def ignore_retained_workflow_transcripts(monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_EVAL_OBSERVED_PATH", raising=False)
+
+
 def test_no_regression_within_tolerance() -> None:
     baseline = {"lookup": {"total_tokens": 1000, "model_calls": 3}}
     observed = {"lookup": {"total_tokens": 1200, "model_calls": 3}}  # +20%, under the 25% default
@@ -245,9 +250,54 @@ def test_measure_rejects_malformed_provider_usage_without_coercion(monkeypatch, 
         "_load_cases",
         lambda: [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}],
     )
-    monkeypatch.setattr(cost_eval, "ask", lambda *_args: {"usage": bad_usage})
+    monkeypatch.setattr(cost_eval, "ask", lambda *_args: {"usage": bad_usage, "provider_errors": [[]]})
     with pytest.raises(SystemExit, match="positive integer total_tokens"):
         cost_eval.measure()
+
+
+def test_measure_rejects_provider_fallback_before_recording_a_baseline(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cost_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}],
+    )
+    monkeypatch.setattr(
+        cost_eval,
+        "ask",
+        lambda *_args: {
+            "provider_errors": [[{"code": "MODEL_UNAVAILABLE", "message": "Model request failed safely."}]],
+            "usage": {"total_tokens": 10, "model_calls": 1},
+        },
+    )
+
+    with pytest.raises(SystemExit, match="contains provider errors"):
+        cost_eval.measure()
+
+
+def test_measure_reuses_the_exact_mlflow_transcript_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_EVAL_OBSERVED_PATH", "evals/model-observed.json")
+    monkeypatch.setattr(
+        cost_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}],
+    )
+    monkeypatch.setattr(cost_eval, "_model_digest", lambda: "sha256:canonical")
+
+    def load(path, *, expected_cases, model_digest):
+        assert str(path) == "evals/model-observed.json"
+        assert expected_cases == [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}]
+        assert model_digest == "sha256:canonical"
+        return {
+            "lookup": {
+                "provider_errors": [[]],
+                "usage": {"total_tokens": 120, "model_calls": 2},
+            }
+        }
+
+    monkeypatch.setattr(cost_eval, "load_model_observations", load)
+    monkeypatch.setattr(cost_eval, "ask", lambda *_args: pytest.fail("retained evidence must avoid a new model call"))
+
+    assert cost_eval.measure() == {"lookup": {"total_tokens": 120, "model_calls": 2}}
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "-0.1", "not-a-number"])

@@ -2,15 +2,15 @@
 
 Version-pinning and rollback (Chapter 7.0) let you *choose* a prompt version;
 this tool tells you which one to choose. It runs the committed eval set through
-the four deterministic scorers under two prompt versions and prints a per-scorer
+the five deterministic scorers under two prompt versions and prints a per-scorer
 pass-rate table with the delta, so a prompt change is a measured decision, not a
 vibe. It is the runnable form of the "compare prompt versions" workflow that
 Chapter 7.0 (Reproducibility) describes.
 
 Each version runs in its own subprocess with ``AGENT_PROMPT_URI`` set, because
-the agent binds its instruction once at import — a fresh interpreter is the clean
-way to evaluate a different pinned version. It is model-backed and intentionally
-on-demand, outside the deterministic ``ci.yml`` workflow.
+the validated settings and selected prompt are import-bound. A fresh interpreter
+is the clean way to evaluate a different pinned version. It is model-backed and
+intentionally on-demand, outside the deterministic ``ci.yml`` workflow.
 
     uv run python evals/prompt_ab.py \
       prompts:/agentops-agent-instruction/1 prompts:/agentops-agent-instruction/2
@@ -28,21 +28,26 @@ try:  # pytest imports this as ``evals.prompt_ab``; the CLI runs it with ``evals
         _load_cases,
         ask,
         complete_conversation,
+        provider_available,
         response_facts,
         tool_policy,
         tool_trajectory,
     )
+    from evals.runtime import immutable_prompt_uri
 except ModuleNotFoundError:  # pragma: no cover - script-invocation fallback
     from mlflow_eval import (  # ty: ignore[unresolved-import]
         _load_cases,
         ask,
         complete_conversation,
+        provider_available,
         response_facts,
         tool_policy,
         tool_trajectory,
     )
+    from runtime import immutable_prompt_uri  # ty: ignore[unresolved-import]
 
 DETERMINISTIC_SCORERS = {
+    "provider_available": provider_available,
     "tool_trajectory": tool_trajectory,
     "complete_conversation": complete_conversation,
     "response_facts": response_facts,
@@ -82,6 +87,7 @@ def format_comparison(
 
 def _score_pinned_prompt(prompt_uri: str) -> dict[str, float]:  # pragma: no cover - spawns a model-backed child
     """Score one prompt version in a fresh interpreter with it pinned."""
+    immutable_prompt_uri(prompt_uri)
     environment = {**os.environ, "AGENT_PROMPT_URI": prompt_uri}
     try:
         completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
