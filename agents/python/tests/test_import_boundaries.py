@@ -81,10 +81,13 @@ def test_adk_cli_discovery_resolves_lazy_root_agent(script: str) -> None:
 @pytest.mark.parametrize("entrypoint", ["agent", "workflow", "coordinator"])
 def test_adk_terminal_cli_loads_each_entrypoint_without_a_model_call(entrypoint: str) -> None:
     adk = Path(sys.executable).with_name("adk")
+    # Stay offline and independent of a developer's ignored .env, which may
+    # select a hosted provider and make a pure import nondeterministic.
+    env = {**os.environ, "ADK_DISABLE_LOAD_DOTENV": "true", "AGENT_ENTRYPOINT": entrypoint}
     result = subprocess.run(  # noqa: S603 - venv-owned CLI and fixed arguments
         [adk, "run", "--in_memory", "src/agent"],
         cwd=_PROJECT_DIR,
-        env={**os.environ, "AGENT_ENTRYPOINT": entrypoint},
+        env=env,
         input="exit\n",
         check=False,
         capture_output=True,
