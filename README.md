@@ -25,22 +25,23 @@ The required host and local Kubernetes path uses open-source software and open-w
 
 ## What will you learn from?
 
-The completed **AgentOps Agent** is an on-call assistant for a fictional service. Ask it to `investigate INC-002` and it looks up the incident, checks that the `inventory` service is down, reads the matching runbook, and proposes a fix — then pauses for your approval before it restarts anything:
+The completed **AgentOps Agent** is an on-call assistant for a fictional service. Ask it to investigate `INC-002` and initiate a guarded restart if the evidence supports one. It gathers the evidence, calls the guarded tool, and then ADK pauses before the function can change anything:
 
 ```text
-> investigate INC-002
+> Investigate INC-002. If the evidence supports it, initiate a guarded inventory restart.
   → get_incident(incident_id="INC-002")   INC-002 · inventory · SEV1 · open
   → get_service_status(name="inventory")   inventory: down
-  → search_service_logs(service="inventory", query="restart")   restartCount=1 · restartCount=2
+  → search_service_logs(service="inventory")   panic · restarts · readiness refused · stock lookup 503
   → get_runbook(slug="service-down")
 
   INC-002 is a SEV1: inventory is down, its container keeps restarting, and stock lookups fail.
   After diagnosis, the runbook supports a restart to clear this crash loop.
-  Proposed action — restart_service(name="inventory"). Approve to proceed.
-  [awaiting human approval]
+  → restart_service(name="inventory")
+      ADK requests confirmation; the function has not run.
+  [awaiting human approval + rationale · no state change]
 ```
 
-Every claim traces to a tool result, and the state-changing `restart_service` requires human approval and appends an append-only audit record. It reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills; runtime state is copied into `.state/`, so exercises never mutate the course dataset. New to the acronyms below (MCP, A2A, OTLP)? The [glossary](https://agentops-open-course.fmind.dev/0.%20Overview/0.7.%20Glossary.html) defines every term.
+Every claim traces to a tool result. The guarded call creates ADK's confirmation request; only an approved call with a rationale executes `restart_service` and appends an audit record. The agent reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills; runtime state is copied into `.state/`, so exercises never mutate the course dataset. New to the acronyms below (MCP, A2A, OTLP)? The [glossary](https://agentops-open-course.fmind.dev/0.%20Overview/0.7.%20Glossary.html) defines every term.
 
 ```mermaid
 flowchart LR

@@ -40,6 +40,17 @@ CLOSING_HEADINGS: Final = (
 )
 LANDING_PAGE: Final = "docs/index.md"
 
+# Material's footer follows the flattened nav order. These adjacent pairs keep the
+# rendered "Next" link aligned with the course's staged prerequisite handoffs.
+NAV_SUCCESSORS: Final = {
+    "1. Setup/1.1. Python.md": "1. Setup/1.4. Providers.md",
+    "1. Setup/1.5. Workspace.md": "2. Agents/index.md",
+    "5. Gateway/5.0. Gateway.md": "1. Setup/1.2. Containers.md",
+    "1. Setup/1.2. Containers.md": "5. Gateway/5.1. Gateway Setup.md",
+    "6. Platform/6.0. Platform.md": "1. Setup/1.3. Kubernetes.md",
+    "1. Setup/1.3. Kubernetes.md": "6. Platform/6.1. Containers.md",
+}
+
 # The kind word in the Time line, which the chapter index repeats next to the page link.
 KINDS: Final = ("concept", "hands-on", "reference", "orientation", "lookup")
 
@@ -226,6 +237,66 @@ def check_index_kinds(pages: dict[pathlib.Path, str]) -> list[Problem]:
     return problems
 
 
+def nav_paths(value: object) -> Iterator[str]:
+    """Yield Markdown targets in Material's flattened footer order."""
+    if isinstance(value, str):
+        if value.endswith(".md"):
+            yield value
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from nav_paths(item)
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from nav_paths(item)
+
+
+def check_navigation(pages: dict[pathlib.Path, str]) -> list[Problem]:
+    """Every page appears once, and staged handoffs match the rendered footer."""
+    import yaml
+
+    config_path = ROOT / "mkdocs.yml"
+
+    class _NavigationLoader(yaml.SafeLoader):
+        """Keep Python-name extension tags inert while reading only the nav."""
+
+    _NavigationLoader.add_multi_constructor(
+        "tag:yaml.org,2002:python/name:",
+        lambda _loader, suffix, _node: suffix,
+    )
+    try:
+        loader = _NavigationLoader(config_path.read_text(encoding="utf-8"))
+        try:
+            config = loader.get_single_data()
+        finally:
+            loader.dispose()
+    except (OSError, yaml.YAMLError) as error:
+        return [("mkdocs.yml", f"could not read navigation: {error}")]
+    if not isinstance(config, dict) or "nav" not in config:
+        return [("mkdocs.yml", "expected an explicit nav list")]
+
+    targets = list(nav_paths(config["nav"]))
+    duplicates = sorted(target for target in set(targets) if targets.count(target) > 1)
+    expected = {page.relative_to(ROOT / "docs").as_posix() for page in pages}
+    missing = sorted(expected - set(targets))
+    extra = sorted(set(targets) - expected)
+    problems: list[Problem] = []
+    if duplicates:
+        problems.append(("mkdocs.yml", f"navigation repeats pages: {', '.join(duplicates)}"))
+    if missing:
+        problems.append(("mkdocs.yml", f"navigation omits pages: {', '.join(missing)}"))
+    if extra:
+        problems.append(("mkdocs.yml", f"navigation references unknown pages: {', '.join(extra)}"))
+
+    positions = {target: index for index, target in enumerate(targets)}
+    for current, successor in NAV_SUCCESSORS.items():
+        position = positions.get(current)
+        if position is None or position + 1 >= len(targets) or targets[position + 1] != successor:
+            problems.append(("mkdocs.yml", f"rendered footer after {current} must continue to {successor}"))
+    return problems
+
+
 def check_docs() -> list[Problem]:
     """Run every page rule over docs/."""
     pages = {page: page.read_text(encoding="utf-8") for page in sorted(ROOT.joinpath("docs").rglob("*.md"))}
@@ -248,6 +319,7 @@ def check_docs() -> list[Problem]:
         (page.relative_to(ROOT).as_posix(), message)
         for page, message in [(ROOT / path, message) for path, message in check_index_kinds(pages)]
     ]
+    problems += check_navigation(pages)
     return problems
 
 
