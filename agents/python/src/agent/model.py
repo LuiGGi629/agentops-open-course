@@ -80,6 +80,13 @@ def _gemini_client_kwargs(retry_options: types.HttpRetryOptions) -> dict[str, An
     }
 
 
+def build_generation_config() -> types.GenerateContentConfig | None:
+    """Return explicit sampling controls only when the operator configured them."""
+    if settings.model_temperature is None:
+        return None
+    return types.GenerateContentConfig(temperature=settings.model_temperature)
+
+
 class FallbackLlm(BaseLlm):
     """Try a primary model, then a secondary when the primary fails outright.
 

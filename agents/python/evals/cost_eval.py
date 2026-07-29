@@ -28,10 +28,19 @@ from typing import Any
 from urllib.parse import urlsplit
 
 try:  # pytest imports this as ``evals.cost_eval``; the CLI runs it with ``evals/`` on sys.path[0]
-    from evals.mlflow_eval import _load_cases, ask, load_model_observations, provider_error_messages
+    from evals.mlflow_eval import (
+        _evaluation_contract_digest,
+        _load_cases,
+        _prompt_selection,
+        ask,
+        load_model_observations,
+        provider_error_messages,
+    )
 except ModuleNotFoundError:  # pragma: no cover - script-invocation fallback
     from mlflow_eval import (  # ty: ignore[unresolved-import]
+        _evaluation_contract_digest,
         _load_cases,
+        _prompt_selection,
         ask,
         load_model_observations,
         provider_error_messages,
@@ -43,6 +52,16 @@ _BASELINE = Path(__file__).parent / "cost_baseline.json"
 _OBSERVED = Path(__file__).parent / "cost-observed.json"
 _METRICS = ("total_tokens", "model_calls")
 _DEFAULT_TOLERANCE = 0.25
+_COMPARABLE_IDENTITY_FIELDS = (
+    "model_provider",
+    "model",
+    "model_digest",
+    "prompt_selection",
+    "evaluation_contract_digest",
+    "context_length",
+    "ollama_version",
+    "temperature",
+)
 
 
 def regressions(
@@ -50,17 +69,26 @@ def regressions(
     baseline: dict[str, dict[str, int]],
     tolerance: float = _DEFAULT_TOLERANCE,
 ) -> list[str]:
-    """Return one message per case/metric that exceeds its baseline by > tolerance.
+    """Return case-set mismatches and metrics that exceed the baseline tolerance.
 
-    A missing case (renamed or removed) is not a regression; a new case with no
-    baseline is reported by ``main`` as "record a baseline", not here. A
-    non-positive baseline is unusable evidence and is reported for replacement.
+    The eval-contract digest rejects normal case additions/removals before model
+    work starts. The explicit set check here still fails closed if a baseline or
+    observation was edited independently of that contract. A non-positive
+    baseline is unusable evidence and is reported for replacement.
     """
     lines: list[str] = []
-    for eval_id in sorted(baseline):
-        current = observed.get(eval_id)
-        if current is None:
-            continue
+    baseline_ids = set(baseline)
+    observed_ids = set(observed)
+    lines.extend(
+        f"{eval_id}: missing from the observation; regenerate and review the baseline"
+        for eval_id in sorted(baseline_ids - observed_ids)
+    )
+    lines.extend(
+        f"{eval_id}: no reviewed baseline; regenerate and review the baseline"
+        for eval_id in sorted(observed_ids - baseline_ids)
+    )
+    for eval_id in sorted(baseline_ids & observed_ids):
+        current = observed[eval_id]
         for metric in _METRICS:
             base_value = baseline[eval_id].get(metric, 0)
             now = current.get(metric, 0)
@@ -160,13 +188,68 @@ def _model_digest() -> str | None:
     return None
 
 
-def _measurement(observed: dict[str, dict[str, int]], model_digest: str | None) -> dict[str, Any]:
-    """Attach the model identity required to interpret usage measurements."""
+def _model_metadata(model_digest: str | None) -> dict[str, Any]:
+    """Load the scheduled Ollama runtime identity, or mark local evidence unknown."""
+    metadata_path = os.environ.get("EVAL_MODEL_METADATA_PATH")
+    if not metadata_path:
+        return {
+            "context_length": None,
+            "ollama_version": None,
+            "temperature": settings.model_temperature,
+        }
+    document = _read_json(Path(metadata_path))
+    context_length = document.get("context_length") if isinstance(document, dict) else None
+    ollama_version = document.get("ollama_version") if isinstance(document, dict) else None
+    temperature = document.get("temperature") if isinstance(document, dict) else None
+    valid_temperature = (
+        not isinstance(temperature, bool)
+        and isinstance(temperature, (int, float))
+        and math.isfinite(temperature)
+        and 0 <= temperature <= 2
+    )
+    if (
+        not isinstance(document, dict)
+        or document.get("model") != settings.model
+        or document.get("digest") != model_digest
+        or isinstance(context_length, bool)
+        or not isinstance(context_length, int)
+        or context_length <= 0
+        or not isinstance(ollama_version, str)
+        or not ollama_version
+        or not valid_temperature
+        or temperature != settings.model_temperature
+    ):
+        raise SystemExit(
+            f"{Path(metadata_path).name} does not match the configured model, digest, context, "
+            "Ollama version, or sampling temperature."
+        )
     return {
-        "schema_version": 1,
+        "context_length": context_length,
+        "ollama_version": ollama_version,
+        "temperature": temperature,
+    }
+
+
+def _current_identity(model_digest: str | None) -> dict[str, Any]:
+    """Identify the prompt, eval contract, source, model, and serving runtime."""
+    source_revision = os.environ.get("GITHUB_SHA") or None
+    cases = _load_cases()
+    return {
         "model_provider": str(settings.model_provider),
         "model": settings.model,
         "model_digest": model_digest,
+        "source_revision": source_revision,
+        "prompt_selection": _prompt_selection(),
+        "evaluation_contract_digest": _evaluation_contract_digest(cases),
+        **_model_metadata(model_digest),
+    }
+
+
+def _measurement(observed: dict[str, dict[str, int]], identity: dict[str, Any]) -> dict[str, Any]:
+    """Attach the complete evidence identity required to interpret usage."""
+    return {
+        "schema_version": 2,
+        **identity,
         "cases": observed,
     }
 
@@ -204,36 +287,69 @@ def _usage_cases(value: Any, *, source: str) -> dict[str, dict[str, int]]:
     return validated
 
 
-def _baseline_cases(document: Any, *, model_digest: str | None) -> dict[str, dict[str, int]]:
+def _valid_optional_text(value: Any) -> bool:
+    """Return whether a provenance string is absent or non-empty."""
+    return value is None or (isinstance(value, str) and bool(value))
+
+
+def _valid_optional_temperature(value: Any) -> bool:
+    """Return whether a sampling temperature is absent or in ADK's supported range."""
+    return value is None or (
+        not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value) and 0 <= value <= 2
+    )
+
+
+def _baseline_cases(document: Any, *, identity: dict[str, Any]) -> dict[str, dict[str, int]]:
     """Validate baseline identity and return its per-case measurements."""
     if (
         not isinstance(document, dict)
         or type(document.get("schema_version")) is not int
-        or document["schema_version"] != 1
+        or document["schema_version"] != 2
+        or any(field not in document for field in (*_COMPARABLE_IDENTITY_FIELDS, "source_revision"))
         or not isinstance(document.get("cases"), dict)
+        or not _valid_optional_text(document.get("model_digest"))
+        or not _valid_optional_text(document.get("source_revision"))
+        or not isinstance(document.get("prompt_selection"), str)
+        or not document["prompt_selection"]
+        or not isinstance(document.get("evaluation_contract_digest"), str)
+        or not document["evaluation_contract_digest"]
+        or (
+            document.get("context_length") is not None
+            and (
+                isinstance(document["context_length"], bool)
+                or not isinstance(document["context_length"], int)
+                or document["context_length"] <= 0
+            )
+        )
+        or not _valid_optional_text(document.get("ollama_version"))
+        or not _valid_optional_temperature(document.get("temperature"))
     ):
         raise SystemExit("cost_baseline.json has an unsupported shape; regenerate it with --update.")
     baseline_model = document.get("model")
-    if baseline_model != settings.model:
+    if baseline_model != identity["model"]:
         raise SystemExit(
-            f"Cost baseline targets model {baseline_model!r}, not {settings.model!r}; "
+            f"Cost baseline targets model {baseline_model!r}, not {identity['model']!r}; "
             "inspect cost-observed.json or record a model-specific baseline."
         )
     baseline_provider = document.get("model_provider")
-    current_provider = str(settings.model_provider)
+    current_provider = identity["model_provider"]
     if baseline_provider != current_provider:
         raise SystemExit(
             f"Cost baseline targets provider {baseline_provider!r}, not {current_provider!r}; "
             "record a provider-specific baseline."
         )
-    baseline_digest = document.get("model_digest")
-    if baseline_digest is not None and (not isinstance(baseline_digest, str) or not baseline_digest):
-        raise SystemExit("cost_baseline.json has an unsupported model digest; regenerate it with --update.")
-    if baseline_digest != model_digest:
+    if document["model_digest"] != identity["model_digest"]:
         raise SystemExit(
-            f"Cost baseline model digest {baseline_digest!r} does not match {model_digest!r}; "
+            f"Cost baseline model digest {document['model_digest']!r} does not match "
+            f"{identity['model_digest']!r}; "
             "review the model change and regenerate with --update."
         )
+    for field in _COMPARABLE_IDENTITY_FIELDS[3:]:
+        if document[field] != identity[field]:
+            raise SystemExit(
+                f"Cost baseline {field} {document[field]!r} does not match {identity[field]!r}; "
+                "review the evidence change and regenerate with --update."
+            )
     return _usage_cases(document["cases"], source="cost_baseline.json")
 
 
@@ -252,17 +368,18 @@ def main() -> None:
     """Measure per-case usage, then record or compare against the baseline."""
     update = "--update" in sys.argv[1:]
     model_digest = _model_digest()
+    identity = _current_identity(model_digest)
     baseline: dict[str, dict[str, int]] | None = None
     tolerance = _DEFAULT_TOLERANCE
     if not update and _BASELINE.exists():
         baseline = _baseline_cases(
             _read_json(_BASELINE),
-            model_digest=model_digest,
+            identity=identity,
         )
         tolerance = _tolerance(os.environ.get("AGENT_COST_TOLERANCE"))
 
     observed = _usage_cases(measure(), source="Measured model usage")
-    measurement = _measurement(observed, model_digest)
+    measurement = _measurement(observed, identity)
     _write_json(_OBSERVED, measurement)
     for eval_id in sorted(observed):
         usage = observed[eval_id]
@@ -276,11 +393,7 @@ def main() -> None:
 
     if baseline is None:  # defensive: the existing-baseline branch above owns comparison
         raise RuntimeError("cost baseline was not loaded")
-    missing_cases = sorted(set(observed) - set(baseline))
-    problems = [
-        *(f"{eval_id}: no reviewed baseline; rerun with --update" for eval_id in missing_cases),
-        *regressions(observed, baseline, tolerance),
-    ]
+    problems = regressions(observed, baseline, tolerance)
     if problems:
         raise SystemExit("Cost regression against cost_baseline.json:\n  " + "\n  ".join(problems))
     print(f"\nNo token/model-call regression beyond {tolerance:.0%} against {_BASELINE.name}.")  # noqa: T201

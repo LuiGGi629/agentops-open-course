@@ -20,7 +20,7 @@ from .guardrails import handle_model_error, handle_tool_error, secure_tool_outpu
 from .longterm import MEMORY_TOOLS
 from .mcp_client import ops_mcp_toolset
 from .memory import KNOWLEDGE_TOOLS
-from .model import build_model
+from .model import build_generation_config, build_model
 from .pii import redact_request_pii, redact_response_pii
 from .skills import skill_toolset
 from .telemetry import setup_telemetry
@@ -92,6 +92,7 @@ def build_conversational_agent() -> Agent:
     # --8<-- [start:root-agent]
     return Agent(
         model=build_model(),
+        generate_content_config=build_generation_config(),
         name="agentops_agent",
         description="An on-call AgentOps Agent that triages and resolves incidents from a local dataset.",
         instruction=_instruction(),

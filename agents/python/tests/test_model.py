@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -97,6 +98,51 @@ def test_openai_compatible_model_uses_validated_endpoint(monkeypatch) -> None:
     assert str(client.base_url) == "http://localhost:4000/v1/"
     assert client.timeout == model.settings.model_timeout_s
     assert client.max_retries == model.settings.max_retries
+
+
+def test_generation_config_is_explicit_only_when_requested(monkeypatch) -> None:
+    monkeypatch.setattr(model.settings, "model_temperature", None)
+    assert model.build_generation_config() is None
+    monkeypatch.setattr(model.settings, "model_temperature", 0.0)
+    config = model.build_generation_config()
+    assert config is not None
+    assert config.temperature == 0
+
+
+def test_openai_adapter_forwards_adk_sampling_temperature(monkeypatch) -> None:
+    configured = model.ResilientOpenAILlm(
+        model="qwen3:4b-instruct",
+        openai_base_url="http://localhost:11434/v1",
+        openai_api_key=SecretStr("local-marker"),
+        timeout_s=10,
+        retries=0,
+    )
+    captured: dict = {}
+
+    class Completions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None))],
+                usage=SimpleNamespace(prompt_tokens=2, completion_tokens=1, total_tokens=3),
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    monkeypatch.setitem(configured.__dict__, "_openai_client", client)
+    request = LlmRequest(
+        contents=[types.Content(role="user", parts=[types.Part(text="hi")])],
+        config=types.GenerateContentConfig(temperature=0),
+    )
+
+    async def run() -> None:
+        responses = [response async for response in configured.generate_content_async(request)]
+        content = responses[0].content
+        assert content is not None
+        assert content.parts
+        assert content.parts[0].text == "ok"
+
+    asyncio.run(run())
+    assert captured["temperature"] == 0
 
 
 def test_openai_model_uses_validated_settings_without_mutating_environment(monkeypatch) -> None:

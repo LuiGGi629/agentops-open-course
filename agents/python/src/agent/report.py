@@ -22,7 +22,7 @@ from .budget import enforce_token_budget, record_token_usage
 from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import GET_RUNBOOK_TOOL
-from .model import build_model
+from .model import build_generation_config, build_model
 from .models import TriageReport
 from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
@@ -52,6 +52,7 @@ Respond with the JSON object only: no prose, no Markdown fences.
 # this agent's final answer must validate against TriageReport.
 triage_report_agent = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="triage_report_agent",
     description="Produces a schema-validated triage report for a single incident.",
     instruction=REPORT_INSTRUCTION,

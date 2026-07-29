@@ -14,6 +14,7 @@ _AMBIENT_VARS = (
     "AGENT_ENTRYPOINT",
     "AGENT_GATEWAY_ENABLED",
     "AGENT_MODEL_PROVIDER",
+    "AGENT_MODEL_TEMPERATURE",
     "AGENT_MCP_URL",
     "AGENT_MODEL",
     "GOOGLE_API_KEY",
@@ -38,6 +39,7 @@ def test_default_settings_are_valid() -> None:
     assert settings.entrypoint is AgentEntrypoint.AGENT
     assert settings.model_provider is ModelProvider.OPENAI_COMPATIBLE
     assert settings.model == "qwen3:4b-instruct"
+    assert settings.model_temperature is None
     assert settings.openai_base_url == "http://127.0.0.1:11434/v1"
     assert settings.openai_api_key is not None
     assert settings.openai_api_key.get_secret_value() == "local-ollama"
@@ -101,6 +103,13 @@ def test_valid_openai_compatible_combination() -> None:
         openai_api_key="local-agentgateway",
     )
     assert settings.openai_base_url == "http://127.0.0.1:4000/v1"
+
+
+def test_model_temperature_is_optional_and_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_MODEL_TEMPERATURE", "0")
+    assert Settings().model_temperature == 0
+    with pytest.raises(ValidationError, match="model_temperature"):
+        Settings(model_temperature=2.1)
 
 
 def test_mcp_url_must_be_http() -> None:

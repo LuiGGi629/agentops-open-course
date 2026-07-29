@@ -16,7 +16,7 @@ from .budget import enforce_token_budget, record_token_usage
 from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import GET_RUNBOOK_TOOL
-from .model import build_model
+from .model import build_generation_config, build_model
 from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
 from .tools import GET_INCIDENT_TOOL, GET_SERVICE_STATUS_TOOL, LIST_INCIDENTS_TOOL, SEARCH_SERVICE_LOGS_TOOL
@@ -43,6 +43,7 @@ _REVIEW_TOOLS: list[ToolUnion] = [
 # 1) Plan: turn the request into a small, observable investigation contract.
 plan = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="plan",
     description="Defines a concise evidence plan for one incident investigation.",
     instruction=(
@@ -63,6 +64,7 @@ plan = Agent(
 # 2) Investigate: collect the incident, service, logs, and runbook evidence named by the plan.
 investigate = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="investigate",
     description="Collects read-only evidence for the planned incident investigation.",
     instruction=(
@@ -89,6 +91,7 @@ investigate = Agent(
 # 3) Evidence review: challenge the investigation before advice is produced.
 evidence_review = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="evidence_review",
     description="Checks whether incident evidence supports a safe recommendation.",
     instruction=(
@@ -113,6 +116,7 @@ evidence_review = Agent(
 # 4) Recommend: propose a bounded next step only after evidence review.
 recommend = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="recommend",
     description="Recommends concrete, runbook-backed remediation.",
     instruction=(

@@ -55,6 +55,10 @@ jobs:
       # learner defaults.
       # The shared retry setting also keeps fixed-data read tools single-attempt;
       # their failures remain visible instead of being hidden by this evidence job.
+      # ADK forwards this through GenerateContentConfig to Ollama's
+      # OpenAI-compatible chat-completions request. It lowers sampling variance;
+      # model/runtime implementation details can still change the exact output.
+      AGENT_MODEL_TEMPERATURE: "0"
       AGENT_MODEL_TIMEOUT_S: "180"
       AGENT_MAX_RETRIES: "0"
       # Keep the serving window explicit and reproducible. Tool declarations,
@@ -96,7 +100,8 @@ jobs:
             --arg digest "$model_digest" \
             --arg ollama_version "$(ollama --version)" \
             --argjson context_length "$OLLAMA_CONTEXT_LENGTH" \
-            '{model: $model, digest: $digest, ollama_version: $ollama_version, context_length: $context_length}' \
+            --argjson temperature "$AGENT_MODEL_TEMPERATURE" \
+            '{model: $model, digest: $digest, ollama_version: $ollama_version, context_length: $context_length, temperature: $temperature}' \
             > agents/python/evals/model.json
           echo "EVAL_MODEL_DIGEST=${model_digest}" >> "$GITHUB_ENV"
 
@@ -137,6 +142,7 @@ jobs:
         shell: bash
         env:
           AGENT_EVAL_OBSERVED_PATH: evals/model-observed.json
+          EVAL_MODEL_METADATA_PATH: evals/model.json
         run: cd agents/python && mise run eval:cost 2>&1 | tee evals/cost-eval.log
 
       - name: Check answer groundedness against retrieved evidence

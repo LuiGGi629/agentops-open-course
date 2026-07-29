@@ -20,7 +20,7 @@ from .budget import enforce_token_budget, record_token_usage
 from .compaction import compact_history
 from .guardrails import handle_model_error, handle_tool_error, secure_tool_output, validate_actions
 from .memory import KNOWLEDGE_TOOLS
-from .model import build_model
+from .model import build_generation_config, build_model
 from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
 from .tools import ALL_TOOLS
@@ -30,6 +30,7 @@ setup_telemetry()
 # The diagnosis specialist: read-only by construction.
 diagnosis_agent = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="diagnosis_agent",
     description="Specialist that diagnoses a specific incident using its runbook and service status.",
     instruction=(
@@ -53,6 +54,7 @@ diagnosis_agent = Agent(
 # approval with a rationale) but holds no log or runbook readers.
 remediation_agent = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="remediation_agent",
     description="Specialist that executes approved remediation through the guarded actions.",
     instruction=(
@@ -74,6 +76,7 @@ remediation_agent = Agent(
 # The coordinator: triages, then routes — diagnosis first, remediation only after.
 coordinator_agent = Agent(
     model=build_model(),
+    generate_content_config=build_generation_config(),
     name="coordinator_agent",
     description="On-call coordinator that triages incidents and delegates diagnosis and remediation.",
     instruction=(

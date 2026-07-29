@@ -128,6 +128,9 @@ class Settings(BaseSettings):
 
     # Resilience: bounded retries with exponential backoff for idempotent reads
     # and model calls; guarded write actions are never retried (Chapter 4.5).
+    # Unset preserves each provider's sampling default. Evaluations can opt into
+    # lower-variance greedy sampling with AGENT_MODEL_TEMPERATURE=0.
+    model_temperature: float | None = Field(default=None, ge=0, le=2)
     model_timeout_s: float = Field(default=60.0, gt=0, le=600)
     tool_timeout_s: float = Field(default=30.0, gt=0, le=600)
     max_retries: int = Field(default=2, ge=0, le=10)

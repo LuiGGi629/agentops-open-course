@@ -11,6 +11,34 @@ from evals import cost_eval
 @pytest.fixture(autouse=True)
 def ignore_retained_workflow_transcripts(monkeypatch) -> None:
     monkeypatch.delenv("AGENT_EVAL_OBSERVED_PATH", raising=False)
+    monkeypatch.delenv("EVAL_MODEL_METADATA_PATH", raising=False)
+
+
+def _identity(
+    *,
+    model: str = "qwen3:4b-instruct",
+    model_digest: str | None = "sha256:canonical",
+    source_revision: str | None = "abc123",
+) -> dict:
+    return {
+        "model_provider": str(cost_eval.settings.model_provider),
+        "model": model,
+        "model_digest": model_digest,
+        "source_revision": source_revision,
+        "prompt_selection": "committed:sha256:prompt",
+        "evaluation_contract_digest": "sha256:evalset",
+        "context_length": 8192,
+        "ollama_version": "ollama version 0.31.2",
+        "temperature": 0,
+    }
+
+
+def _baseline(cases: dict, **identity_overrides) -> dict:
+    return {
+        "schema_version": 2,
+        **_identity(**identity_overrides),
+        "cases": cases,
+    }
 
 
 def test_no_regression_within_tolerance() -> None:
@@ -35,10 +63,14 @@ def test_flags_extra_model_call() -> None:
     assert "4 > 2.5" in problems[0]
 
 
-def test_missing_case_is_not_a_regression() -> None:
-    # A renamed or removed case simply has no observation; it must not fail the gate.
-    baseline = {"gone": {"total_tokens": 900, "model_calls": 2}}
-    assert cost_eval.regressions({}, baseline) == []
+def test_case_set_mismatch_requires_a_reviewed_baseline() -> None:
+    baseline = {"removed": {"total_tokens": 900, "model_calls": 2}}
+    observed = {"added": {"total_tokens": 500, "model_calls": 1}}
+    problems = cost_eval.regressions(observed, baseline)
+    assert problems == [
+        "removed: missing from the observation; regenerate and review the baseline",
+        "added: no reviewed baseline; regenerate and review the baseline",
+    ]
 
 
 def test_zero_baseline_requires_replacement() -> None:
@@ -60,17 +92,12 @@ def test_tolerance_is_configurable() -> None:
 def test_baseline_identity_matches_model_and_optional_digest(monkeypatch) -> None:
     monkeypatch.setattr(cost_eval.settings, "model", "qwen3:4b-instruct")
     cases = {"lookup": {"total_tokens": 1000, "model_calls": 2}}
-    document = {
-        "schema_version": 1,
-        "model_provider": str(cost_eval.settings.model_provider),
-        "model": "qwen3:4b-instruct",
-        "model_digest": "sha256:canonical",
-        "cases": cases,
-    }
+    identity = _identity()
+    document = _baseline(cases)
     assert (
         cost_eval._baseline_cases(  # noqa: SLF001 - baseline boundary
             document,
-            model_digest="sha256:canonical",
+            identity=identity,
         )
         == cases
     )
@@ -81,51 +108,30 @@ def test_baseline_identity_rejects_a_different_model_or_digest(monkeypatch) -> N
     cases = {"lookup": {"total_tokens": 1000, "model_calls": 2}}
     with pytest.raises(SystemExit, match="not 'qwen3:4b-instruct'"):
         cost_eval._baseline_cases(  # noqa: SLF001
-            {
-                "schema_version": 1,
-                "model_provider": str(cost_eval.settings.model_provider),
-                "model": "qwen3:1.7b",
-                "cases": cases,
-            },
-            model_digest=None,
+            _baseline(cases, model="qwen3:1.7b", model_digest=None),
+            identity=_identity(model_digest=None),
         )
 
     with pytest.raises(SystemExit, match="does not match"):
         cost_eval._baseline_cases(  # noqa: SLF001
-            {
-                "schema_version": 1,
-                "model_provider": str(cost_eval.settings.model_provider),
-                "model": "qwen3:4b-instruct",
-                "model_digest": "sha256:old",
-                "cases": cases,
-            },
-            model_digest="sha256:new",
+            _baseline(cases, model_digest="sha256:old"),
+            identity=_identity(model_digest="sha256:new"),
         )
     with pytest.raises(SystemExit, match="does not match"):
         cost_eval._baseline_cases(  # noqa: SLF001
-            {
-                "schema_version": 1,
-                "model_provider": str(cost_eval.settings.model_provider),
-                "model": "qwen3:4b-instruct",
-                "model_digest": None,
-                "cases": cases,
-            },
-            model_digest="sha256:new",
+            _baseline(cases, model_digest=None),
+            identity=_identity(model_digest="sha256:new"),
         )
 
 
 def test_baseline_identity_rejects_a_different_provider(monkeypatch) -> None:
     monkeypatch.setattr(cost_eval.settings, "model_provider", "openai-compatible")
+    document = _baseline({"lookup": {"total_tokens": 1000, "model_calls": 2}})
+    document["model_provider"] = "gemini"
     with pytest.raises(SystemExit, match="provider 'gemini'"):
         cost_eval._baseline_cases(  # noqa: SLF001
-            {
-                "schema_version": 1,
-                "model_provider": "gemini",
-                "model": cost_eval.settings.model,
-                "model_digest": None,
-                "cases": {"lookup": {"total_tokens": 1000, "model_calls": 2}},
-            },
-            model_digest=None,
+            document,
+            identity=_identity(),
         )
 
 
@@ -133,19 +139,124 @@ def test_baseline_shape_must_be_current() -> None:
     with pytest.raises(SystemExit, match="unsupported shape"):
         cost_eval._baseline_cases(  # noqa: SLF001
             {"lookup": {"total_tokens": 1000}},
-            model_digest=None,
+            identity=_identity(),
         )
+    document = _baseline({"lookup": {"total_tokens": 1000, "model_calls": 2}})
+    document["schema_version"] = True
     with pytest.raises(SystemExit, match="unsupported shape"):
         cost_eval._baseline_cases(  # noqa: SLF001
-            {
-                "schema_version": True,
-                "model_provider": str(cost_eval.settings.model_provider),
-                "model": cost_eval.settings.model,
-                "model_digest": None,
-                "cases": {"lookup": {"total_tokens": 1000, "model_calls": 2}},
-            },
-            model_digest=None,
+            document,
+            identity=_identity(),
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "baseline_value", "current_value"),
+    [
+        ("prompt_selection", "committed:sha256:old", "committed:sha256:new"),
+        ("evaluation_contract_digest", "sha256:old-evalset", "sha256:new-evalset"),
+        ("context_length", 4096, 8192),
+        ("ollama_version", "ollama version 0.30.0", "ollama version 0.31.2"),
+        ("temperature", 0.8, 0),
+    ],
+)
+def test_baseline_rejects_incomparable_prompt_eval_or_runtime_identity(
+    field: str,
+    baseline_value,
+    current_value,
+) -> None:
+    cases = {"lookup": {"total_tokens": 1000, "model_calls": 2}}
+    document = _baseline(cases)
+    identity = _identity()
+    document[field] = baseline_value
+    identity[field] = current_value
+
+    with pytest.raises(SystemExit, match=field):
+        cost_eval._baseline_cases(document, identity=identity)  # noqa: SLF001
+
+
+def test_baseline_retains_but_does_not_compare_source_revision() -> None:
+    cases = {"lookup": {"total_tokens": 1000, "model_calls": 2}}
+    document = _baseline(cases, source_revision="baseline-sha")
+    assert (
+        cost_eval._baseline_cases(  # noqa: SLF001
+            document,
+            identity=_identity(source_revision="candidate-sha"),
+        )
+        == cases
+    )
+    document["source_revision"] = ""
+    with pytest.raises(SystemExit, match="unsupported shape"):
+        cost_eval._baseline_cases(document, identity=_identity())  # noqa: SLF001
+
+
+def test_scheduled_model_metadata_is_validated_and_retained(monkeypatch, tmp_path) -> None:
+    metadata = tmp_path / "model.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "model": "qwen3:4b-instruct",
+                "digest": "sha256:canonical",
+                "ollama_version": "ollama version 0.31.2",
+                "context_length": 8192,
+                "temperature": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EVAL_MODEL_METADATA_PATH", str(metadata))
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    monkeypatch.setattr(cost_eval.settings, "model", "qwen3:4b-instruct")
+    monkeypatch.setattr(cost_eval.settings, "model_temperature", 0.0)
+    monkeypatch.setattr(
+        cost_eval,
+        "_load_cases",
+        lambda: [{"inputs": {"eval_id": "lookup", "turns": ["status?"]}}],
+    )
+    monkeypatch.setattr(cost_eval, "_prompt_selection", lambda: "committed:sha256:prompt")
+    monkeypatch.setattr(cost_eval, "_evaluation_contract_digest", lambda _cases: "sha256:evalset")
+
+    identity = cost_eval._current_identity("sha256:canonical")  # noqa: SLF001
+
+    assert identity == _identity()
+    measurement = cost_eval._measurement(  # noqa: SLF001
+        {"lookup": {"total_tokens": 1000, "model_calls": 2}},
+        identity,
+    )
+    assert measurement["schema_version"] == 2
+    assert measurement["source_revision"] == "abc123"
+    assert measurement["context_length"] == 8192
+    assert measurement["ollama_version"] == "ollama version 0.31.2"
+    assert measurement["temperature"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("model", "qwen3:1.7b"),
+        ("digest", "sha256:different"),
+        ("context_length", 0),
+        ("ollama_version", ""),
+        ("temperature", 0.7),
+    ],
+)
+def test_scheduled_model_metadata_rejects_mismatched_provenance(monkeypatch, tmp_path, field, value) -> None:
+    metadata = tmp_path / "model.json"
+    document = {
+        "model": "qwen3:4b-instruct",
+        "digest": "sha256:canonical",
+        "ollama_version": "ollama version 0.31.2",
+        "context_length": 8192,
+        "temperature": 0,
+    }
+    document[field] = value
+    metadata.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setenv("EVAL_MODEL_METADATA_PATH", str(metadata))
+    monkeypatch.setattr(cost_eval.settings, "model", "qwen3:4b-instruct")
+    monkeypatch.setattr(cost_eval.settings, "model_temperature", 0.0)
+
+    with pytest.raises(SystemExit, match="does not match"):
+        cost_eval._model_metadata("sha256:canonical")  # noqa: SLF001
 
 
 @pytest.mark.parametrize(
@@ -159,15 +270,9 @@ def test_baseline_shape_must_be_current() -> None:
     ],
 )
 def test_baseline_usage_must_be_comparable(cases) -> None:
-    document = {
-        "schema_version": 1,
-        "model_provider": str(cost_eval.settings.model_provider),
-        "model": cost_eval.settings.model,
-        "model_digest": None,
-        "cases": cases,
-    }
+    document = _baseline(cases)
     with pytest.raises(SystemExit, match=r"cost_baseline\.json"):
-        cost_eval._baseline_cases(document, model_digest=None)  # noqa: SLF001
+        cost_eval._baseline_cases(document, identity=_identity())  # noqa: SLF001
 
 
 def test_model_digest_prefers_explicit_evidence(monkeypatch) -> None:
@@ -314,12 +419,13 @@ def test_tolerance_accepts_zero_and_the_default() -> None:
 def test_main_rejects_an_incompatible_baseline_before_model_measurement(monkeypatch, tmp_path) -> None:
     baseline = tmp_path / "cost_baseline.json"
     baseline.write_text(
-        json.dumps({"schema_version": 1, "model": "qwen3:1.7b", "model_digest": None, "cases": {}}),
+        json.dumps(_baseline({"lookup": {"total_tokens": 1, "model_calls": 1}}, model="qwen3:1.7b")),
         encoding="utf-8",
     )
     monkeypatch.setattr(cost_eval, "_BASELINE", baseline)
     monkeypatch.setattr(cost_eval.settings, "model", "qwen3:4b-instruct")
     monkeypatch.setattr(cost_eval, "_model_digest", lambda: None)
+    monkeypatch.setattr(cost_eval, "_current_identity", lambda _digest: _identity(model_digest=None))
     monkeypatch.setattr(cost_eval, "measure", lambda: pytest.fail("measurement must not start"))
     monkeypatch.setattr(cost_eval.sys, "argv", ["cost_eval.py"])
     with pytest.raises(SystemExit, match="not 'qwen3:4b-instruct'"):
@@ -331,6 +437,7 @@ def test_main_rejects_invalid_baseline_json_before_model_measurement(monkeypatch
     baseline.write_text("{broken", encoding="utf-8")
     monkeypatch.setattr(cost_eval, "_BASELINE", baseline)
     monkeypatch.setattr(cost_eval, "_model_digest", lambda: None)
+    monkeypatch.setattr(cost_eval, "_current_identity", lambda _digest: _identity(model_digest=None))
     monkeypatch.setattr(cost_eval, "measure", lambda: pytest.fail("measurement must not start"))
     monkeypatch.setattr(cost_eval.sys, "argv", ["cost_eval.py"])
     with pytest.raises(SystemExit, match=r"cost_baseline\.json is unreadable or invalid JSON"):
