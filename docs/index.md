@@ -14,7 +14,7 @@ Learn from one completed **AgentOps Agent**, from its first local model call to 
 
 ## How should you start?
 
-Start with the shortest path that matches what you already know:
+Choose the entry point that matches your current experience:
 
 - **New to agents or AgentOps?** Begin with [0.0. Course](./0.%20Overview/0.0.%20Course.md). Chapter 0 is read-only and helps you decide whether an agent fits your problem.
 - **Ready to prepare your machine?** Go to [1.0. System](./1.%20Setup/1.0.%20System.md). Chapter 1 owns installation, local checks, and model setup.
