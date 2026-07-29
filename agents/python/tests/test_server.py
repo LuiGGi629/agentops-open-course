@@ -14,7 +14,7 @@ from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.agents import Agent, RunConfig
 from google.adk.models import BaseLlm, LlmRequest, LlmResponse
 from google.genai import types
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.testclient import TestClient
 
 from agent import actions, data, server
@@ -86,6 +86,13 @@ class _ConfirmationLlm(BaseLlm):
                 parts=[types.Part(text="The approved inventory restart completed and was audited.")],
             )
         )
+
+
+class _UnreachableEngine:
+    """Fail before opening a worker thread; readiness only needs the boundary."""
+
+    def connect(self):
+        raise OSError("session store unavailable")
 
 
 def _stream_rpc_results(client: TestClient, payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -498,13 +505,12 @@ def test_startup_rejects_a_corrupt_runtime_database_without_replacing_it() -> No
     assert destination.read_bytes() == before
 
 
-def test_readiness_fails_when_the_session_store_is_unreachable(tmp_path) -> None:
+def test_readiness_fails_when_the_session_store_is_unreachable() -> None:
     app = server.create_app()
     with TestClient(app) as client:
         runtime = app.state.runtime
-        broken = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/no-such-dir/runtime.db")
         healthy_engine = runtime.task_engine
-        runtime.task_engine = broken
+        runtime.task_engine = cast("AsyncEngine", _UnreachableEngine())
         try:
             response = client.get("/healthz")
         finally:
