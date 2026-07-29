@@ -2,6 +2,8 @@
 
 Contributions that make the course more accurate, runnable, or useful are welcome. Small fixes can go straight to a pull request. For a new dependency, architectural change, or substantial chapter rewrite, open an issue first so the approach can be reviewed before implementation.
 
+[GOVERNANCE.md](./GOVERNANCE.md) explains how decisions are made, what “reviewed” means in this single-maintainer project, and how contributor access can grow.
+
 ## How do I set up the repository?
 
 Install [mise](https://mise.jdx.dev/), clone your fork, and run:
@@ -18,6 +20,7 @@ This installs every pinned tool and locked environment used by the complete cont
 - Keep every `docs/**/*.md` page FAQ-oriented and start it with `description:` front matter.
 - Keep the page frame: an `!!! abstract "In one glance"` block (**You will** / **You need** / **Time**) directly under the H1, and a closing `## What proves this page worked?` section with a **You are done when:** list and a `Continue to …` line. `mise run check:docs` enforces it; `AGENTS.md` documents the full contract.
 - Put depth a first-time reader can skip in a `??? note "Deeper: …"` collapsible rather than deleting it.
+- Give every new or changed Mermaid diagram adjacent prose that communicates the same actors, relationships, and sequence. Never rely on color alone, and link dense unfamiliar terms to glossary anchors; see [ACCESSIBILITY.md](./ACCESSIBILITY.md).
 - Use only open-source software dependencies without paid feature gates. A hosted model or cloud may be documented as an optional substrate, never as part of the open-source software claim.
 - Keep the local path usable without a Kubernetes or cloud account.
 - Never commit credentials, generated reports, runtime state, or a populated `.env`.
@@ -62,4 +65,4 @@ Treat an executable snippet as a public API. Before changing it:
 - Use a [Conventional Commits](https://www.conventionalcommits.org/) subject such as `docs: clarify the local gateway setup`.
 - Do not add generated-by or co-author attribution.
 
-By participating, you agree to follow the [Code of Conduct](./CODE_OF_CONDUCT.md). Report security issues through [SECURITY.md](./SECURITY.md), not a public issue.
+By participating, you agree to follow the [Code of Conduct](./CODE_OF_CONDUCT.md) and [accessibility contract](./ACCESSIBILITY.md). Report security issues through [SECURITY.md](./SECURITY.md), not a public issue.

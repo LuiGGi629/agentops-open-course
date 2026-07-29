@@ -14,6 +14,10 @@ hardcoded.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from threading import Lock
+
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
@@ -27,12 +31,50 @@ from .config import settings
 INPUT_TOKENS_KEY = "budget:input_tokens"
 OUTPUT_TOKENS_KEY = "budget:output_tokens"
 
+# ADK exposes the logical session identity on CallbackContext. Reference
+# counting keeps one process-local lock alive while callbacks are using or
+# waiting for it, then removes the registry entry after the last waiter.
+type _SessionKey = tuple[str, str, str]
+_SESSION_LOCKS_GUARD = Lock()
+_SESSION_LOCKS: dict[_SessionKey, Lock] = {}
+_SESSION_LOCK_REFS: dict[_SessionKey, int] = {}
+
 # A counter (vs span attributes) so Prometheus can graph token throughput.
 _TOKEN_COUNTER = metrics.get_meter("agentops.agent").create_counter(
     "agentops.tokens",
     unit="token",
     description="Model tokens consumed by the AgentOps Agent, by direction",
 )
+
+
+def _session_key(callback_context: CallbackContext) -> _SessionKey:
+    """Return ADK's stable logical session identity."""
+    session = callback_context.session
+    return session.app_name, session.user_id, session.id
+
+
+@contextmanager
+def _session_usage_lock(callback_context: CallbackContext) -> Iterator[None]:
+    """Serialize budget-state access for one session in this process."""
+    key = _session_key(callback_context)
+    with _SESSION_LOCKS_GUARD:
+        lock = _SESSION_LOCKS.get(key)
+        if lock is None:
+            lock = Lock()
+            _SESSION_LOCKS[key] = lock
+        _SESSION_LOCK_REFS[key] = _SESSION_LOCK_REFS.get(key, 0) + 1
+
+    try:
+        with lock:
+            yield
+    finally:
+        with _SESSION_LOCKS_GUARD:
+            remaining = _SESSION_LOCK_REFS[key] - 1
+            if remaining == 0:
+                _SESSION_LOCK_REFS.pop(key)
+                _SESSION_LOCKS.pop(key)
+            else:
+                _SESSION_LOCK_REFS[key] = remaining
 
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:
@@ -57,7 +99,9 @@ def enforce_token_budget(callback_context: CallbackContext, llm_request: LlmRequ
     del llm_request
     if settings.max_tokens_per_session is None:
         return None
-    input_tokens, output_tokens = session_usage(callback_context)
+    # --8<-- [start:record-session-usage]
+    with _session_usage_lock(callback_context):
+        input_tokens, output_tokens = session_usage(callback_context)
     used = input_tokens + output_tokens
     if used < settings.max_tokens_per_session:
         return None
@@ -82,13 +126,19 @@ def record_token_usage(callback_context: CallbackContext, llm_response: LlmRespo
     usage = llm_response.usage_metadata
     if usage is None:
         return
-    turn_input = usage.prompt_token_count or 0
-    turn_output = usage.candidates_token_count or 0
-    input_tokens, output_tokens = session_usage(callback_context)
-    input_tokens += turn_input
-    output_tokens += turn_output
-    callback_context.state[INPUT_TOKENS_KEY] = input_tokens
-    callback_context.state[OUTPUT_TOKENS_KEY] = output_tokens
+    turn_input = (usage.prompt_token_count or 0) + (usage.tool_use_prompt_token_count or 0)
+    turn_output = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
+    classified_total = turn_input + turn_output
+    # Some compatible providers report only a total. Keep the budget fail-closed
+    # by assigning otherwise-unclassified usage to the output bucket rather than
+    # silently recording zero tokens.
+    turn_output += max((usage.total_token_count or classified_total) - classified_total, 0)
+    with _session_usage_lock(callback_context):
+        input_tokens, output_tokens = session_usage(callback_context)
+        input_tokens += turn_input
+        output_tokens += turn_output
+        callback_context.state[INPUT_TOKENS_KEY] = input_tokens
+        callback_context.state[OUTPUT_TOKENS_KEY] = output_tokens
 
     _TOKEN_COUNTER.add(turn_input, {"direction": "input"})
     _TOKEN_COUNTER.add(turn_output, {"direction": "output"})
@@ -97,3 +147,4 @@ def record_token_usage(callback_context: CallbackContext, llm_response: LlmRespo
     span.set_attribute("agentops.tokens.session.output", output_tokens)
     span.set_attribute("agentops.tokens.session.total", input_tokens + output_tokens)
     span.set_attribute("agentops.cost.session.estimate", estimate_cost(input_tokens, output_tokens))
+    # --8<-- [end:record-session-usage]

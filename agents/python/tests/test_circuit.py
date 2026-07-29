@@ -5,12 +5,15 @@ exercised deterministically with a fake monotonic clock — no real time passes.
 """
 
 import asyncio
+import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
 from typing import Any
 
 import pytest
 
 from agent import circuit, resilience
-from agent.circuit import CircuitBreaker, CircuitOpenError, CircuitState, get_breaker, reset_breakers
+from agent.circuit import CircuitBreaker, CircuitOpenError, CircuitPermit, CircuitState, get_breaker, reset_breakers
 from agent.resilience import with_resilience
 
 
@@ -32,55 +35,215 @@ def _isolate_breakers() -> Any:
     reset_breakers()
 
 
+def _admit(breaker: CircuitBreaker) -> CircuitPermit:
+    permit = breaker.allow()
+    assert permit is not None
+    return permit
+
+
+def _fail(breaker: CircuitBreaker) -> None:
+    breaker.record_failure(_admit(breaker))
+
+
 def test_opens_after_consecutive_failures() -> None:
     breaker = CircuitBreaker(name="reads", failure_threshold=3, reset_timeout_s=30.0, clock=_FakeClock())
     for _ in range(2):
-        breaker.record_failure()
+        _fail(breaker)
     assert breaker.state is CircuitState.CLOSED
-    assert breaker.allow() is True
-    breaker.record_failure()  # third failure trips it
+    breaker.record_failure(_admit(breaker))  # third failure trips it
     assert breaker.state is CircuitState.OPEN
-    assert breaker.allow() is False  # fails fast while open
+    assert breaker.allow() is None  # fails fast while open
 
 
 def test_half_open_after_cooldown_then_closes_on_success() -> None:
     clock = _FakeClock()
     breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=30.0, clock=clock)
-    breaker.record_failure()
-    assert breaker.allow() is False
+    _fail(breaker)
+    assert breaker.allow() is None
     clock.now = 29.0
-    assert breaker.allow() is False  # cooldown not elapsed
+    assert breaker.allow() is None  # cooldown not elapsed
     clock.now = 30.0
-    assert breaker.allow() is True  # one trial call permitted
+    permit = _admit(breaker)  # one trial call permitted
     assert breaker.state is CircuitState.HALF_OPEN
-    breaker.record_success()
+    breaker.record_success(permit)
     assert breaker.state is CircuitState.CLOSED
     assert breaker.failures == 0
+
+
+def test_half_open_allows_only_one_concurrent_probe() -> None:
+    clock = _FakeClock()
+    breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=30.0, clock=clock)
+    _fail(breaker)
+    clock.now = 30.0
+    start = Barrier(8)
+
+    def attempt() -> CircuitPermit | None:
+        start.wait()
+        return breaker.allow()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        permits = list(executor.map(lambda _: attempt(), range(8)))
+
+    assert sum(permit is not None for permit in permits) == 1
+    assert breaker.state is CircuitState.HALF_OPEN
 
 
 def test_repeated_failure_while_open_keeps_one_opened_transition() -> None:
     clock = _FakeClock()
     breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=30.0, clock=clock)
-    breaker.record_failure()  # opens
+    stale_permit = _admit(breaker)
+    breaker.record_failure(stale_permit)  # opens
     assert breaker.state is CircuitState.OPEN
     opened_at = breaker.opened_at
     clock.now = 5.0
-    breaker.record_failure()  # already open: does not re-stamp the cooldown
+    breaker.record_failure(stale_permit)  # already open: ignore the stale outcome
     assert breaker.state is CircuitState.OPEN
+    assert breaker.failures == 1
     assert breaker.opened_at == opened_at
 
 
 def test_half_open_failure_reopens_with_fresh_cooldown() -> None:
     clock = _FakeClock()
     breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=10.0, clock=clock)
-    breaker.record_failure()
+    _fail(breaker)
     clock.now = 10.0
-    assert breaker.allow() is True  # half-open trial
+    permit = _admit(breaker)  # half-open trial
     clock.now = 12.0
-    breaker.record_failure()  # trial failed: reopen from now
+    breaker.record_failure(permit)  # trial failed: reopen from now
     assert breaker.state is CircuitState.OPEN
     assert breaker.opened_at == 12.0
-    assert breaker.allow() is False
+    assert breaker.allow() is None
+
+
+def test_cancelled_half_open_probe_reopens_without_counting_a_failure(monkeypatch) -> None:
+    monkeypatch.setattr(resilience.settings, "circuit_breaker_enabled", True)
+    monkeypatch.setattr(resilience.settings, "circuit_failure_threshold", 1)
+    monkeypatch.setattr(resilience.settings, "circuit_reset_timeout_s", 30.0)
+    monkeypatch.setattr(resilience.settings, "max_retries", 0)
+    probe_started = asyncio.Event()
+    calls = 0
+
+    async def controlled_to_thread(func, **kwargs):
+        nonlocal calls
+        del func, kwargs
+        calls += 1
+        if calls == 1:
+            raise ConnectionError("dependency down")
+        probe_started.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr(resilience.asyncio, "to_thread", controlled_to_thread)
+    wrapped = with_resilience(lambda: {"ok": True})
+
+    async def exercise() -> None:
+        with pytest.raises(RuntimeError, match="failed after 1 attempt"):
+            await wrapped()
+        breaker = get_breaker("<lambda>")
+        failure_count = breaker.failures
+        breaker.opened_at = breaker.clock() - breaker.reset_timeout_s
+
+        probe = asyncio.create_task(wrapped())
+        await probe_started.wait()
+        assert breaker.state is CircuitState.HALF_OPEN
+        probe.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await probe
+
+        assert breaker.state is CircuitState.OPEN
+        assert breaker.failures == failure_count
+        assert breaker.allow() is None
+
+    asyncio.run(exercise())
+
+
+def test_abandoning_a_closed_or_stale_permit_is_a_noop() -> None:
+    clock = _FakeClock()
+    breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=10.0, clock=clock)
+    closed_permit = _admit(breaker)
+    breaker.record_abandoned(closed_permit)
+    assert breaker.state is CircuitState.CLOSED
+
+    breaker.record_failure(closed_permit)
+    clock.now = 10.0
+    half_open_permit = _admit(breaker)
+    breaker.record_success(half_open_permit)
+    breaker.record_abandoned(half_open_permit)
+    assert breaker.state is CircuitState.CLOSED
+
+
+def test_stale_success_cannot_close_a_breaker_opened_by_a_newer_outcome() -> None:
+    breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=30.0)
+    stale_success = _admit(breaker)
+    newer_failure = _admit(breaker)
+
+    breaker.record_failure(newer_failure)
+    breaker.record_success(stale_success)
+
+    assert breaker.state is CircuitState.OPEN
+    assert breaker.failures == 1
+
+
+def test_stale_failure_cannot_reopen_a_recovered_breaker_generation() -> None:
+    clock = _FakeClock()
+    breaker = CircuitBreaker(name="reads", failure_threshold=1, reset_timeout_s=10.0, clock=clock)
+    stale_failure = _admit(breaker)
+    newer_failure = _admit(breaker)
+    breaker.record_failure(newer_failure)
+    clock.now = 10.0
+    recovery_probe = _admit(breaker)
+    breaker.record_success(recovery_probe)
+
+    breaker.record_failure(stale_failure)
+
+    assert breaker.state is CircuitState.CLOSED
+    assert breaker.failures == 0
+
+
+def test_concurrent_failures_are_not_lost() -> None:
+    class _SlowInt(int):
+        def __add__(self, other: int) -> "_SlowInt":
+            time.sleep(0.005)
+            return _SlowInt(int(self) + other)
+
+    breaker = CircuitBreaker(name="reads", failure_threshold=100, reset_timeout_s=30.0)
+    breaker.failures = _SlowInt(0)
+    start = Barrier(16)
+
+    def fail() -> None:
+        start.wait()
+        breaker.record_failure(_admit(breaker))
+
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        list(executor.map(lambda _: fail(), range(16)))
+
+    assert breaker.failures == 16
+    assert breaker.state is CircuitState.CLOSED
+
+
+def test_concurrent_registry_access_creates_one_breaker(monkeypatch) -> None:
+    original = circuit.CircuitBreaker
+    constructor_calls = 0
+    calls_lock = Lock()
+    start = Barrier(16)
+
+    def slow_constructor(*args: Any, **kwargs: Any) -> CircuitBreaker:
+        nonlocal constructor_calls
+        with calls_lock:
+            constructor_calls += 1
+        time.sleep(0.005)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(circuit, "CircuitBreaker", slow_constructor)
+
+    def resolve() -> CircuitBreaker:
+        start.wait()
+        return get_breaker("shared")
+
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        breakers = list(executor.map(lambda _: resolve(), range(16)))
+
+    assert constructor_calls == 1
+    assert all(breaker is breakers[0] for breaker in breakers)
 
 
 def test_with_resilience_fails_fast_when_circuit_open(monkeypatch) -> None:

@@ -1,5 +1,7 @@
 """Unit tests for token budgeting and per-session cost attribution."""
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
 from typing import Any, cast
 
 import pytest
@@ -11,11 +13,22 @@ from google.genai import types
 from agent import budget
 
 
-class _FakeContext:
-    """Duck-typed CallbackContext: only ``state`` is used by the budget callbacks."""
+class _FakeSession:
+    """Stable logical identity exposed by ADK's CallbackContext."""
 
-    def __init__(self, state: dict[str, Any] | None = None) -> None:
-        self.state = state or {}
+    app_name = "agentops-agent"
+    user_id = "test-user"
+
+    def __init__(self, session_id: str) -> None:
+        self.id = session_id
+
+
+class _FakeContext:
+    """Duck-typed CallbackContext with the state and session identity callbacks use."""
+
+    def __init__(self, state: dict[str, Any] | None = None, session_id: str = "test-session") -> None:
+        self.state = state if state is not None else {}
+        self.session = _FakeSession(session_id)
 
 
 class _FakeSpan:
@@ -46,6 +59,69 @@ def test_record_accumulates_usage_across_turns() -> None:
     budget.record_token_usage(context, _response(50, 10))
     assert context.state[budget.INPUT_TOKENS_KEY] == 150
     assert context.state[budget.OUTPUT_TOKENS_KEY] == 50
+
+
+def test_record_counts_tool_prompt_reasoning_and_total_only_usage() -> None:
+    context = _context()
+    budget.record_token_usage(
+        context,
+        LlmResponse(
+            usage_metadata=types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=100,
+                tool_use_prompt_token_count=25,
+                candidates_token_count=40,
+                thoughts_token_count=10,
+                total_token_count=175,
+            )
+        ),
+    )
+    budget.record_token_usage(
+        context,
+        LlmResponse(
+            usage_metadata=types.GenerateContentResponseUsageMetadata(
+                total_token_count=75,
+            )
+        ),
+    )
+    assert context.state[budget.INPUT_TOKENS_KEY] == 125
+    assert context.state[budget.OUTPUT_TOKENS_KEY] == 125
+
+
+def test_record_serializes_interleaved_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    state: dict[str, Any] = {}
+    first_context = _context(state)
+    second_context = _context(state)
+    first_snapshot_read = Event()
+    release_first_snapshot = Event()
+    call_guard = Lock()
+    call_count = 0
+    original_session_usage = budget.session_usage
+
+    def interleaved_session_usage(callback_context: CallbackContext) -> tuple[int, int]:
+        nonlocal call_count
+        usage = original_session_usage(callback_context)
+        with call_guard:
+            call_count += 1
+            current_call = call_count
+        if current_call == 1:
+            first_snapshot_read.set()
+            # Without the per-session lock, the second callback reaches this
+            # helper and both callbacks retain the same pre-update snapshot.
+            release_first_snapshot.wait(timeout=0.5)
+        else:
+            release_first_snapshot.set()
+        return usage
+
+    monkeypatch.setattr(budget, "session_usage", interleaved_session_usage)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(budget.record_token_usage, first_context, _response(100, 40))
+        assert first_snapshot_read.wait(timeout=1)
+        second = executor.submit(budget.record_token_usage, second_context, _response(50, 10))
+        first.result(timeout=2)
+        second.result(timeout=2)
+
+    assert state[budget.INPUT_TOKENS_KEY] == 150
+    assert state[budget.OUTPUT_TOKENS_KEY] == 50
 
 
 def test_record_ignores_responses_without_usage() -> None:

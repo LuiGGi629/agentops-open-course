@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Terms shorter than this carry little retrieval signal, so drop them (a length filter, not a stop-list).
 _MIN_TERM_LENGTH = 3
+_MAX_RUNBOOK_RESULTS = 3
 
 
 def _terms(query: str) -> list[str]:
@@ -57,7 +58,7 @@ def get_runbook(slug: str) -> dict[str, Any]:
 # --8<-- [end:get-runbook]
 
 
-def search_runbooks(query: str, limit: int = 3) -> dict[str, Any]:
+def search_runbooks(query: str, limit: int = _MAX_RUNBOOK_RESULTS) -> dict[str, Any]:
     """Search the runbook knowledge base for guidance relevant to a free-text query.
 
     Uses TF-IDF-style scoring by default: a term counts more when it is rare across
@@ -68,7 +69,7 @@ def search_runbooks(query: str, limit: int = 3) -> dict[str, Any]:
 
     Args:
         query: What you are trying to resolve, e.g. ``database connection pool exhausted``.
-        limit: The maximum number of runbooks to return (most relevant first).
+        limit: The requested result count. Values above 3 are capped at 3.
 
     Returns:
         A dict with ``count``, a ``retrieval`` mode (``semantic`` or ``keyword``), and a
@@ -76,7 +77,8 @@ def search_runbooks(query: str, limit: int = 3) -> dict[str, Any]:
         semantic-to-keyword fallback visible in the result, not only in the log.
     """
     if limit <= 0:  # a non-positive limit falls back to the default
-        limit = 3
+        limit = _MAX_RUNBOOK_RESULTS
+    limit = min(limit, _MAX_RUNBOOK_RESULTS)
     if settings.semantic_retrieval:
         # Imported lazily so the default offline path never touches the vector stack.
         from .retrieval import EmbeddingUnavailableError, semantic_search

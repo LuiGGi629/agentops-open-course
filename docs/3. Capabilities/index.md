@@ -25,7 +25,9 @@ Your agent can now hold a conversation ([Chapter 2](../2. Agents/)). This chapte
 
 Each is a small, single-purpose unit that composes cleanly.
 
-Everything assembles in one _composition root_: the single place that wires an agent's dependencies together. `composition.py` builds `root_agent` and hands it a single flat tool list, and each entry in that list is owned by a different module this chapter teaches:
+**Key term:** A [_composition root_](../0.%20Overview/0.7.%20Glossary.md#composition-root) is the single place that constructs an application and wires its dependencies.
+
+Everything assembles in that composition root. `composition.py` builds `root_agent` and hands it a single flat tool list, and each entry in that list is owned by a different module this chapter teaches:
 
 ```python
 --8<-- "agents/python/src/agent/composition.py:root-agent"

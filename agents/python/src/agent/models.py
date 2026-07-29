@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
 _INCIDENT_ID = re.compile(r"^INC-\d+$")
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 MAX_AUDIT_RATIONALE_LENGTH = 500
+CURRENT_AUDIT_SCHEMA_VERSION: Final = 1
 
 
 class IncidentStatus(StrEnum):
@@ -75,6 +76,7 @@ class AuditEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: int
+    schema_version: int = Field(ge=1)
     ts: str
     actor: str
     approved_by: str

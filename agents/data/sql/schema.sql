@@ -34,6 +34,7 @@ CREATE TABLE incidents (
 --8<-- [start:audit-schema]
 CREATE TABLE audit_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_version  INTEGER NOT NULL DEFAULT 1 CHECK (schema_version >= 1),
     ts              TEXT NOT NULL,                         -- ISO-8601 UTC of the action
     actor           TEXT NOT NULL,                         -- executing agent, e.g. "agentops-agent"
     approved_by     TEXT NOT NULL,                         -- ADK user id; synthetic on unauthenticated A2A
@@ -45,6 +46,9 @@ CREATE TABLE audit_log (
     target          TEXT NOT NULL,                         -- service name or incident id
     detail          TEXT NOT NULL
 );
+
+CREATE UNIQUE INDEX uq_audit_log_idempotency
+ON audit_log (invocation_id, action, target);
 --8<-- [end:audit-schema]
 
 -- SQLite is not a tamper-proof audit system, but these triggers make the course's

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from importlib.metadata import version
-from typing import cast
+from typing import Any, cast, override
 
 import uvicorn
 from a2a.server.agent_execution import RequestContext
@@ -23,9 +24,11 @@ from google.adk.a2a.executor.executor_context import ExecutorContext
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from google.adk.agents import BaseAgent, RunConfig
 from google.adk.agents.run_config import StreamingMode
+from google.adk.errors.already_exists_error import AlreadyExistsError
 from google.adk.events import Event
 from google.adk.runners import Runner
-from google.adk.sessions import DatabaseSessionService
+from google.adk.sessions import DatabaseSessionService, Session
+from google.genai import types
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.applications import Starlette
@@ -34,7 +37,7 @@ from starlette.responses import JSONResponse
 
 from .composition import root_agent
 from .config import settings
-from .data import db_path, probe_runtime_database
+from .data import prepare_runtime_database, probe_runtime_database
 
 _APP_NAME = "agentops-agent"
 
@@ -43,6 +46,117 @@ _APP_NAME = "agentops-agent"
 # executor, so the value is visible when the request converter runs); it is unset
 # outside a request, where the synthetic A2A id remains the identity.
 _VERIFIED_SUBJECT: contextvars.ContextVar[str | None] = contextvars.ContextVar("verified_subject", default=None)
+
+
+class _A2ASessionService(DatabaseSessionService):
+    """Make the executor's empty-state get-or-create safe under first-use races."""
+
+    @override
+    async def create_session(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        state: dict[str, Any] | None = None,
+        session_id: str | None = None,
+    ) -> Session:
+        try:
+            return await super().create_session(
+                app_name=app_name,
+                user_id=user_id,
+                state=state,
+                session_id=session_id,
+            )
+        except AlreadyExistsError:
+            # A2A's maintained executor performs get-then-create outside the
+            # runner. Two first requests can both observe a miss. Recover only
+            # its empty-state, explicit-id contract; never discard requested
+            # state from a general create call.
+            if session_id is None or state:
+                raise
+            existing = await self.get_session(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            if existing is None:
+                raise
+            return existing
+
+
+class _SessionSerializingRunner(Runner):
+    """Run at most one ADK invocation per logical A2A session at a time.
+
+    DatabaseSessionService returns a detached session snapshot. Locking only its
+    final append cannot prevent two overlapping invocations from loading the
+    same token total and losing one update, so acquire this process-local gate
+    before ADK loads the session. Different sessions still run concurrently.
+    """
+
+    def __init__(
+        self,
+        *,
+        agent: BaseAgent,
+        app_name: str,
+        session_service: DatabaseSessionService,
+    ) -> None:
+        super().__init__(agent=agent, app_name=app_name, session_service=session_service)
+        self._session_locks_guard = asyncio.Lock()
+        self._session_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._session_lock_refs: dict[tuple[str, str], int] = {}
+
+    @asynccontextmanager
+    async def _session_invocation(self, user_id: str, session_id: str) -> AsyncIterator[None]:
+        """Hold one reference-counted lock for a complete session invocation."""
+        key = user_id, session_id
+        async with self._session_locks_guard:
+            lock = self._session_locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._session_locks[key] = lock
+            self._session_lock_refs[key] = self._session_lock_refs.get(key, 0) + 1
+
+        try:
+            async with lock:
+                yield
+        finally:
+            async with self._session_locks_guard:
+                remaining = self._session_lock_refs[key] - 1
+                if remaining == 0:
+                    self._session_lock_refs.pop(key)
+                    self._session_locks.pop(key)
+                else:
+                    self._session_lock_refs[key] = remaining
+
+    @override
+    async def run_async(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        invocation_id: str | None = None,
+        new_message: types.Content | None = None,
+        state_delta: dict[str, Any] | None = None,
+        run_config: RunConfig | None = None,
+        yield_user_message: bool = False,
+    ) -> AsyncGenerator[Event]:
+        """Run one invocation after every earlier turn in its session finishes."""
+        async with (
+            self._session_invocation(user_id, session_id),
+            aclosing(
+                super().run_async(
+                    user_id=user_id,
+                    session_id=session_id,
+                    invocation_id=invocation_id,
+                    new_message=new_message,
+                    state_delta=state_delta,
+                    run_config=run_config,
+                    yield_user_message=yield_user_message,
+                )
+            ) as events,
+        ):
+            async for event in events:
+                yield event
 
 
 class VerifiedIdentityMiddleware:
@@ -249,13 +363,18 @@ def create_app(agent: BaseAgent | None = None) -> Starlette:
     # Sessions and tasks share one connection pool because SQLite has one writer.
     # A single pooled connection queues their short transactions instead of
     # letting independent engines race into intermittent "database is locked".
-    session_service = DatabaseSessionService(
+    # --8<-- [start:a2a-runtime]
+    session_service = _A2ASessionService(
         db_url=database_url,
         pool_size=1,
         max_overflow=0,
         connect_args={"timeout": 30},
     )
-    runner = Runner(agent=selected_agent, app_name=_APP_NAME, session_service=session_service)
+    runner = _SessionSerializingRunner(
+        agent=selected_agent,
+        app_name=_APP_NAME,
+        session_service=session_service,
+    )
     task_engine = session_service.db_engine
     runtime = Runtime(
         runner=runner,
@@ -263,17 +382,20 @@ def create_app(agent: BaseAgent | None = None) -> Starlette:
         task_engine=task_engine,
         task_store=DatabaseTaskStore(engine=task_engine),
     )
+    # --8<-- [end:a2a-runtime]
 
+    # --8<-- [start:a2a-lifespan]
     @asynccontextmanager
     async def lifespan(_: Starlette):
         try:
             # The writable A2A process owns first-boot publication. Readiness
             # remains a strictly read-only observation after startup.
-            db_path()
+            prepare_runtime_database()
             yield
         finally:
             await runtime.close()
 
+    # --8<-- [end:a2a-lifespan]
     app = to_a2a(
         selected_agent,
         host=settings.a2a_host,

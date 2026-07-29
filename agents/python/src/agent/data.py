@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import settings
-from .models import AuditEntry, Incident, IncidentStatus, Service, normalize_slug
+from .models import CURRENT_AUDIT_SCHEMA_VERSION, AuditEntry, Incident, IncidentStatus, Service, normalize_slug
 
 
 class DataAccessError(RuntimeError):
@@ -24,6 +24,37 @@ class DataAccessError(RuntimeError):
 
 
 _RUNTIME_TABLES = frozenset({"audit_log", "incidents", "services"})
+_AUDIT_IDEMPOTENCY_INDEX = "uq_audit_log_idempotency"
+_AUDIT_IDEMPOTENCY_KEY_ROWS = (
+    (0, "invocation_id", 0, "BINARY"),
+    (1, "action", 0, "BINARY"),
+    (2, "target", 0, "BINARY"),
+)
+
+
+def _audit_idempotency_index_is_current(connection: sqlite3.Connection) -> bool:
+    """Return whether the named index enforces the exact bytewise key contract."""
+    index = connection.execute(
+        """
+        SELECT "unique", partial
+        FROM pragma_index_list('audit_log')
+        WHERE name = 'uq_audit_log_idempotency'
+        """
+    ).fetchone()
+    if index is None or index[0] != 1 or index[1] != 0:
+        return False
+    key_rows = tuple(
+        (row[0], row[1], row[2], row[3])
+        for row in connection.execute(
+            """
+            SELECT seqno, name, "desc", coll
+            FROM pragma_index_xinfo('uq_audit_log_idempotency')
+            WHERE key = 1
+            ORDER BY seqno
+            """
+        )
+    )
+    return key_rows == _AUDIT_IDEMPOTENCY_KEY_ROWS
 
 
 def db_path() -> Path:
@@ -87,6 +118,14 @@ def probe_runtime_database() -> Path:
                     """
                 )
             }
+            version_column = connection.execute(
+                """
+                SELECT type, "notnull", dflt_value
+                FROM pragma_table_info('audit_log')
+                WHERE name = 'schema_version'
+                """
+            ).fetchone()
+            idempotency_index_is_current = _audit_idempotency_index_is_current(connection)
         finally:
             connection.close()
     except DataAccessError:
@@ -96,6 +135,17 @@ def probe_runtime_database() -> Path:
     missing = _RUNTIME_TABLES - tables
     if missing:
         raise DataAccessError(f"Runtime database is missing required tables: {', '.join(sorted(missing))}")
+    if (
+        version_column is None
+        or version_column[0].upper() != "INTEGER"
+        or version_column[1] != 1
+        or version_column[2] != str(CURRENT_AUDIT_SCHEMA_VERSION)
+        or not idempotency_index_is_current
+    ):
+        raise DataAccessError(
+            "Runtime database audit schema is not prepared: expected the current schema_version "
+            f"and exact ascending BINARY unique index {_AUDIT_IDEMPOTENCY_INDEX!r}"
+        )
     return path
 
 
@@ -158,6 +208,122 @@ def _connect() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+@contextmanager
+def _connect_for_read() -> Iterator[sqlite3.Connection]:
+    """Open existing runtime state or the seed read-only without publishing state."""
+    runtime = settings.state_dir / "incidents.db"
+    path = runtime if runtime.is_file() else settings.data_dir / "incidents.db"
+    if not path.is_file():
+        raise DataAccessError(f"Database is missing: {path.name}")
+    try:
+        connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+    except (OSError, sqlite3.Error) as error:
+        raise DataAccessError(f"Could not open database read-only: {path.name}") from error
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        yield connection
+    except sqlite3.Error as error:
+        raise DataAccessError(f"SQLite read failed for {path.name}") from error
+    finally:
+        connection.close()
+
+
+def prepare_runtime_database() -> Path:
+    """Initialize and add safe audit-schema migrations to writable runtime state."""
+    path = db_path()
+    with _connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        version_column = connection.execute(
+            """
+            SELECT type, "notnull", dflt_value
+            FROM pragma_table_info('audit_log')
+            WHERE name = 'schema_version'
+            """
+        ).fetchone()
+        if version_column is None:
+            connection.execute(
+                """
+                ALTER TABLE audit_log
+                ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1 CHECK (schema_version >= 1)
+                """
+            )
+            version_column = connection.execute(
+                """
+                SELECT type, "notnull", dflt_value
+                FROM pragma_table_info('audit_log')
+                WHERE name = 'schema_version'
+                """
+            ).fetchone()
+        if (
+            version_column is None
+            or version_column["type"].upper() != "INTEGER"
+            or version_column["notnull"] != 1
+            or version_column["dflt_value"] != str(CURRENT_AUDIT_SCHEMA_VERSION)
+        ):
+            connection.rollback()
+            raise DataAccessError(
+                "Runtime audit schema_version has an unexpected definition; "
+                "inspect the runtime database before retrying the migration"
+            )
+
+        index_exists = (
+            connection.execute(
+                """
+                SELECT 1
+                FROM pragma_index_list('audit_log')
+                WHERE name = 'uq_audit_log_idempotency'
+                """
+            ).fetchone()
+            is not None
+        )
+        if index_exists:
+            if not _audit_idempotency_index_is_current(connection):
+                connection.rollback()
+                raise DataAccessError(
+                    f"Runtime index {_AUDIT_IDEMPOTENCY_INDEX!r} has an unexpected definition; "
+                    "inspect the runtime database before retrying the migration"
+                )
+            connection.commit()
+            return path
+
+        duplicate = connection.execute(
+            """
+            SELECT invocation_id, action, target, COUNT(*) AS row_count
+            FROM audit_log
+            GROUP BY invocation_id, action, target
+            HAVING COUNT(*) > 1
+            ORDER BY row_count DESC, invocation_id, action, target
+            LIMIT 1
+            """
+        ).fetchone()
+        if duplicate is not None:
+            connection.rollback()
+            raise DataAccessError(
+                "Runtime database contains a duplicate audit idempotency key: "
+                f"invocation_id={duplicate['invocation_id']!r}, action={duplicate['action']!r}, "
+                f"target={duplicate['target']!r} has {duplicate['row_count']} rows. "
+                "Export and reconcile duplicate audit rows before retrying the migration"
+            )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX uq_audit_log_idempotency
+            ON audit_log (invocation_id, action, target)
+            """
+        )
+        connection.commit()
+    return path
+
+
+@contextmanager
+def _connect_for_write() -> Iterator[sqlite3.Connection]:
+    """Prepare writable state, then open the caller's mutation connection."""
+    prepare_runtime_database()
+    with _connect() as connection:
+        yield connection
+
+
 def list_incidents(status: IncidentStatus | None = None, service: str | None = None) -> list[Incident]:
     """Return incidents, newest first, optionally filtered by status and/or service."""
     query = "SELECT * FROM incidents"
@@ -172,26 +338,26 @@ def list_incidents(status: IncidentStatus | None = None, service: str | None = N
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY opened_at DESC"
-    with _connect() as connection:
+    with _connect_for_read() as connection:
         return [Incident.model_validate(dict(row)) for row in connection.execute(query, params)]
 
 
 def get_incident(incident_id: str) -> Incident | None:
     """Return a single incident by id (e.g. ``INC-001``), or ``None`` if unknown."""
-    with _connect() as connection:
+    with _connect_for_read() as connection:
         row = connection.execute("SELECT * FROM incidents WHERE id = ?", (incident_id,)).fetchone()
     return Incident.model_validate(dict(row)) if row is not None else None
 
 
 def list_services() -> list[Service]:
     """Return every watched service with its current status and owning team."""
-    with _connect() as connection:
+    with _connect_for_read() as connection:
         return [Service.model_validate(dict(row)) for row in connection.execute("SELECT * FROM services ORDER BY name")]
 
 
 def get_service(name: str) -> Service | None:
     """Return a single service by name, or ``None`` if unknown."""
-    with _connect() as connection:
+    with _connect_for_read() as connection:
         row = connection.execute("SELECT * FROM services WHERE name = ?", (name,)).fetchone()
     return Service.model_validate(dict(row)) if row is not None else None
 
@@ -199,6 +365,27 @@ def get_service(name: str) -> Service | None:
 def _utcnow() -> str:
     """Return the current time as an ISO-8601 UTC string (e.g. 2026-07-05T09:15:00Z)."""
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _audit_for_idempotency_key(
+    connection: sqlite3.Connection,
+    *,
+    invocation_id: str,
+    action: str,
+    target: str,
+) -> AuditEntry | None:
+    """Return the first audit row for one logical write, if it already ran."""
+    row = connection.execute(
+        """
+        SELECT *
+        FROM audit_log
+        WHERE invocation_id = ? AND action = ? AND target = ?
+        ORDER BY id
+        LIMIT 1
+        """,
+        (invocation_id, action, target),
+    ).fetchone()
+    return AuditEntry.model_validate(dict(row)) if row is not None else None
 
 
 def _append_audit(
@@ -219,16 +406,30 @@ def _append_audit(
     cursor = connection.execute(
         """
         INSERT INTO audit_log
-            (ts, actor, approved_by, rationale, context_summary, session_id, invocation_id, action, target, detail)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (schema_version, ts, actor, approved_by, rationale, context_summary,
+             session_id, invocation_id, action, target, detail)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (timestamp, actor, approved_by, rationale, context_summary, session_id, invocation_id, action, target, detail),
+        (
+            CURRENT_AUDIT_SCHEMA_VERSION,
+            timestamp,
+            actor,
+            approved_by,
+            rationale,
+            context_summary,
+            session_id,
+            invocation_id,
+            action,
+            target,
+            detail,
+        ),
     )
     entry_id = cursor.lastrowid
     if entry_id is None:
         raise DataAccessError("SQLite did not return an audit entry id")
     return AuditEntry(
         id=entry_id,
+        schema_version=CURRENT_AUDIT_SCHEMA_VERSION,
         ts=timestamp,
         actor=actor,
         approved_by=approved_by,
@@ -254,8 +455,17 @@ def append_audit(
     target: str,
     detail: str,
 ) -> AuditEntry:
-    """Append one independently committed audit entry."""
-    with _connect() as connection:
+    """Append one audit entry, or return the row for a replayed logical write."""
+    with _connect_for_write() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = _audit_for_idempotency_key(
+            connection,
+            invocation_id=invocation_id,
+            action=action,
+            target=target,
+        )
+        if existing is not None:
+            return existing
         entry = _append_audit(
             connection,
             actor=actor,
@@ -319,9 +529,17 @@ def restart_service_with_audit(
     session_id: str,
     invocation_id: str,
 ) -> AuditEntry | None:
-    """Lock, read current context, restart, and audit in one transaction."""
-    with _connect() as connection:
+    """Return a prior result or restart and audit once under the write lock."""
+    with _connect_for_write() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        existing = _audit_for_idempotency_key(
+            connection,
+            invocation_id=invocation_id,
+            action="restart_service",
+            target=name,
+        )
+        if existing is not None:
+            return existing
         context_summary = _restart_context(connection, name)
         if context_summary is None:
             return None
@@ -353,9 +571,17 @@ def resolve_incident_with_audit(
     session_id: str,
     invocation_id: str,
 ) -> AuditEntry | None:
-    """Lock, read current context, resolve, and audit in one transaction."""
-    with _connect() as connection:
+    """Return a prior result or resolve and audit once under the write lock."""
+    with _connect_for_write() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        existing = _audit_for_idempotency_key(
+            connection,
+            invocation_id=invocation_id,
+            action="resolve_incident",
+            target=incident_id,
+        )
+        if existing is not None:
+            return existing
         context_summary = _resolution_context(connection, incident_id)
         if context_summary is None:
             return None

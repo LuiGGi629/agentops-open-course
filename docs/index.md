@@ -50,6 +50,8 @@ flowchart TD
     OTel --> Metrics[Prometheus + Grafana]
 ```
 
+**Diagram in words:** An engineer reaches the AgentOps Agent through agentgateway. The gateway brokers the agent's MCP tool and model calls. The agent stores state in SQLite and sends OpenTelemetry to MLflow and to Prometheus/Grafana.
+
 The bundled incident, log, runbook, and skill data is immutable. A runtime copy receives mock state changes and append-only audit records, which keeps each exercise resettable and safe.
 
 You do not reconstruct this system file by file. `main` is the working reference, and each checkpoint asks you to understand, verify, or deliberately change one boundary.

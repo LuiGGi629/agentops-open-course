@@ -22,4 +22,4 @@ mise run check      # byte-for-byte rebuild + referential integrity (services â†
 
 ## How the agent locates this data
 
-The agent resolves immutable inputs from `AGENT_DATA_DIR`, falling back to this folder. Its writable SQLite copy lives under `AGENT_STATE_DIR` (default: `agents/python/.state`), so local actions never mutate the committed seed. Run `cd agents/python && mise run data:reset` to restore deterministic state. The container mounts a separate writable state volume and keeps this bundled directory read-only.
+The agent resolves immutable inputs from `AGENT_DATA_DIR`, falling back to this folder. Its writable SQLite copy lives under `AGENT_STATE_DIR` (default: `agents/python/.state`), so local actions never mutate the committed seed. The A2A startup and direct writers apply additive schema preparation only to that runtime copy; probes and read tools do not migrate it. Run `cd agents/python && mise run data:reset` to restore deterministic disposable state. The container mounts a separate writable state volume and keeps this bundled directory read-only.

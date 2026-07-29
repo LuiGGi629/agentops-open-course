@@ -131,20 +131,179 @@ def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
 
 
-def test_app_factory_owns_and_closes_persistent_runtime() -> None:
+def test_app_factory_owns_closes_and_prepares_persistent_runtime(monkeypatch) -> None:
+    original = server.prepare_runtime_database
+    prepared = False
+
+    def tracked_prepare() -> Path:
+        nonlocal prepared
+        prepared = True
+        return original()
+
+    monkeypatch.setattr(server, "prepare_runtime_database", tracked_prepare)
+
     async def exercise_lifespan() -> None:
         app = server.create_app()
         runtime = app.state.runtime
         assert runtime.runner.session_service is runtime.session_service
-        assert runtime.session_service.__class__.__name__ == "DatabaseSessionService"
+        assert isinstance(runtime.session_service, server.DatabaseSessionService)
+        assert runtime.session_service.__class__.__name__ == "_A2ASessionService"
         assert runtime.task_store.__class__.__name__ == "DatabaseTaskStore"
         assert runtime.session_service.db_engine is runtime.task_engine
 
         async with app.router.lifespan_context(app):
+            assert prepared is True
             await runtime.session_service.create_session(app_name="agentops-agent", user_id="test")
             await runtime.task_store.initialize()
 
     asyncio.run(exercise_lifespan())
+
+
+def test_a2a_session_service_recovers_a_concurrent_first_use(tmp_path: Path) -> None:
+    async def exercise() -> None:
+        service = server._A2ASessionService(  # noqa: SLF001 - A2A race boundary under test
+            db_url=f"sqlite+aiosqlite:///{tmp_path / 'sessions.db'}",
+            pool_size=1,
+            max_overflow=0,
+        )
+        checked = 0
+        both_checked = asyncio.Event()
+
+        async def resolve() -> server.Session:
+            nonlocal checked
+            existing = await service.get_session(
+                app_name="agentops-agent",
+                user_id="test-user",
+                session_id="shared-session",
+            )
+            assert existing is None
+            checked += 1
+            if checked == 2:
+                both_checked.set()
+            await both_checked.wait()
+            return await service.create_session(
+                app_name="agentops-agent",
+                user_id="test-user",
+                state={},
+                session_id="shared-session",
+            )
+
+        try:
+            first, second = await asyncio.gather(resolve(), resolve())
+            assert first.id == second.id == "shared-session"
+            listed = await service.list_sessions(app_name="agentops-agent", user_id="test-user")
+            assert [session.id for session in listed.sessions] == ["shared-session"]
+        finally:
+            await service.close()
+
+    asyncio.run(exercise())
+
+
+def test_a2a_runner_serializes_detached_snapshots_for_one_session(monkeypatch) -> None:
+    """A second turn must load state only after the first one persists it."""
+
+    async def exercise() -> None:
+        persisted: dict[tuple[str, str], int] = {}
+        snapshots: list[int] = []
+        first_snapshot_loaded = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def detached_snapshot_run(
+            runner,
+            *,
+            user_id: str,
+            session_id: str,
+            invocation_id: str | None = None,
+            new_message: types.Content | None = None,
+            state_delta: dict[str, Any] | None = None,
+            run_config: RunConfig | None = None,
+            yield_user_message: bool = False,
+        ):
+            del runner, new_message, state_delta, run_config, yield_user_message
+            key = user_id, session_id
+            snapshot = persisted.get(key, 0)
+            snapshots.append(snapshot)
+            if len(snapshots) == 1:
+                first_snapshot_loaded.set()
+                await release_first.wait()
+            persisted[key] = snapshot + 1
+            yield server.Event(author="test", invocation_id=invocation_id or "test")
+
+        monkeypatch.setattr(server.Runner, "run_async", detached_snapshot_run)
+        runner = server._SessionSerializingRunner(  # noqa: SLF001 - concurrency boundary under test
+            agent=Agent(
+                name="serialized_test_agent",
+                instruction="Reply using the fake model.",
+                model=_StreamingLlm(model="serialized-test"),
+            ),
+            app_name="agentops-agent",
+            session_service=cast("Any", object()),
+        )
+
+        async def run(invocation_id: str) -> list[server.Event]:
+            return [
+                event
+                async for event in runner.run_async(
+                    user_id="test-user",
+                    session_id="test-session",
+                    invocation_id=invocation_id,
+                )
+            ]
+
+        first = asyncio.create_task(run("first"))
+        await first_snapshot_loaded.wait()
+        second = asyncio.create_task(run("second"))
+        await asyncio.sleep(0)
+        release_first.set()
+        await asyncio.gather(first, second)
+
+        assert snapshots == [0, 1]
+        assert persisted[("test-user", "test-session")] == 2
+        assert not runner._session_locks  # noqa: SLF001 - reference cleanup contract
+        assert not runner._session_lock_refs  # noqa: SLF001 - reference cleanup contract
+
+    asyncio.run(exercise())
+
+
+def test_a2a_runner_keeps_different_sessions_concurrent(monkeypatch) -> None:
+    async def exercise() -> None:
+        both_started = asyncio.Event()
+        active = 0
+        peak_active = 0
+
+        async def concurrent_run(runner, **kwargs):
+            nonlocal active, peak_active
+            del runner, kwargs
+            active += 1
+            peak_active = max(peak_active, active)
+            if active == 2:
+                both_started.set()
+            await both_started.wait()
+            active -= 1
+            yield server.Event(author="test")
+
+        monkeypatch.setattr(server.Runner, "run_async", concurrent_run)
+        runner = server._SessionSerializingRunner(  # noqa: SLF001 - concurrency boundary under test
+            agent=Agent(
+                name="parallel_test_agent",
+                instruction="Reply using the fake model.",
+                model=_StreamingLlm(model="parallel-test"),
+            ),
+            app_name="agentops-agent",
+            session_service=cast("Any", object()),
+        )
+
+        async def run(session_id: str) -> None:
+            async for _ in runner.run_async(user_id="test-user", session_id=session_id):
+                pass
+
+        await asyncio.wait_for(
+            asyncio.gather(run("first-session"), run("second-session")),
+            timeout=1,
+        )
+        assert peak_active == 2
+
+    asyncio.run(exercise())
 
 
 def test_main_runs_uvicorn_with_an_app_factory(monkeypatch) -> None:
@@ -329,15 +488,13 @@ def test_readiness_fails_without_the_seed_dataset(tmp_path, monkeypatch) -> None
         assert any("dataset unavailable" in problem for problem in response.json()["problems"])
 
 
-def test_readiness_rejects_a_corrupt_runtime_database() -> None:
+def test_startup_rejects_a_corrupt_runtime_database_without_replacing_it() -> None:
     settings.state_dir.mkdir(parents=True)
     destination = settings.state_dir / "incidents.db"
     destination.write_text("not a SQLite database", encoding="utf-8")
     before = destination.read_bytes()
-    with TestClient(server.create_app()) as client:
-        response = client.get("/healthz")
-    assert response.status_code == 503
-    assert any("dataset unavailable" in problem for problem in response.json()["problems"])
+    with pytest.raises(data.DataAccessError, match="SQLite operation failed"), TestClient(server.create_app()):
+        pass
     assert destination.read_bytes() == before
 
 

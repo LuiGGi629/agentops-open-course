@@ -13,7 +13,7 @@ from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
 
 from agent import actions, data, guardrails, tools
-from agent.models import MAX_AUDIT_RATIONALE_LENGTH
+from agent.models import CURRENT_AUDIT_SCHEMA_VERSION, MAX_AUDIT_RATIONALE_LENGTH
 
 # The guardrail only reads tool.name and never touches the context, so a cast None is enough.
 _NO_CONTEXT = cast("ToolContext", None)
@@ -68,6 +68,26 @@ def test_restart_service_flips_status_and_audits() -> None:
     assert after.status == "operational"
     assert result["audit"]["action"] == "restart_service"
     assert result["audit"]["approved_by"] == "engineer"
+    assert result["audit"]["schema_version"] == CURRENT_AUDIT_SCHEMA_VERSION
+
+
+def test_replayed_approved_restart_returns_original_audit_and_changes_state_once() -> None:
+    context = _approved_context({"rationale": "inventory is down during the incident"})
+    first = _run_action("restart_service", {"name": "inventory"}, context)
+    assert "result" in first
+
+    # Prove a replay does not run UPDATE again by moving the service to a newer
+    # state between deliveries of the same approved invocation.
+    with closing(sqlite3.connect(data.db_path())) as connection:
+        connection.execute("UPDATE services SET status = 'degraded' WHERE name = 'inventory'")
+        connection.commit()
+
+    replay = _run_action("restart_service", {"name": "inventory"}, context)
+    assert replay["audit"] == first["audit"]
+    service = data.get_service("inventory")
+    assert service is not None
+    assert service.status == "degraded"
+    assert _audit_count() == 1
 
 
 def test_restart_unknown_service_errors() -> None:

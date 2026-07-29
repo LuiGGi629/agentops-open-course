@@ -42,6 +42,8 @@ flowchart TD
     gw --> pf
 ```
 
+**Diagram in words:** Run the platform doctor, start k3d and its local registry, install kagent, then let Skaffold build and push the images. That build creates the BYO Agent, read-only MCP server, and agentgateway/NetworkPolicy path. A temporary port-forward to agentgateway `:3001` is the host entry point.
+
 ## Which page owns which platform manifest?
 
 Every platform concern has one owning manifest, so a broken rollout has one place to look.

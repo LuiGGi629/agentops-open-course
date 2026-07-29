@@ -1,6 +1,8 @@
 """Unit tests for the MCP server and client wiring (Ch. 3.3)."""
 
 import asyncio
+import sqlite3
+from contextlib import closing
 from types import SimpleNamespace
 from typing import cast
 
@@ -8,7 +10,7 @@ import pytest
 from mcp.server.transport_security import TransportSecurityMiddleware
 from starlette.requests import HTTPConnection, Request
 
-from agent import data, mcp_server
+from agent import data, mcp_server, tools
 from agent.config import settings
 from agent.mcp_client import ops_mcp_toolset
 from agent.mcp_server import mcp
@@ -185,6 +187,20 @@ def test_mcp_healthz_reports_ready() -> None:
     assert response.status_code == 200
 
 
+def test_mcp_probe_and_read_tools_do_not_prepare_writable_state(monkeypatch) -> None:
+    destination = settings.state_dir / "incidents.db"
+    assert not destination.exists()
+
+    def reject_prepare() -> None:
+        raise AssertionError("read-only MCP path attempted a runtime migration")
+
+    monkeypatch.setattr(data, "prepare_runtime_database", reject_prepare)
+    response = asyncio.run(mcp_server.healthz(cast("Request", None)))
+    assert response.status_code == 503
+    assert tools.list_incidents()["count"] > 0
+    assert not destination.exists()
+
+
 def test_mcp_healthz_fails_on_fresh_state_without_initializing_it(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "state_dir", tmp_path / "fresh-state")
     response = asyncio.run(mcp_server.healthz(cast("Request", None)))
@@ -200,6 +216,20 @@ def test_mcp_healthz_rejects_a_corrupt_runtime_database() -> None:
     response = asyncio.run(mcp_server.healthz(cast("Request", None)))
     assert response.status_code == 503
     assert destination.read_bytes() == before
+
+
+def test_mcp_healthz_rejects_unprepared_audit_schema_without_migrating_it() -> None:
+    destination = data.db_path()
+    with closing(sqlite3.connect(destination)) as connection:
+        connection.execute("DROP INDEX uq_audit_log_idempotency")
+        connection.commit()
+    before = destination.read_bytes()
+    before_mtime = destination.stat().st_mtime_ns
+
+    response = asyncio.run(mcp_server.healthz(cast("Request", None)))
+    assert response.status_code == 503
+    assert destination.read_bytes() == before
+    assert destination.stat().st_mtime_ns == before_mtime
 
 
 def test_mcp_livez_is_trivially_alive() -> None:

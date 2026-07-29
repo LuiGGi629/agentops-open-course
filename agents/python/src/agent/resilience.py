@@ -51,50 +51,58 @@ def with_resilience(func: Callable[..., dict[str, Any]]) -> Callable[..., Any]:
         # When enabled, an open breaker short-circuits the whole retry loop: a
         # dependency that just failed its budget should not be hammered again.
         breaker = get_breaker(tool_name) if settings.circuit_breaker_enabled else None
-        if breaker is not None and not breaker.allow():
+        permit = breaker.allow() if breaker is not None else None
+        if breaker is not None and permit is None:
             logger.warning("Tool %s circuit is open; failing fast without a call", tool_name)
             raise CircuitOpenError(
                 f"Tool {tool_name!r} circuit is open after repeated failures; "
-                f"retrying in at most {settings.circuit_reset_timeout_s:.0f}s (AGENT_CIRCUIT_RESET_TIMEOUT_S)."
+                f"retrying in at most {settings.circuit_reset_timeout_s:.0f}s "
+                "(AGENT_CIRCUIT_RESET_TIMEOUT_S)."
             )
-        last_error: Exception | None = None
-        for attempt in range(settings.max_retries + 1):
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(func, **kwargs),
-                    timeout=settings.tool_timeout_s,
-                )
-            except TimeoutError:
-                # A deadline is a budget, not a transient blip: do not retry,
-                # the next attempt would most likely burn the same budget.
-                logger.error("Tool %s exceeded its %.1fs deadline", tool_name, settings.tool_timeout_s)
-                if breaker is not None:
-                    breaker.record_failure()
-                raise ToolDeadlineError(
-                    f"Tool {tool_name!r} exceeded its {settings.tool_timeout_s:.0f}s deadline (AGENT_TOOL_TIMEOUT_S)."
-                ) from None
-            except Exception as error:  # retry boundary: transient faults deserve a second chance
-                last_error = error
-                if attempt < settings.max_retries:
-                    delay = settings.retry_backoff_s * (2**attempt)
-                    logger.warning(
-                        "Tool %s failed (attempt %d/%d), retrying in %.1fs: %s",
-                        tool_name,
-                        attempt + 1,
-                        settings.max_retries + 1,
-                        delay,
-                        error,
+        try:
+            last_error: Exception | None = None
+            for attempt in range(settings.max_retries + 1):
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(func, **kwargs),
+                        timeout=settings.tool_timeout_s,
                     )
-                    await asyncio.sleep(delay)
-            else:
-                if breaker is not None:
-                    breaker.record_success()
-                return result
-        # Exhausted retries: count one breaker failure, then surface the root cause.
-        if breaker is not None:
-            breaker.record_failure()
-        raise RuntimeError(
-            f"Tool {tool_name!r} failed after {settings.max_retries + 1} attempts (AGENT_MAX_RETRIES)."
-        ) from last_error
+                except TimeoutError:
+                    # A deadline is a budget, not a transient blip: do not retry,
+                    # the next attempt would most likely burn the same budget.
+                    logger.error("Tool %s exceeded its %.1fs deadline", tool_name, settings.tool_timeout_s)
+                    if breaker is not None and permit is not None:
+                        breaker.record_failure(permit)
+                    raise ToolDeadlineError(
+                        f"Tool {tool_name!r} exceeded its "
+                        f"{settings.tool_timeout_s:.0f}s deadline (AGENT_TOOL_TIMEOUT_S)."
+                    ) from None
+                except Exception as error:  # retry boundary: transient faults deserve a second chance
+                    last_error = error
+                    if attempt < settings.max_retries:
+                        delay = settings.retry_backoff_s * (2**attempt)
+                        logger.warning(
+                            "Tool %s failed (attempt %d/%d), retrying in %.1fs: %s",
+                            tool_name,
+                            attempt + 1,
+                            settings.max_retries + 1,
+                            delay,
+                            error,
+                        )
+                        await asyncio.sleep(delay)
+                else:
+                    if breaker is not None and permit is not None:
+                        breaker.record_success(permit)
+                    return result
+            # Exhausted retries: count one breaker failure, then surface the root cause.
+            if breaker is not None and permit is not None:
+                breaker.record_failure(permit)
+            raise RuntimeError(
+                f"Tool {tool_name!r} failed after {settings.max_retries + 1} attempts (AGENT_MAX_RETRIES)."
+            ) from last_error
+        except asyncio.CancelledError:
+            if breaker is not None and permit is not None:
+                breaker.record_abandoned(permit)
+            raise
 
     return wrapper

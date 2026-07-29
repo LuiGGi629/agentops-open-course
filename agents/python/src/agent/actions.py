@@ -5,9 +5,10 @@ audit log. They are **guarded**: wrapped in a ``FunctionTool(require_confirmatio
 ADK pauses for human approval (HITL) before the function runs. Approval is attributable
 change management, not a yes/no click: the confirmation payload must carry the approver's
 rationale, and the same transaction that performs the action records who approved, why, and
-the current decision context at execution. A client must keep the evidence that justified
-the proposal and the original action arguments visible before approval. Everything is mock
-and local — no real infrastructure is touched.
+the current decision context at execution. Replaying the same invocation, action, and target
+returns that original audit row without applying the mutation twice. A client must keep the
+evidence that justified the proposal and the original action arguments visible before
+approval. Everything is mock and local — no real infrastructure is touched.
 """
 
 from __future__ import annotations

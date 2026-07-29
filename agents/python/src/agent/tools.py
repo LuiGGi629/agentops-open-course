@@ -132,8 +132,8 @@ SEARCH_SERVICE_LOGS_TOOL: ToolUnion = with_resilience(search_service_logs)
 
 # The tools registered on the AgentOps Agent, each wrapped with a deadline and
 # bounded retries because reads are idempotent (Ch. 4.5). Guarded actions
-# (restart/resolve) join in Ch. 4.5 and stay unwrapped: retrying a write could
-# apply it twice.
+# (restart/resolve) join in Ch. 4.5 and stay unwrapped: an automatic retry can
+# cross an unknown commit boundary even though duplicate delivery is deduplicated.
 ALL_TOOLS: list[ToolUnion] = [
     LIST_INCIDENTS_TOOL,
     GET_INCIDENT_TOOL,

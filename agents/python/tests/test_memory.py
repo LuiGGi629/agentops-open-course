@@ -40,6 +40,11 @@ def test_search_runbooks_respects_limit() -> None:
     assert result["count"] <= 2
 
 
+def test_search_runbooks_caps_model_controlled_limit() -> None:
+    result = memory.search_runbooks("service down latency errors disk deploy", limit=100)
+    assert result["count"] == 3
+
+
 def test_search_runbooks_no_match_is_empty() -> None:
     result = memory.search_runbooks("zzzznomatchzzzz")
     assert result["count"] == 0

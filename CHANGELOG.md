@@ -8,18 +8,21 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 - Added a bounded read-only `plan → investigate → evidence_review → recommend` workflow, a least-privilege coordinator path, and model-backed evaluation for the planning and reflection loop.
 - Added explicit learner, platform, and maintainer install tiers plus stable aggregate CI and security-scan jobs that import-smoke every built image.
+- Added explicit accessibility and single-maintainer governance contracts for diagrams, keyboard/contrast expectations, review authority, and the path to maintainership.
 
 ### Changed
 
 - Reworked the learning path so setup stays read-only, the first model interaction happens in Chapter 2, Kubernetes deployment precedes inspection, and the capstone is the primary finish before optional project maintenance.
 - Unified ADK discovery behind one validated `AGENT_ENTRYPOINT=agent|workflow|coordinator` package boundary while constructing only the selected composition.
 - Made promotion a truthful offline preflight by default, with model-backed evidence required before it prints deploy and rollback commands.
+- Bound scheduled model evidence to one provider, immutable prompt, model digest, evaluation contract, and source revision while reusing the exact MLflow transcript for cost and groundedness checks.
 
 ### Fixed
 
 - Repaired the locked ADK 2.4 terminal entrypoint, which was shadowed by `agent.py`, and added real CLI, wheel, and container discovery coverage.
 - Wrapped `adk eval` so metric failures cannot exit successfully; each trajectory case is strict and the measured local-model baseline uses an explicit aggregate case-pass floor.
 - Strengthened host and load smoke tests to require successful A2A completion, made OpenTelemetry provider setup idempotent, preserved evidence across workflow nodes, and required fresh reads after approved actions.
+- Made approved-write replays idempotent in SQLite, bounded model-controlled runbook retrieval, serialized per-session token accounting, and protected the optional circuit-breaker registry and generation-bound transitions across worker threads.
 
 ## [0.1.1] - 2026-07-24
 

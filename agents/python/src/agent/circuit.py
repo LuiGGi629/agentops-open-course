@@ -21,6 +21,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from threading import Lock
 
 from opentelemetry import metrics
 
@@ -47,13 +48,21 @@ class CircuitOpenError(RuntimeError):
     """Raised instead of calling a dependency whose breaker is open."""
 
 
+@dataclass(frozen=True, slots=True)
+class CircuitPermit:
+    """The breaker generation in which one dependency call was admitted."""
+
+    generation: int
+
+
 @dataclass(slots=True)
 class CircuitBreaker:
     """A per-resource breaker with an injectable monotonic clock.
 
-    ``allow`` is the gate the caller checks before doing work; ``record_success``
-    and ``record_failure`` report the outcome so the breaker can advance its
-    state. Keeping the clock injectable is what makes the transitions testable
+    ``allow`` returns an admission permit before work starts. Outcome methods
+    accept only permits from the current breaker generation, so a slow call
+    admitted before a newer failure opened the breaker cannot later close or
+    re-open it. Keeping the clock injectable makes every transition testable
     without real time passing.
     """
 
@@ -64,60 +73,106 @@ class CircuitBreaker:
     state: CircuitState = CircuitState.CLOSED
     failures: int = 0
     opened_at: float = field(default=0.0)
+    _lock: Lock = field(default_factory=Lock, init=False, repr=False)
+    _half_open_probe_active: bool = field(default=False, init=False, repr=False)
+    _generation: int = field(default=0, init=False, repr=False)
 
-    def allow(self) -> bool:
-        """Return whether a call may proceed, advancing OPEN → HALF_OPEN on cooldown.
+    def allow(self) -> CircuitPermit | None:
+        """Admit one call, advancing OPEN → HALF_OPEN after the cooldown.
 
-        Closed and half-open both allow the call; open allows it only once the
-        reset timeout has elapsed, at which point it moves to half-open to let a
-        single trial through.
+        Closed allows concurrent calls. Open allows exactly one call once the
+        reset timeout has elapsed; concurrent callers fail fast until that
+        half-open probe records success or failure. ``None`` means the caller
+        must fail fast.
         """
-        if self.state is CircuitState.OPEN and self.clock() - self.opened_at >= self.reset_timeout_s:
-            self.state = CircuitState.HALF_OPEN
-        return self.state is not CircuitState.OPEN
+        with self._lock:
+            if self.state is CircuitState.OPEN:
+                if self.clock() - self.opened_at < self.reset_timeout_s:
+                    return None
+                self.state = CircuitState.HALF_OPEN
+                self._generation += 1
+                self._half_open_probe_active = True
+                return CircuitPermit(self._generation)
+            if self.state is CircuitState.HALF_OPEN:
+                if self._half_open_probe_active:
+                    return None
+                self._half_open_probe_active = True
+            return CircuitPermit(self._generation)
 
-    def record_success(self) -> None:
-        """A successful call closes the breaker and clears the failure count."""
-        self.state = CircuitState.CLOSED
-        self.failures = 0
+    def record_success(self, permit: CircuitPermit) -> None:
+        """Record a current-generation success, ignoring stale call outcomes."""
+        with self._lock:
+            if permit.generation != self._generation or self.state is CircuitState.OPEN:
+                return
+            if self.state is CircuitState.HALF_OPEN:
+                self.state = CircuitState.CLOSED
+                self._generation += 1
+            self.failures = 0
+            self._half_open_probe_active = False
 
-    # --8<-- [start:record-failure]
-    def record_failure(self) -> None:
-        """A failed call trips the breaker once the threshold is reached.
+    def record_abandoned(self, permit: CircuitPermit) -> None:
+        """Release a cancelled half-open probe without counting a failure.
 
-        A failure while half-open re-opens immediately: the trial proved the
-        dependency is still unhealthy, so start a fresh cooldown. A failure while
-        already open is a no-op — the cooldown is already running and must not be
-        extended indefinitely by failures that never actually reached the call.
+        A cancelled caller did not prove that the dependency is unhealthy, but
+        leaving its permit active would strand the breaker in half-open forever.
+        Re-open from now so a later caller gets a fresh, exclusive recovery probe.
         """
-        self.failures += 1
-        if self.state is CircuitState.OPEN:
-            return
-        if self.state is CircuitState.HALF_OPEN or self.failures >= self.failure_threshold:
+        with self._lock:
+            if (
+                permit.generation != self._generation
+                or self.state is not CircuitState.HALF_OPEN
+                or not self._half_open_probe_active
+            ):
+                return
             _OPENED_COUNTER.add(1, {"resource": self.name})
             self.state = CircuitState.OPEN
             self.opened_at = self.clock()
+            self._half_open_probe_active = False
+            self._generation += 1
+
+    # --8<-- [start:record-failure]
+    def record_failure(self, permit: CircuitPermit) -> None:
+        """Record a current-generation failure and trip at the threshold.
+
+        A failure while half-open re-opens immediately: the trial proved the
+        dependency is still unhealthy, so start a fresh cooldown. Stale outcomes
+        and failures while already open are no-ops: they must not change the
+        current failure count or cooldown.
+        """
+        with self._lock:
+            if self.state is CircuitState.OPEN or permit.generation != self._generation:
+                return
+            self.failures += 1
+            if self.state is CircuitState.HALF_OPEN or self.failures >= self.failure_threshold:
+                _OPENED_COUNTER.add(1, {"resource": self.name})
+                self.state = CircuitState.OPEN
+                self.opened_at = self.clock()
+                self._half_open_probe_active = False
+                self._generation += 1
 
     # --8<-- [end:record-failure]
 
 
 # One breaker per wrapped resource (tool name), created lazily from settings.
 _BREAKERS: dict[str, CircuitBreaker] = {}
+_BREAKERS_LOCK = Lock()
 
 
 def get_breaker(name: str) -> CircuitBreaker:
     """Return the named breaker, creating it from the current settings once."""
-    breaker = _BREAKERS.get(name)
-    if breaker is None:
-        breaker = CircuitBreaker(
-            name=name,
-            failure_threshold=settings.circuit_failure_threshold,
-            reset_timeout_s=settings.circuit_reset_timeout_s,
-        )
-        _BREAKERS[name] = breaker
-    return breaker
+    with _BREAKERS_LOCK:
+        breaker = _BREAKERS.get(name)
+        if breaker is None:
+            breaker = CircuitBreaker(
+                name=name,
+                failure_threshold=settings.circuit_failure_threshold,
+                reset_timeout_s=settings.circuit_reset_timeout_s,
+            )
+            _BREAKERS[name] = breaker
+        return breaker
 
 
 def reset_breakers() -> None:
     """Clear the breaker registry (test isolation between cases)."""
-    _BREAKERS.clear()
+    with _BREAKERS_LOCK:
+        _BREAKERS.clear()

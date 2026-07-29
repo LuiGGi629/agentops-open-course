@@ -57,6 +57,9 @@ jobs:
       # their failures remain visible instead of being hidden by this evidence job.
       AGENT_MODEL_TIMEOUT_S: "180"
       AGENT_MAX_RETRIES: "0"
+      # Keep the serving window explicit and reproducible. Tool declarations,
+      # bounded evidence, and the completion all share this window.
+      OLLAMA_CONTEXT_LENGTH: "8192"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,7 +95,8 @@ jobs:
             --arg model "$AGENT_MODEL" \
             --arg digest "$model_digest" \
             --arg ollama_version "$(ollama --version)" \
-            '{model: $model, digest: $digest, ollama_version: $ollama_version}' \
+            --argjson context_length "$OLLAMA_CONTEXT_LENGTH" \
+            '{model: $model, digest: $digest, ollama_version: $ollama_version, context_length: $context_length}' \
             > agents/python/evals/model.json
           echo "EVAL_MODEL_DIGEST=${model_digest}" >> "$GITHUB_ENV"
 
