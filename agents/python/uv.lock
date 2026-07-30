@@ -37,7 +37,7 @@ wheels = [
 
 [[package]]
 name = "agentops-agent"
-version = "1.0.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -60,22 +60,26 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "alembic" },
     { name = "anyio" },
     { name = "google-cloud-aiplatform" },
     { name = "hypothesis" },
     { name = "jinja2" },
     { name = "lefthook" },
-    { name = "mlflow" },
+    { name = "mlflow-skinny" },
     { name = "pandas" },
     { name = "pip-audit" },
-    { name = "pyarrow" },
     { name = "pytest" },
     { name = "pytest-cov" },
-    { name = "rouge-score" },
     { name = "ruff" },
-    { name = "tabulate" },
     { name = "ty" },
     { name = "validate-pyproject" },
+]
+eval = [
+    { name = "mlflow" },
+    { name = "pyarrow" },
+    { name = "rouge-score" },
+    { name = "tabulate" },
 ]
 
 [package.metadata]
@@ -85,7 +89,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=48.0.1,<49" },
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "google-adk", extras = ["a2a"], specifier = ">=2.4.0" },
-    { name = "mcp", specifier = ">=1.28.1" },
+    { name = "mcp", specifier = ">=1.28.1,<2" },
     { name = "openai", specifier = ">=2.49.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.42.0,<=1.42.1" },
     { name = "presidio-analyzer", specifier = "==2.2.364" },
@@ -99,22 +103,26 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "alembic", specifier = ">=1.18.5" },
     { name = "anyio", specifier = ">=4.8.0" },
     { name = "google-cloud-aiplatform", specifier = ">=1.163.0,<2" },
     { name = "hypothesis", specifier = ">=6.163.0" },
     { name = "jinja2", specifier = ">=3.1.4,<4" },
     { name = "lefthook", specifier = ">=2.1.9" },
-    { name = "mlflow", specifier = ">=3.14" },
+    { name = "mlflow-skinny", specifier = ">=3.14" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pip-audit", specifier = ">=2.7.3" },
-    { name = "pyarrow", specifier = ">=24.0.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "rouge-score", specifier = ">=0.1.2" },
     { name = "ruff", specifier = ">=0.15.21" },
-    { name = "tabulate", specifier = ">=0.9" },
     { name = "ty", specifier = ">=0.0.64,<0.1" },
     { name = "validate-pyproject", specifier = ">=0.25" },
+]
+eval = [
+    { name = "mlflow", specifier = ">=3.14" },
+    { name = "pyarrow", specifier = ">=24.0.0" },
+    { name = "rouge-score", specifier = ">=0.1.2" },
+    { name = "tabulate", specifier = ">=0.9" },
 ]
 
 [[package]]
@@ -1441,7 +1449,7 @@ name = "gunicorn"
 version = "26.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "packaging", marker = "sys_platform != 'win32'" },
+    { name = "packaging" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6d/b7/a4a3f632f823e432ce6bc65f62961b7980c898c77f075a2f7118cb3846fe/gunicorn-26.0.0.tar.gz", hash = "sha256:ca9346f85e3a4aeeb64d491045c16b9a35647abd37ea15efe53080eb8b090baf", size = 727286, upload-time = "2026-05-05T06:38:25.529Z" }
 wheels = [
@@ -3484,25 +3492,25 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "catalogue", marker = "python_full_version >= '3.14'" },
-    { name = "confection", marker = "python_full_version >= '3.14'" },
-    { name = "cymem", marker = "python_full_version >= '3.14'" },
-    { name = "jinja2", marker = "python_full_version >= '3.14'" },
-    { name = "murmurhash", marker = "python_full_version >= '3.14'" },
-    { name = "numpy", marker = "python_full_version >= '3.14'" },
-    { name = "packaging", marker = "python_full_version >= '3.14'" },
-    { name = "preshed", marker = "python_full_version >= '3.14'" },
-    { name = "pydantic", marker = "python_full_version >= '3.14'" },
-    { name = "requests", marker = "python_full_version >= '3.14'" },
-    { name = "setuptools", marker = "python_full_version >= '3.14'" },
-    { name = "spacy-legacy", marker = "python_full_version >= '3.14'" },
-    { name = "spacy-loggers", marker = "python_full_version >= '3.14'" },
-    { name = "srsly", marker = "python_full_version >= '3.14'" },
-    { name = "thinc", marker = "python_full_version >= '3.14'" },
-    { name = "tqdm", marker = "python_full_version >= '3.14'" },
-    { name = "typer", marker = "python_full_version >= '3.14'" },
-    { name = "wasabi", marker = "python_full_version >= '3.14'" },
-    { name = "weasel", marker = "python_full_version >= '3.14'" },
+    { name = "catalogue" },
+    { name = "confection" },
+    { name = "cymem" },
+    { name = "jinja2" },
+    { name = "murmurhash" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "preshed" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "setuptools" },
+    { name = "spacy-legacy" },
+    { name = "spacy-loggers" },
+    { name = "srsly" },
+    { name = "thinc" },
+    { name = "tqdm" },
+    { name = "typer" },
+    { name = "wasabi" },
+    { name = "weasel" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/63/d7/1924f32272f50d2f13275f16d6f869fcec47b2b676b64f91fa206bd30ef4/spacy-3.8.13.tar.gz", hash = "sha256:eb7c03c2bb16593c34d4c91974118f0931c6e6969dbfe895b1a026c6714176cf", size = 1328016, upload-time = "2026-03-23T17:44:32.042Z" }
 wheels = [
@@ -3533,25 +3541,25 @@ resolution-markers = [
     "python_full_version < '3.14' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "catalogue", marker = "python_full_version < '3.14'" },
-    { name = "confection", marker = "python_full_version < '3.14'" },
-    { name = "cymem", marker = "python_full_version < '3.14'" },
-    { name = "jinja2", marker = "python_full_version < '3.14'" },
-    { name = "murmurhash", marker = "python_full_version < '3.14'" },
-    { name = "numpy", marker = "python_full_version < '3.14'" },
-    { name = "packaging", marker = "python_full_version < '3.14'" },
-    { name = "preshed", marker = "python_full_version < '3.14'" },
-    { name = "pydantic", marker = "python_full_version < '3.14'" },
-    { name = "requests", marker = "python_full_version < '3.14'" },
-    { name = "setuptools", marker = "python_full_version < '3.14'" },
-    { name = "spacy-legacy", marker = "python_full_version < '3.14'" },
-    { name = "spacy-loggers", marker = "python_full_version < '3.14'" },
-    { name = "srsly", marker = "python_full_version < '3.14'" },
-    { name = "thinc", marker = "python_full_version < '3.14'" },
-    { name = "tqdm", marker = "python_full_version < '3.14'" },
-    { name = "typer", marker = "python_full_version < '3.14'" },
-    { name = "wasabi", marker = "python_full_version < '3.14'" },
-    { name = "weasel", marker = "python_full_version < '3.14'" },
+    { name = "catalogue" },
+    { name = "confection" },
+    { name = "cymem" },
+    { name = "jinja2" },
+    { name = "murmurhash" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "preshed" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "setuptools" },
+    { name = "spacy-legacy" },
+    { name = "spacy-loggers" },
+    { name = "srsly" },
+    { name = "thinc" },
+    { name = "tqdm" },
+    { name = "typer" },
+    { name = "wasabi" },
+    { name = "weasel" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1b/e5/822bbdfa459fee863ef2e9879a34b0ae5db7cd1e3eb76d32c766f19222e9/spacy-3.8.14-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:2b4f60fa8b9641a5e93e7a96db0cdd106d05d61756bf1d0ddcd1705ad347909a", size = 6202114, upload-time = "2026-03-29T10:41:06.119Z" },

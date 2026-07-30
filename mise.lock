@@ -193,38 +193,38 @@ url = "https://github.com/cli/cli/releases/download/v2.96.0/gh_2.96.0_windows_am
 url_api = "https://api.github.com/repos/cli/cli/releases/assets/464728577"
 
 [[tools."github:agentgateway/agentgateway"]]
-version = "1.3.1"
+version = "1.4.1"
 backend = "github:agentgateway/agentgateway"
 
 [tools."github:agentgateway/agentgateway"."platforms.linux-arm64"]
-checksum = "sha256:413e4adf9083e4e9884b16209330c0359afb00d16d7b6f2b643251b7fff04a35"
-url = "https://github.com/agentgateway/agentgateway/releases/download/v1.3.1/agentgateway-linux-arm64"
-url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/455006377"
+checksum = "sha256:983a0919e30d287ec34ba51a69aa678fb81c5b893a59ae267b29d9fd30365d0e"
+url = "https://github.com/agentgateway/agentgateway/releases/download/v1.4.1/agentgateway-linux-arm64"
+url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/494563111"
 
 [tools."github:agentgateway/agentgateway"."platforms.linux-arm64-musl"]
-checksum = "sha256:413e4adf9083e4e9884b16209330c0359afb00d16d7b6f2b643251b7fff04a35"
-url = "https://github.com/agentgateway/agentgateway/releases/download/v1.3.1/agentgateway-linux-arm64"
-url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/455006377"
+checksum = "sha256:983a0919e30d287ec34ba51a69aa678fb81c5b893a59ae267b29d9fd30365d0e"
+url = "https://github.com/agentgateway/agentgateway/releases/download/v1.4.1/agentgateway-linux-arm64"
+url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/494563111"
 
 [tools."github:agentgateway/agentgateway"."platforms.linux-x64"]
-checksum = "sha256:71531a8ccda1f09d258b46e92643a730a01366fb436e15062e99672e84cd907f"
-url = "https://github.com/agentgateway/agentgateway/releases/download/v1.3.1/agentgateway-linux-amd64"
-url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/455006382"
+checksum = "sha256:20f7b298e0c36eef33e7d612b0d0b91d87d43124f59b01f6e9b730477f66d982"
+url = "https://github.com/agentgateway/agentgateway/releases/download/v1.4.1/agentgateway-linux-amd64"
+url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/494563105"
 
 [tools."github:agentgateway/agentgateway"."platforms.linux-x64-musl"]
-checksum = "sha256:71531a8ccda1f09d258b46e92643a730a01366fb436e15062e99672e84cd907f"
-url = "https://github.com/agentgateway/agentgateway/releases/download/v1.3.1/agentgateway-linux-amd64"
-url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/455006382"
+checksum = "sha256:20f7b298e0c36eef33e7d612b0d0b91d87d43124f59b01f6e9b730477f66d982"
+url = "https://github.com/agentgateway/agentgateway/releases/download/v1.4.1/agentgateway-linux-amd64"
+url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/494563105"
 
 [tools."github:agentgateway/agentgateway"."platforms.macos-arm64"]
-checksum = "sha256:d3b507d31a2197a2deecdaac32734af37ee5d0ecb060a06104be0086340c1e66"
-url = "https://github.com/agentgateway/agentgateway/releases/download/v1.3.1/agentgateway-darwin-arm64"
-url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/455006376"
+checksum = "sha256:f0fdc496b6dfd23f740bf458ff3a80c4453d7fd2397f0851bb42c5e00b6841d7"
+url = "https://github.com/agentgateway/agentgateway/releases/download/v1.4.1/agentgateway-darwin-arm64"
+url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/494563112"
 
 [tools."github:agentgateway/agentgateway"."platforms.windows-x64"]
-checksum = "sha256:e1bab1ed8dc1f445a40d2ec8c35d584c422bf4bc611eb02a56c6bd5551bcabdb"
-url = "https://github.com/agentgateway/agentgateway/releases/download/v1.3.1/agentgateway-windows-amd64.exe"
-url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/455006379"
+checksum = "sha256:7fcdc2a51cb7ab7f5c4b5a21f9066b3704f30ec6895c386332871381fab84ab6"
+url = "https://github.com/agentgateway/agentgateway/releases/download/v1.4.1/agentgateway-windows-amd64.exe"
+url_api = "https://api.github.com/repos/agentgateway/agentgateway/releases/assets/494563110"
 
 [[tools."github:mikefarah/yq"]]
 version = "4.53.3"
@@ -954,5 +954,5 @@ url = "https://github.com/aquasecurity/trivy/releases/download/v0.72.0/trivy_0.7
 url_api = "https://api.github.com/repos/aquasecurity/trivy/releases/assets/462015116"
 
 [[tools.uv]]
-version = "0.11.32"
+version = "0.12.0"
 backend = "asdf:uv"

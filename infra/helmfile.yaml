@@ -8,13 +8,13 @@ releases:
   - name: kagent-crds
     namespace: kagent
     chart: oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds
-    version: 0.9.11
+    version: 0.9.12
     createNamespace: true
 
   - name: kagent
     namespace: kagent
     chart: oci://ghcr.io/kagent-dev/kagent/helm/kagent
-    version: 0.9.11
+    version: 0.9.12
     createNamespace: true
     needs:
       - kagent/kagent-crds

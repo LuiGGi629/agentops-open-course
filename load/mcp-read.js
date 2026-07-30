@@ -100,7 +100,10 @@ function handshake() {
       id: `init-${__VU}`,
       method: 'initialize',
       params: {
-        protocolVersion: '2025-06-18',
+        // Keep in step with the pinned Python client's LATEST_PROTOCOL_VERSION (mcp in uv.lock).
+        // MCP negotiates per revision, so a stale value here silently exercises an older contract
+        // than the agent itself speaks.
+        protocolVersion: '2025-11-25',
         capabilities: {},
         clientInfo: { name: 'agentops-k6-mcp-read', version: '1.0.0' },
       },
