@@ -111,8 +111,11 @@ jobs:
             fi
           done
           if [[ "$(kubectl config current-context 2>/dev/null || true)" == k3d-local ]]; then
-            SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 \
-              skaffold delete --filename infra/skaffold.yaml --profile local || status=1
+            (
+              cd infra
+              SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 \
+                skaffold delete --filename skaffold.yaml --profile local
+            ) || status=1
             helmfile --file infra/helmfile.yaml destroy || status=1
           fi
           if k3d cluster list -o json | jq -e 'any(.[]; .name == "local")' >/dev/null; then
