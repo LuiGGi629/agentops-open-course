@@ -4,21 +4,43 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-07-30
+## [0.3.0] - 2026-07-30
 
 ### Added
 
-- Published the stable v1 support, compatibility, deprecation, Linux x86_64 qualification, v0.2.0 upgrade, rollback, maintenance, and explicit non-goal contracts.
+- Attached every cross-cutting policy — token budget, history compaction, PII redaction, write validation, tool-output hardening, and safe errors — to one `AgentOpsPolicyPlugin` on an ADK `App`, replacing nine copy-pasted per-agent callback blocks so a new agent is governed by construction rather than by review.
+- Added behavioral coverage for that policy chain through a real runner and a scripted model double, replacing identity assertions that proved the wiring existed but never that it ran.
+- Added one required `## Your turn` drill per chapter, gated in the chapter checkpoint, plus cross-chapter recall bullets — the middle rung between reading a finished reference and the open-ended capstone.
+- Added the missing concept units: the real tool-calling payload, ADK session state and `MemoryService`, MCP sampling/elicitation/roots and revision negotiation, delegated authority and the confused-deputy problem, structured output as a serving-layer constraint, and sandboxed code execution.
+- Added a snippet gate: a hand-written Python block in Chapters 2-3 must now either include the real source or declare itself, with the existing debt recorded as a ceiling that may only go down.
+- Added a separate `eval` dependency group and `install:eval`, cutting the first-run agent environment from 1.2 GB to 738 MB by deferring the MLflow evaluation stack to the chapter that uses it.
+- Published the support, compatibility, deprecation, Linux x86_64 qualification, upgrade, rollback, maintenance, and explicit non-goal contracts for the software surfaces.
 - Added first-class A2A task cancellation across the server and dependency-free web client, including persistent terminal state and deterministic protocol coverage.
-- Documented the v1 WCAG-oriented audit and repaired search, palette, code, table, form, landmark, live-region, focus, reflow, reduced-motion, and forced-color accessibility defects.
+- Documented the WCAG-oriented audit and repaired search, palette, code, table, form, landmark, live-region, focus, reflow, reduced-motion, and forced-color accessibility defects.
 
 ### Changed
 
-- Froze the documented configuration, environment, port, state, audit, MCP, A2A, image, and Kubernetes interfaces for the 1.x series.
-- Narrowed the fully release-gated platform to Linux x86_64; macOS, Linux arm64, WSL2, live GCP, learner-owned capstones, formal WCAG certification, and PDF/ebook output remain explicit non-goals.
+- Split the stability contract by payload: the configuration, environment, port, state, audit, MCP, A2A, image, and Kubernetes interfaces stay versioned, while course pages may be reordered, renamed, split, or rewritten in any release.
+- Ungated Chapter 7 from Kubernetes — seven of its eight pages need only Docker — and moved human confirmation and the write-plus-audit transaction into the tools chapter that introduces the write tools, removing the largest block of forward references in the course.
+- Named one owner for dependency reliability, so a guardrail stays policy at a trust boundary rather than a mixture of policy and retry mechanics.
+- Upgraded the pinned toolchain to current stable: uv 0.12.0, agentgateway 1.4.1, kagent charts 0.9.12, Zensical 0.0.52, OpenTelemetry Collector 0.157.0, Loki 3.7.4, Prometheus v3.13.2, Grafana 13.1.1, and the Google OpenTofu provider 7.42.0. The MCP client is deliberately held below 2.0, which drops an import the locked ADK still requires.
+- Replaced hand-copied version pins in prose with pointers to the lock or manifest that owns each one, and derived the A2A card version assertion from installed metadata instead of a literal.
+- Moved the documentation preview to `:8003` and the ADK developer UI to `:8002`, ending a three-way collision on `:8000` that served a learner the course website when they expected the agent.
+- Made the pre-commit gate globbed and offline-capable; a dependency audit is now a function of the lockfile and runs in the maintainer gate and CI, not on every commit.
 
 ### Fixed
 
+- Closed a delimiter-forgery hole in the spotlight fence: attacker-controlled text could close the data block and reopen it, placing its own content outside the data-marked region. Forged markers are now neutralized and counted.
+- Keyed the single trusted-instruction carve-out on the ADK skill-tool type rather than the tool's name, so a tool served by a remote MCP server can no longer inherit the injection-neutralization bypass by calling itself `load_skill`.
+- Stopped PII redaction from corrupting internal hostnames mid-token, which fed the model plausible-looking but mangled evidence; the boundary and persisted policies now agree.
+- Pinned the MCP tool allowlist on both transports, so a server cannot widen the agent's surface — or reach the model with new tool-description text — by registering a tool.
+- Surfaced the repository's own typed failures (circuit open, tool deadline, data access) to the caller instead of collapsing every error into an opaque message.
+- Set the local cluster to a single node: three workloads share one `ReadWriteOnce` volume, so a second schedulable node made the platform chapter an intermittent scheduling failure.
+- Bound the host gateway's loopback relay to a dedicated Docker network instead of the shared default bridge, which had exposed the learner's MCP, A2A, and model ports to every other container on the machine.
+- Gated the three-profile gateway contract, including the tool allowlist against the tools the MCP server actually registers, instead of asking the learner to compare three files by eye.
+- Gave the in-cluster gateway a real HTTP readiness probe and corrected the reasoning that had defended a bare TCP check.
+- Made the doctor name the install task for each missing tool and cover the binaries its own tier actually calls.
+- Merged the two divergent `.env.example` files: the learner-facing copy was the ungated one and was missing the kill switch, the identity header, and the whole circuit breaker.
 - Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the tool lock and GKE scripts independent of user-level mise and ShellCheck configuration.
 - Made the platform doctor and cluster startup reject cgroup v1 before pinned Kubernetes 1.35 can leave a partial k3d cluster.
 
@@ -103,8 +125,8 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Untrusted tool-output sanitization is enabled by default.
 - Release publishing now pushes and signs the exact local image that passed the pre-push scan instead of rebuilding it.
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v1.0.0
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.3.0
 [0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0

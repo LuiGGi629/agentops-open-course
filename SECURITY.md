@@ -2,7 +2,7 @@
 
 ## Which versions receive security fixes?
 
-The latest v1 release and the latest commit on `main` receive security fixes. The v0.x line, older snapshots, unsupported dependency combinations, and forks are not maintained by this repository. After a future major release, the previous major receives critical security fixes for 90 days.
+The latest release and the latest commit on `main` receive security fixes, as described in [SUPPORT.md](./SUPPORT.md#how-long-is-a-release-supported). Older snapshots, unsupported dependency combinations, and forks are not maintained by this repository.
 
 ## How do I report a vulnerability?
 
