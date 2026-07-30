@@ -48,7 +48,7 @@ The current code prepares runtime state at the normal writable startup boundary.
 1. Stop the agent, MCP, A2A, gateway, and platform processes that can write state.
 1. On `v0.2.0`, run `mise run state:backup` and keep the completed snapshot outside the working tree.
 1. Record the current Git tag and any deployed image digests.
-1. Check out `v0.3.0`, then run `mise run install` and `mise run check:core`.
+1. Check out `v0.3.5`, then run `mise run install` and `mise run check:core`.
 1. Start one writable agent or A2A process and run the shortest incident read before restoring normal traffic.
 1. Run `mise run state:drill` or the Chapter 6 Kubernetes restore drill before treating the upgrade as accepted.
 

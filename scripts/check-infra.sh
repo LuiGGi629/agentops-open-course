@@ -17,6 +17,11 @@ require_cmd tflint gcp
 mkdir -p .agents/tmp
 tmp_dir=$(mktemp -d .agents/tmp/infra-check.XXXXXX)
 
+# Rendering must never consult the maintainer's active cluster. Skaffold and
+# Helmfile inspect KUBECONFIG even for offline renders, which can otherwise
+# trigger cloud authentication or make the result depend on the current context.
+export KUBECONFIG=/dev/null
+
 # The secured host profile references demo TLS/JWT material that stays
 # gitignored. Generate it on demand for validation, but remove it again when
 # this script created it: `mise run secure` rightly flags private keys in the
@@ -324,12 +329,24 @@ auth_mount="$(grep -F "dst=/etc/agentgateway/auth,readonly" "${host_auth_contain
 # hand-copied occurrences used to be verified by eye at the end of 5.0.
 #
 # The allowlist is compared against the tuple the agent's MCP client really
-# pins, not against a literal list repeated here. Adding a read tool to the
-# server must not leave it silently denied at the gateway — a failure that
-# surfaces as a wrong answer, not as an error.
+# pins, not against a literal list repeated here. Read it statically: importing
+# the client initializes ADK's MCP integration and emits an experimental-feature
+# warning during an otherwise pure infrastructure check. The Python test suite
+# independently asserts that the server registers exactly this same set.
 mcp_read_tools="$(
-	agents/python/.venv/bin/python -c \
-		'from agent.mcp_client import MCP_READ_TOOL_NAMES; print(",".join(sorted(MCP_READ_TOOL_NAMES)))'
+	agents/python/.venv/bin/python - <<'PY'
+import ast
+from pathlib import Path
+
+tree = ast.parse(Path("agents/python/src/agent/mcp_client.py").read_text(encoding="utf-8"))
+assignment = next(
+	node
+	for node in tree.body
+	if isinstance(node, ast.Assign)
+	and any(isinstance(target, ast.Name) and target.id == "MCP_READ_TOOL_NAMES" for target in node.targets)
+)
+print(",".join(sorted(ast.literal_eval(assignment.value))))
+PY
 )"
 [[ -n "${mcp_read_tools}" ]]
 mcp_read_tool_count="$(printf '%s\n' "${mcp_read_tools}" | tr ',' '\n' | wc -l)"

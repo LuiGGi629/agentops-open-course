@@ -3,7 +3,7 @@
 
 [project]
 name = "agentops-agent"
-version = "0.3.0"
+version = "0.3.5"
 description = "The AgentOps Open Course reference agent, built with Google ADK 2.x."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -15,10 +15,9 @@ dependencies = [
   "google-adk[a2a]>=2.4.0", # locked agent runtime + A2A serving; avoid the unused Spanner `db` extra
   "a2a-sdk>=1.1.2", # A2A protocol types + server (Ch. 3.6); 1.x reworked the type surface — kept current with ADK's <2 cap
   # Model Context Protocol server (FastMCP) + client (McpToolset), Ch. 3.3.
-  # Capped at <2 to match ADK's own `mcp<2` bound: mcp 2.0 (protocol revision 2026-07-28) drops
-  # `McpHttpClientFactory`, which google-adk's mcp_session_manager still imports. Lift this together
-  # with the ADK bump that supports it, not before — an uncapped floor silently resolves to a client
-  # the locked runtime cannot import.
+  # Capped at <2 because the locked ADK declares `mcp<2`. Lift this bound only with an ADK
+  # release that supports MCP 2.x; keeping the direct dependency aligned makes the inherited
+  # compatibility constraint explicit.
   "mcp>=1.28.1,<2",
   "openai>=2.49.0", # OSS SDK used by ADK OpenAILlm for direct Ollama or agentgateway
   "opentelemetry-exporter-otlp-proto-http>=1.42.0,<=1.42.1", # match ADK's OTel cap; export to Collector/MLflow
@@ -81,7 +80,7 @@ default-groups = ["dev"]
 en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [build-system]
-requires = ["uv_build>=0.9.0,<0.12"]
+requires = ["uv_build>=0.12.0,<0.13"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]

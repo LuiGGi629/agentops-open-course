@@ -86,8 +86,15 @@ run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linte
 
 [tasks."install:maintainer"]
 description = "Install every dependency used by the complete maintainer validation"
+# Nested mise commands must not read a contributor's global tool catalog. A
+# project-local config directory keeps project discovery intact while removing
+# global config and conf.d files from this clean-room installer.
+env = { MISE_CONFIG_DIR = ".agents/tmp/mise-config" }
 run = [
-  "mise install",
+  # Bare `mise install` also installs tools from a user's global config. Keep
+  # this tier project-scoped and add the one maintainer-only repository tool
+  # explicitly; the other tiers own the rest of the pinned tool list.
+  "mise install gh",
   "mise run install",
   "mise run install:platform",
   "mise run install:gcp",

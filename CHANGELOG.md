@@ -4,7 +4,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-07-30
+## [0.3.5] - 2026-07-30
 
 ### Added
 
@@ -23,7 +23,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Split the stability contract by payload: the configuration, environment, port, state, audit, MCP, A2A, image, and Kubernetes interfaces stay versioned, while course pages may be reordered, renamed, split, or rewritten in any release.
 - Ungated Chapter 7 from Kubernetes — seven of its eight pages need only Docker — and moved human confirmation and the write-plus-audit transaction into the tools chapter that introduces the write tools, removing the largest block of forward references in the course.
 - Named one owner for dependency reliability, so a guardrail stays policy at a trust boundary rather than a mixture of policy and retry mechanics.
-- Upgraded the pinned toolchain to current stable: uv 0.12.0, agentgateway 1.4.1, kagent charts 0.9.12, Zensical 0.0.52, OpenTelemetry Collector 0.157.0, Loki 3.7.4, Prometheus v3.13.2, Grafana 13.1.1, and the Google OpenTofu provider 7.42.0. The MCP client is deliberately held below 2.0, which drops an import the locked ADK still requires.
+- Upgraded the pinned toolchain to current stable: uv 0.12.0, agentgateway 1.4.1, kagent charts 0.9.12, Zensical 0.0.52, OpenTelemetry Collector 0.157.0, Loki 3.7.4, Prometheus v3.13.2, Grafana 13.1.1, and the Google OpenTofu provider 7.42.0. The MCP client is deliberately held below 2.0 to match the locked ADK's declared compatibility bound.
 - Replaced hand-copied version pins in prose with pointers to the lock or manifest that owns each one, and derived the A2A card version assertion from installed metadata instead of a literal.
 - Moved the documentation preview to `:8003` and the ADK developer UI to `:8002`, ending a three-way collision on `:8000` that served a learner the course website when they expected the agent.
 - Made the pre-commit gate globbed and offline-capable; a dependency audit is now a function of the lockfile and runs in the maintainer gate and CI, not on every commit.
@@ -42,6 +42,8 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Made the doctor name the install task for each missing tool and cover the binaries its own tier actually calls.
 - Merged the two divergent `.env.example` files: the learner-facing copy was the ungated one and was missing the kill switch, the identity header, and the whole circuit breaker.
 - Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the tool lock and GKE scripts independent of user-level mise and ShellCheck configuration.
+- Kept the maintainer installer scoped to repository tools instead of letting a bare `mise install` resolve every tool from the user's global configuration.
+- Aligned the agent's `uv-build` backend range with the pinned uv 0.12 tool, removing a warning from wheel and container builds.
 - Made the platform doctor and cluster startup reject cgroup v1 before pinned Kubernetes 1.35 can leave a partial k3d cluster.
 
 ## [0.2.0] - 2026-07-30
@@ -125,8 +127,8 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Untrusted tool-output sanitization is enabled by default.
 - Release publishing now pushes and signs the exact local image that passed the pre-push scan instead of rebuilding it.
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.3.0
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.3.5
 [0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0
