@@ -133,14 +133,20 @@ extra:
   social:
     - icon: fontawesome/solid/paper-plane
       link: mailto:agentops-open-course@fmind.dev
+      name: Email the AgentOps Open Course maintainers
     - icon: fontawesome/brands/github
       link: https://github.com/MLOps-Courses/agentops-open-course
+      name: AgentOps Open Course on GitHub
     - icon: fontawesome/brands/x-twitter
       link: https://x.com/fmind_dev
+      name: Fmind on X
     - icon: fontawesome/brands/linkedin
       link: https://www.linkedin.com/in/fmind-dev/
+      name: Fmind on LinkedIn
 extra_css:
   - stylesheets/extra.css
+extra_javascript:
+  - javascripts/accessibility.js
 
 # Extensions
 markdown_extensions:
@@ -149,7 +155,7 @@ markdown_extensions:
   - md_in_html
   - pymdownx.details
   - pymdownx.highlight:
-      anchor_linenums: true
+      anchor_linenums: false
   - pymdownx.inlinehilite
   - pymdownx.snippets:
       base_path:

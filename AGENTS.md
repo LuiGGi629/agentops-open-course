@@ -40,6 +40,8 @@ Local Qwen3/Ollama is the default model path from the first Chapter 2 interactio
 
 ## Pinned contracts
 
+Version 1.0 freezes the repository-owned configuration, runtime, state, protocol, image, and deployment surfaces below. `SUPPORT.md` defines compatibility, deprecation, supported platforms, upgrade, rollback, and explicit non-goals.
+
 Use the repository files/locks as version authority. Current coordinated pins include:
 
 - Google ADK Python compatible range starts at `2.4.0`; `uv.lock` is exact.

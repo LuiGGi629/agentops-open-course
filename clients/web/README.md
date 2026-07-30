@@ -9,6 +9,8 @@ A single-file A2A browser client for the course's AgentOps Agent: one `index.htm
 1. Parses SSE incrementally with CRLF, LF, or CR record separators; the locked A2A server emits CRLF by default.
 1. Renders incremental `status-update` and `artifact-update` events, with a distinct badge per task state (`submitted`, `working`, `input-required`, `completed`, `failed`, ...).
 1. Surfaces a guarded action (`restart_service`, `resolve_incident`) as an explicit approval form: the task pauses in `input-required`, keeps the preceding evidence/tool results visible, repeats the exact action arguments, and explains that execution re-reads current state while the write transaction validates the target. The reply is a `FunctionResponse` data part carrying `{"confirmed": true, "payload": {"rationale": "..."}}` on the same task. The agent refuses approvals without a rationale, so the form requires one.
+1. Cancels an active task through `tasks/cancel`. The repository-owned executor supplies the terminal `canceled` event that the pinned ADK executor omits, while the A2A server cancels the running producer.
+1. Preserves the current A2A context when Connect is used again, so a transient gateway disconnect does not silently create a new session.
 
 ## How to run it
 
@@ -41,6 +43,6 @@ The gateway answers the preflight itself (`200` with `access-control-allow-*` he
 
 1. Lab-only: no authentication, no TLS, loopback addresses — consistent with the course's no-public-endpoint stance.
 1. The default A2A runtime records a synthetic `A2A_USER_<context-id>` approver. This proves confirmation continuity, not authenticated human identity.
-1. One conversation per page load; it does not list or resume tasks after a reload (the server keeps them in `.state/runtime.db`).
+1. One conversation per page load; reconnecting without a reload preserves it, but a reload does not list or resume tasks from `.state/runtime.db`.
 1. Text parts only (the card advertises `text/plain`); file parts are not rendered.
 1. Token-level streaming appears only when the server runs with `AGENT_A2A_STREAMING=true`; by default SSE carries whole events.

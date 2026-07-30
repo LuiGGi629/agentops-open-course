@@ -2,7 +2,7 @@
 
 ## Which versions receive security fixes?
 
-This course is pre-1.0. Security fixes are applied to the latest commit on `main`; older snapshots and forks are not maintained by this repository.
+The latest v1 release and the latest commit on `main` receive security fixes. The v0.x line, older snapshots, unsupported dependency combinations, and forks are not maintained by this repository. After a future major release, the previous major receives critical security fixes for 90 days.
 
 ## How do I report a vulnerability?
 

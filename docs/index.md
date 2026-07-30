@@ -9,7 +9,7 @@ Learn from one completed **AgentOps Agent**, from its first local model call to 
 !!! abstract "In one glance"
 
     - **You will:** Build, test, secure, deploy, and operate one production-shaped AI agent, then replace its domain with your own.
-    - **You need:** A Unix-like shell (Linux, macOS, or WSL2), git, and basic Python. The required path needs no account, API key, or cloud project.
+    - **You need:** Linux x86_64, git, and basic Python for the fully supported path. macOS and WSL2 are best-effort. No account, API key, or cloud project is required.
     - **Time:** about 12 to 19 focused hours to read the course and clear each chapter's checkpoint.
 
 ## How should you start?

@@ -10,10 +10,15 @@
   <style>
     :root { color-scheme: light dark; }
     body { font: 15px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1rem; }
+    .skip-link { position: absolute; left: -10000px; top: auto; }
+    .skip-link:focus { left: 1rem; top: 1rem; z-index: 1; background: Canvas; color: CanvasText; padding: .5rem; }
     header h1 { font-size: 1.2rem; margin: 0 0 .5rem; }
-    form { display: flex; gap: .5rem; margin: .5rem 0; }
+    form { display: flex; align-items: end; gap: .5rem; margin: .5rem 0; }
+    label { display: grid; gap: .2rem; flex: 1; }
     input[type=url], input[type=text] { flex: 1; padding: .4rem .6rem; }
     button { padding: .4rem .9rem; cursor: pointer; }
+    :focus-visible { outline: .2rem solid #005fcc; outline-offset: .15rem; }
+    button:disabled { cursor: not-allowed; opacity: .6; }
     #card { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: .5rem; padding: .6rem .8rem; font-size: .85rem; }
     #card ul { margin: .2rem 0 0; padding-left: 1.2rem; }
     #log { display: flex; flex-direction: column; gap: .5rem; margin: 1rem 0; }
@@ -33,32 +38,48 @@
     .state-canceled, .state-unknown { background: #5f6368; }
     .confirm { border: 2px solid #b06000; border-radius: .6rem; padding: .6rem .8rem; align-self: stretch; }
     .confirm pre { font-size: .78rem; overflow-x: auto; margin: .3rem 0; }
+    @media (max-width: 32rem) { form { align-items: stretch; flex-direction: column; } }
+    @media (forced-colors: active) { .state, .confirm { border: 2px solid ButtonText; } }
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#log">Skip to conversation</a>
   <header>
     <h1>AgentOps Agent — A2A web client</h1>
     <!-- Point at agentgateway :3001 (the governed data plane), never the raw agent :8080. -->
     <form id="connect-form">
-      <input id="base-url" type="url" value="http://localhost:3001" aria-label="A2A base URL" required>
+      <label for="base-url">A2A base URL
+        <input id="base-url" type="url" value="http://localhost:3001" required>
+      </label>
       <button type="submit">Connect</button>
     </form>
-    <div id="card" hidden></div>
+    <div id="card" aria-live="polite" hidden></div>
   </header>
-  <main id="log" aria-live="polite"></main>
+  <main id="log" tabindex="-1" aria-label="Conversation" aria-live="polite"></main>
   <form id="chat-form">
-    <input id="chat-input" type="text" placeholder="Triage the open incidents." aria-label="Message" disabled required>
+    <label for="chat-input">Message
+      <input id="chat-input" type="text" placeholder="Triage the open incidents." disabled required>
+    </label>
     <button id="chat-send" type="submit" disabled>Send</button>
+    <button id="task-cancel" type="button" aria-label="Cancel the active task" disabled>Cancel</button>
   </form>
 
   <script>
     "use strict";
     // ---------------------------------------------------------------------
     // Client state: one A2A "context" is one agent session (the ADK server
-    // maps contextId to its session id). taskId is only set while a task is
-    // paused in `input-required`, waiting for a human approval.
+    // maps contextId to its session id). taskId resumes an approval pause;
+    // activeTaskId remains set for every non-terminal task so it can be canceled.
     // ---------------------------------------------------------------------
-    const state = { baseUrl: "", streaming: false, contextId: null, taskId: null, lastAgentText: "" };
+    const state = {
+      baseUrl: "",
+      streaming: false,
+      contextId: null,
+      taskId: null,
+      activeTaskId: null,
+      lastAgentText: "",
+      lastTaskState: null,
+    };
     const $ = (id) => document.getElementById(id);
 
     // ------------------------- UI helpers ---------------------------------
@@ -71,11 +92,19 @@
       return div;
     }
     function showState(taskState) {
+      if (state.lastTaskState === taskState) return;
+      state.lastTaskState = taskState;
       addBubble("state state-" + taskState, taskState);
     }
     function setComposerEnabled(enabled) {
       $("chat-input").disabled = !enabled;
       $("chat-send").disabled = !enabled;
+    }
+    function rememberTask(taskState, taskId) {
+      const terminal = ["completed", "failed", "rejected", "canceled"].includes(taskState);
+      state.activeTaskId = terminal ? null : taskId;
+      state.taskId = taskState === "input-required" || taskState === "auth-required" ? taskId : null;
+      $("task-cancel").disabled = !state.activeTaskId;
     }
 
     // --------------------- 1. Agent card discovery ------------------------
@@ -102,6 +131,7 @@
         }
         el.append(title, ` (streaming: ${state.streaming})`, skills);
         setComposerEnabled(true);
+        addBubble("system", state.contextId ? "Reconnected; the current conversation is preserved." : "Connected.");
       } catch (error) {
         // The most common failure here is CORS: the gateway route must carry
         // a `cors` policy allowing this page's origin (see the README).
@@ -120,6 +150,7 @@
       if (state.contextId) message.contextId = state.contextId; // keep one session
       if (state.taskId) message.taskId = state.taskId; // resume the paused task
       state.lastAgentText = ""; // new turn: reset the duplicate-artifact filter
+      state.lastTaskState = null;
       setComposerEnabled(false);
       try {
         if (state.streaming) {
@@ -135,17 +166,17 @@
       }
     }
 
-    async function postRpc(method, message) {
+    async function postRpc(method, params) {
       return fetch(state.baseUrl + "/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params: { message } }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: crypto.randomUUID(), method, params }),
       });
     }
 
     // message/send: one JSON-RPC response whose result is the finished Task.
     async function sendMessage(message) {
-      const response = await postRpc("message/send", message);
+      const response = await postRpc("message/send", { message });
       if (!response.ok) throw new Error("HTTP " + response.status);
       const rpc = await response.json();
       if (rpc.error) throw new Error(`A2A error ${rpc.error.code}: ${rpc.error.message}`);
@@ -156,7 +187,7 @@
     // response whose result is a Task, Message, TaskStatusUpdateEvent, or
     // TaskArtifactUpdateEvent. Falls back to message/send if SSE never starts.
     async function streamMessage(message) {
-      const response = await postRpc("message/stream", message);
+      const response = await postRpc("message/stream", { message });
       const contentType = response.headers.get("content-type") || "";
       if (!response.ok || !contentType.includes("text/event-stream")) {
         addBubble("system", "Streaming unavailable, falling back to message/send.");
@@ -192,23 +223,17 @@
         showState(result.status.state);
         for (const artifact of result.artifacts || []) renderParts(artifact.parts);
         if (result.status.message) renderParts(result.status.message.parts, result.status.state, result.id);
-        rememberPause(result.status.state, result.id);
+        rememberTask(result.status.state, result.id);
       } else if (result.kind === "status-update") {
         state.contextId = result.contextId;
         showState(result.status.state);
         if (result.status.message) renderParts(result.status.message.parts, result.status.state, result.taskId);
-        rememberPause(result.status.state, result.taskId);
+        rememberTask(result.status.state, result.taskId);
       } else if (result.kind === "artifact-update") {
         renderParts(result.artifact.parts);
       } else if (result.kind === "message") {
         renderParts(result.parts);
       }
-    }
-
-    // A task pausing in input-required is waiting for a human; keep its id so
-    // the next message resumes it instead of starting a new task.
-    function rememberPause(taskState, taskId) {
-      state.taskId = taskState === "input-required" || taskState === "auth-required" ? taskId : null;
     }
 
     function renderParts(parts, taskState, taskId) {
@@ -262,18 +287,23 @@
       reviewP.textContent =
         "Review the evidence and tool results above before deciding. When execution resumes, the action re-reads current state and the write transaction validates the target; approval applies to these arguments, not to a frozen snapshot.";
       const form = document.createElement("form");
+      const rationaleLabel = document.createElement("label");
+      rationaleLabel.textContent = "Approval rationale";
       const rationale = document.createElement("input");
       rationale.type = "text";
       rationale.placeholder = "Rationale (required to approve)";
+      rationale.required = true;
+      rationaleLabel.append(rationale);
       const approve = document.createElement("button");
       approve.textContent = "Approve";
       const deny = document.createElement("button");
       deny.type = "button";
       deny.textContent = "Deny";
-      form.append(rationale, approve, deny);
+      form.append(rationaleLabel, approve, deny);
       box.append(title, hintP, details, reviewP, form);
       $("log").append(box);
       box.scrollIntoView({ block: "end" });
+      rationale.focus();
 
       const answer = (confirmed) => {
         form.querySelectorAll("input,button").forEach((el) => (el.disabled = true));
@@ -303,6 +333,23 @@
       addBubble("user", text);
       $("chat-input").value = "";
       sendParts([{ kind: "text", text }]);
+    });
+
+    $("task-cancel").addEventListener("click", async () => {
+      const taskId = state.activeTaskId;
+      if (!taskId) return;
+      $("task-cancel").disabled = true;
+      try {
+        const response = await postRpc("tasks/cancel", { id: taskId });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const rpc = await response.json();
+        if (rpc.error) throw new Error(`A2A error ${rpc.error.code}: ${rpc.error.message}`);
+        rememberTask(rpc.result.status.state, rpc.result.id);
+        showState(rpc.result.status.state);
+      } catch (error) {
+        addBubble("error", `Could not cancel the active task: ${error}`);
+        $("task-cancel").disabled = !state.activeTaskId;
+      }
     });
   </script>
 </body>

@@ -3,6 +3,9 @@
 import asyncio
 import json
 import sqlite3
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
@@ -88,6 +91,18 @@ class _ConfirmationLlm(BaseLlm):
         )
 
 
+class _BlockingLlm(BaseLlm):
+    """Hold one model call until the A2A task is canceled."""
+
+    started: threading.Event
+
+    async def generate_content_async(self, llm_request: LlmRequest, stream: bool = False):
+        del llm_request, stream
+        self.started.set()
+        await asyncio.sleep(5)
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="too late")]))
+
+
 class _UnreachableEngine:
     """Fail before opening a worker thread; readiness only needs the boundary."""
 
@@ -133,7 +148,7 @@ def _stream_events(*, fail_after_first: bool) -> list[dict[str, Any]]:
 def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
     # a2a-sdk 1.x moved the endpoint from a single ``url`` to a transport-interface list.
     assert [interface.url for interface in server.agent_card.supported_interfaces] == ["http://localhost:8080/"]
-    assert server.agent_card.version == "0.2.0"
+    assert server.agent_card.version == "1.0.0"
     assert "Operating rules" not in server.agent_card.description
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
 
@@ -472,6 +487,61 @@ def test_a2a_confirmation_response_resumes_the_guarded_action_with_audit_identit
         assert model.calls == 2
 
 
+def test_a2a_task_cancellation_stops_the_turn_and_persists_terminal_state() -> None:
+    started = threading.Event()
+    agent = Agent(
+        name="cancellation_test_agent",
+        instruction="Reply using the fake model.",
+        model=_BlockingLlm(model="cancellation-test", started=started),
+    )
+    start_request = {
+        "jsonrpc": "2.0",
+        "id": "cancel-start",
+        "method": "message/stream",
+        "params": {
+            "message": {
+                "kind": "message",
+                "messageId": "cancel-message",
+                "role": "user",
+                "parts": [{"kind": "text", "text": "Wait for cancellation."}],
+            }
+        },
+    }
+
+    with TestClient(server.create_app(agent)) as client:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            stream = pool.submit(_stream_rpc_results, client, start_request)
+            assert started.wait(timeout=2)
+            deadline = time.monotonic() + 2
+            task_id = ""
+            while time.monotonic() < deadline:
+                with closing(sqlite3.connect(settings.state_dir / "runtime.db")) as connection:
+                    row = connection.execute("SELECT id FROM tasks ORDER BY rowid DESC LIMIT 1").fetchone()
+                if row:
+                    task_id = row[0]
+                    break
+                time.sleep(0.01)
+            assert task_id
+            cancel_response = client.post(
+                "/",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "cancel-task",
+                    "method": "tasks/cancel",
+                    "params": {"id": task_id},
+                },
+            )
+            assert cancel_response.status_code == 200
+            assert cancel_response.json()["result"]["status"]["state"] == "canceled"
+            stream_results = stream.result(timeout=2)
+
+        assert stream_results[-1]["status"]["state"] == "canceled"
+        with closing(sqlite3.connect(settings.state_dir / "runtime.db")) as connection:
+            status_row = connection.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        assert status_row is not None
+        assert json.loads(status_row[0])["state"] == "TASK_STATE_CANCELED"
+
+
 def test_health_endpoints_report_ready() -> None:
     runtime_database = settings.state_dir / "incidents.db"
     assert not runtime_database.exists()
@@ -596,6 +666,8 @@ def test_a2a_sse_crlf_frames_match_the_checked_in_browser_parser() -> None:
     browser_source = (Path(__file__).parents[3] / "clients" / "web" / "index.html").read_text(encoding="utf-8")
     assert r"/\r\n\r\n|\n\n|\r\r/" in browser_source
     assert r"/\r\n|\r|\n/" in browser_source
+    assert '"tasks/cancel"' in browser_source
+    assert 'aria-label="Cancel the active task"' in browser_source
 
 
 def test_a2a_sse_interruption_emits_terminal_failure(monkeypatch) -> None:

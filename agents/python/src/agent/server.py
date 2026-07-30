@@ -14,7 +14,8 @@ from typing import Any, cast, override
 import uvicorn
 from a2a.server.agent_execution import RequestContext
 from a2a.server.events import Event as A2AEvent
-from a2a.server.tasks import DatabaseTaskStore, TaskStore
+from a2a.server.events import EventQueue
+from a2a.server.tasks import DatabaseTaskStore, TaskStore, TaskUpdater
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill, TaskStatusUpdateEvent
 from google.adk.a2a.converters.part_converter import A2APartToGenAIPartConverter
 from google.adk.a2a.converters.request_converter import AgentRunRequest, convert_a2a_request_to_agent_run_request
@@ -159,6 +160,21 @@ class _SessionSerializingRunner(Runner):
                 yield event
 
 
+# --8<-- [start:a2a-cancel]
+class _CancelableA2AExecutor(A2aAgentExecutor):
+    """Add the terminal cancellation event omitted by ADK's executor."""
+
+    @override
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        if not context.task_id or not context.context_id:
+            raise ValueError("A2A cancellation requires task and context ids.")
+        # The A2A handler cancels the producer before calling this method. ADK
+        # 2.4 leaves cancel() unimplemented, so publish the terminal protocol
+        # event here instead of turning a user cancellation into a failed task.
+        await TaskUpdater(event_queue, context.task_id, context.context_id).cancel()
+
+
+# --8<-- [end:a2a-cancel]
 class VerifiedIdentityMiddleware:
     """Bind the gateway-verified caller identity for the duration of one request.
 
@@ -269,7 +285,7 @@ def _bounded_request(
 
 def _agent_executor(runner: Runner) -> A2aAgentExecutor:
     """Create the maintained A2A executor with the bounded request policy."""
-    return A2aAgentExecutor(
+    return _CancelableA2AExecutor(
         runner=runner,
         config=A2aAgentExecutorConfig(
             request_converter=_bounded_request,

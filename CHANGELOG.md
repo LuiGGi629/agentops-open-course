@@ -4,6 +4,19 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-30
+
+### Added
+
+- Published the stable v1 support, compatibility, deprecation, Linux x86_64 qualification, v0.2.0 upgrade, rollback, maintenance, and explicit non-goal contracts.
+- Added first-class A2A task cancellation across the server and dependency-free web client, including persistent terminal state and deterministic protocol coverage.
+- Documented the v1 WCAG-oriented audit and repaired search, palette, code, table, form, landmark, live-region, focus, reflow, reduced-motion, and forced-color accessibility defects.
+
+### Changed
+
+- Froze the documented configuration, environment, port, state, audit, MCP, A2A, image, and Kubernetes interfaces for the 1.x series.
+- Narrowed the fully release-gated platform to Linux x86_64; macOS, Linux arm64, WSL2, live GCP, learner-owned capstones, formal WCAG certification, and PDF/ebook output remain explicit non-goals.
+
 ### Fixed
 
 - Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the tool lock and GKE scripts independent of user-level mise and ShellCheck configuration.
@@ -89,7 +102,8 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Untrusted tool-output sanitization is enabled by default.
 - Release publishing now pushes and signs the exact local image that passed the pre-push scan instead of rebuilding it.
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v1.0.0
 [0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0
