@@ -138,6 +138,10 @@ resource "google_container_cluster" "agentops" {
   }
 
   addons_config {
+    gce_persistent_disk_csi_driver_config {
+      enabled = true
+    }
+
     network_policy_config {
       disabled = false
     }

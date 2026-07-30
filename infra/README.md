@@ -88,7 +88,7 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`. MLflow is at <http://12
 
 ## GKE
 
-The OpenTofu defaults use project `agentops-open-course`, one zonal Spot `e2-standard-2` node, public node IPs instead of a chargeable NAT, and no public application endpoint. Review `gcp/README.md`, authenticate ADC, run `mise run doctor:gcp`, and plan first:
+The OpenTofu module requires `project_id` and uses one zonal Spot `e2-standard-2` node, public node IPs instead of a chargeable NAT, and no public application endpoint. Review `gcp/README.md`, authenticate ADC, run `GCP_PROJECT_ID=<project-id> mise run doctor:gcp`, and plan first:
 
 ```bash
 cd infra/gcp
@@ -97,16 +97,14 @@ tofu validate
 tofu plan -out=tfplan
 ```
 
-After a separately approved apply, retrieve credentials using the command in `tofu output -raw get_credentials_command`. Then return to `infra/`:
+After a separately approved apply, retrieve credentials using the command in `tofu output -raw get_credentials_command`. Then return to the repository root:
 
 ```bash
-cd ..
-kubectl apply -f k8s/base/namespace.yaml
-helmfile apply
-SKAFFOLD_DEFAULT_REPO="$(cd gcp && tofu output -raw artifact_registry_repository)" skaffold run -p gke
+cd ../..
+mise run gke:deploy
 ```
 
-GKE agentgateway obtains a Vertex access token from ambient Workload Identity; MLflow uses its own identity for GCS. Neither workload has a static cloud key.
+The task verifies the exact GKE context before it installs kagent, builds and pushes images, resolves the project-neutral manifest from OpenTofu outputs, validates it, and applies it. GKE agentgateway obtains a Vertex access token from ambient Workload Identity; MLflow uses its own identity for GCS. Neither workload has a static cloud key.
 
 ## Teardown
 

@@ -30,7 +30,14 @@ trap 'rm -rf "${tmp_dir}"; [[ "${cleanup_gateway_auth}" == "0" ]] || rm -rf "${g
 
 for overlay in local gke; do
 	rendered="${tmp_dir}/${overlay}.yaml"
-	kustomize build "infra/k8s/overlays/${overlay}" >"${rendered}"
+	if [[ ${overlay} == gke ]]; then
+		GCP_PROJECT_ID=agentops-course-check \
+			MLFLOW_BUCKET_NAME=agentops-course-check-mlflow \
+			GKE_CLUSTER_DNS_IP=10.30.0.10 \
+			infra/scripts/render-gke.sh >"${rendered}"
+	else
+		kustomize build "infra/k8s/overlays/${overlay}" >"${rendered}"
+	fi
 	kubeconform -strict -ignore-missing-schemas -summary "${rendered}"
 	kube-linter lint --fail-if-no-objects-found --with-color=false "${rendered}"
 
@@ -98,6 +105,32 @@ for overlay in local gke; do
 	else
 		[[ "${agent_model}" == "gemini-3.5-flash" ]]
 		[[ "${model_config}" == "gemini-3.5-flash" ]]
+
+		gateway_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "agentgateway") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
+		mlflow_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "mlflow") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
+		mlflow_bucket="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[] | select(.name == "mlflow") | .env[] | select(.name == "MLFLOW_ARTIFACTS_DESTINATION") | .value' "${rendered}")"
+		gke_storage_classes="$(yq -r 'select(.kind == "PersistentVolumeClaim") | .spec.storageClassName' "${rendered}" | rg -v '^---$' | sort -u)"
+		[[ "${gateway_gsa}" == "agentgateway@agentops-course-check.iam.gserviceaccount.com" ]]
+		[[ "${mlflow_gsa}" == "mlflow@agentops-course-check.iam.gserviceaccount.com" ]]
+		[[ "${mlflow_bucket}" == "gs://agentops-course-check-mlflow" ]]
+		[[ "${gke_storage_classes}" == "agentops-standard" ]]
+
+		for deployment in agentgateway agentops-mcp loki otel-collector; do
+			deployment_cpu="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "'"${deployment}"'") | .spec.template.spec.containers[0].resources.requests.cpu' "${rendered}")"
+			[[ "${deployment_cpu}" == "50m" ]]
+		done
+		mlflow_cpu="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[0].resources.requests.cpu' "${rendered}")"
+		mlflow_memory_limit="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[0].resources.limits.memory' "${rendered}")"
+		agent_cpu="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.resources.requests.cpu' "${rendered}")"
+		[[ "${mlflow_cpu}" == "100m" ]]
+		[[ "${mlflow_memory_limit}" == "2Gi" ]]
+		[[ "${agent_cpu}" == "100m" ]]
+
+		vertex_backend_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.provider.vertex.model' infra/agentgateway/gke/config.yaml)"
+		[[ "${vertex_backend_model}" == "google/gemini-3.5-flash" ]]
+
+		dns_service_cidr="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "dns-egress") | .spec.egress[].to[]? | select(.ipBlock) | .ipBlock.cidr' "${rendered}")"
+		[[ "${dns_service_cidr}" == "10.30.0.10/32" ]]
 
 		# Terraform selects Calico, not Dataplane V2. Lock both workloads to the
 		# corresponding GKE metadata endpoint and reject the incompatible one.
@@ -186,9 +219,13 @@ openssl x509 \
 	-checkhost localhost \
 	-noout
 
-for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/host/config-auth.yaml infra/agentgateway/k3d/config.yaml infra/agentgateway/gke/config.yaml; do
+for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/host/config-auth.yaml infra/agentgateway/k3d/config.yaml; do
 	agentgateway --validate-only -f "${gateway_config}"
 done
+gke_gateway_config="${tmp_dir}/gke-gateway-config.yaml"
+sed 's/__GCP_PROJECT_ID__/agentops-course-check/g' \
+	infra/agentgateway/gke/config.yaml >"${gke_gateway_config}"
+agentgateway --validate-only -f "${gke_gateway_config}"
 
 # The host file stays the canonical process-oriented profile. The Docker
 # wrapper derives a network-correct copy without committing a second config.

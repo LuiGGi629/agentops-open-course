@@ -4,7 +4,7 @@ metadata:
   name: agentgateway
   namespace: agentops
   annotations:
-    iam.gke.io/gcp-service-account: agentgateway@agentops-open-course.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: agentgateway@__GCP_PROJECT_ID__.iam.gserviceaccount.com
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -12,4 +12,4 @@ metadata:
   name: mlflow
   namespace: agentops
   annotations:
-    iam.gke.io/gcp-service-account: mlflow@agentops-open-course.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: mlflow@__GCP_PROJECT_ID__.iam.gserviceaccount.com

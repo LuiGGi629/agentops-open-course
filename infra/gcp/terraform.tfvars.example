@@ -1,4 +1,4 @@
-project_id = "agentops-open-course"
+project_id = "your-gcp-project-id"
 region     = "europe-west1"
 zone       = "europe-west1-b"
 

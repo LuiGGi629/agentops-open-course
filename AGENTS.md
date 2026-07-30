@@ -58,6 +58,7 @@ Root tasks:
 ```bash
 mise run install
 mise run install:platform
+mise run install:gcp
 mise run install:maintainer
 mise run doctor
 mise run doctor:model
@@ -118,7 +119,7 @@ SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev -p local
 
 Do not start host Compose observability while the in-cluster stack is forwarded on the same ports. No profile creates an Ingress, LoadBalancer, or public application endpoint; clients use temporary port-forwards through agentgateway.
 
-The GKE path stops at `tofu plan` unless the user explicitly approves deployment. The single zonal Spot-node design is production-shaped but interruptible and non-HA. The under-USD-20 target depends on the billing account's GKE free-tier credit and light usage; it is not a guarantee. `skaffold delete`, PVC deletion, `k3d cluster delete`, `tofu apply`, and `tofu destroy` require careful context/review; cloud apply/destroy requires explicit approval.
+The GKE path stops at `tofu plan` unless the user explicitly approves deployment. The required `project_id` variable selects the project; the rendered GKE bundle derives its Workload Identity accounts, GCS bucket, DNS service IP, and Vertex project from OpenTofu outputs. The single zonal Spot-node design is production-shaped but interruptible and non-HA. The July 2026 fixed estimate is about USD 28/month with the GKE free-tier credit or USD 101 without it; refresh variable prices before apply. `skaffold delete`, PVC deletion, `k3d cluster delete`, `tofu apply`, and `tofu destroy` require careful context/review; cloud apply/destroy requires explicit approval.
 
 ## Documentation workflow
 

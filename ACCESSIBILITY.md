@@ -13,7 +13,7 @@ The AgentOps Open Course should be usable without a mouse, without color percept
 
 The site has not completed a formal WCAG conformance audit. The default indigo theme supplies the current color palette, but a theme or custom-style change still requires a manual contrast and keyboard check. Mermaid support also varies across screen readers, so new and changed diagrams must not carry unique information.
 
-Some existing diagrams still carry details that adjacent prose does not repeat. [Issue #68](https://github.com/MLOps-Courses/agentops-open-course/issues/68) tracks the remaining retrofits; until it closes, the no-renderer experience is incomplete.
+The diagram retrofit tracked in [issue #68](https://github.com/MLOps-Courses/agentops-open-course/issues/68) is complete. A formal WCAG-oriented audit is still required before v1.0.0; `TODO.md` tracks that release gate.
 
 PDF and offline ebook formats are not currently published. The repository Markdown remains the text-first fallback when the hosted interface creates a barrier.
 

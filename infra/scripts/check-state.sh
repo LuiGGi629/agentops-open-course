@@ -7,7 +7,14 @@ trap 'rm -rf "${tmp_dir}"' EXIT
 
 for overlay in local gke; do
 	manifest="${tmp_dir}/${overlay}.yaml"
-	kustomize build "${infra_dir}/k8s/overlays/${overlay}" >"${manifest}"
+	if [[ "${overlay}" == "gke" ]]; then
+		GCP_PROJECT_ID=agentops-course-check \
+			MLFLOW_BUCKET_NAME=agentops-course-check-mlflow \
+			GKE_CLUSTER_DNS_IP=10.30.0.10 \
+			"${infra_dir}/scripts/render-gke.sh" >"${manifest}"
+	else
+		kustomize build "${infra_dir}/k8s/overlays/${overlay}" >"${manifest}"
+	fi
 
 	agent_claim="$(
 		yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent")
@@ -81,7 +88,7 @@ for overlay in local gke; do
 	[[ "${mlflow_automount}" == "false" ]]
 	[[ "${mlflow_artifact_root}" == "mlflow-artifacts:/" ]]
 	if [[ "${overlay}" == "gke" ]]; then
-		[[ "${mlflow_artifacts_destination}" == "gs://agentops-open-course-mlflow-artifacts" ]]
+		[[ "${mlflow_artifacts_destination}" == "gs://agentops-course-check-mlflow" ]]
 	else
 		[[ "${mlflow_artifacts_destination}" == "/var/lib/mlflow/artifacts" ]]
 	fi

@@ -19,21 +19,23 @@ Two directories, split by what the code does:
 | `cluster-start.sh`     | `cluster:start`                                        | platform | Creates the local k3d cluster and its registry, or reconciles an existing one.   |
 | `promote.sh`           | `promote`                                              | platform | Eval-gated promotion: gate, render the overlay, print promote/rollback commands. |
 | `smoke-host.sh`        | `smoke:host`                                           | gateway  | Proves the host composition against a fake model, then tears it down.            |
-| `lib.sh`               | sourced by the others                                  | —        | Strict mode, `require_cmd`, `make_tmpdir`, `log` and `fail`.                     |
+| `lib.sh`               | sourced by the others                                  | —        | Strict mode plus the shared `require_cmd`, `log`, and `fail` helpers.            |
 
 ## Runtime orchestration
 
-| Script                            | Task                       | Tier     | What it does                                                        |
-| --------------------------------- | -------------------------- | -------- | ------------------------------------------------------------------- |
-| `infra/scripts/gateway-host.sh`   | `gateway:host*`            | gateway  | Runs the digest-pinned agentgateway container on loopback only.     |
-| `infra/scripts/loopback-relay.py` | used by `gateway-host.sh`  | gateway  | Bridge-address-only relay so the container can reach host services. |
-| `infra/scripts/gateway-tls.sh`    | `gateway:host:auth`        | gateway  | Generates the gitignored demo TLS material for the secured profile. |
-| `infra/scripts/gateway-jwt.sh`    | `gateway:host:auth`        | gateway  | Generates the gitignored demo JWT keys and tokens.                  |
-| `infra/scripts/backup-state.sh`   | `state:backup`             | platform | Snapshots the agent state PVC.                                      |
-| `infra/scripts/restore-state.sh`  | `state:restore`            | platform | Restores a snapshot into the cluster.                               |
-| `infra/scripts/backup-drill.sh`   | `state:drill`              | platform | Proves a backup actually restores, end to end.                      |
-| `infra/scripts/check-state.sh`    | called by `check-infra.sh` | platform | Asserts the shared state claim, `fsGroup`, and read-only mounts.    |
-| `infra/scripts/secrets.sh`        | `secrets:*`                | platform | SOPS + age encryption for the committed ciphertext.                 |
+| Script                            | Task                        | Tier     | What it does                                                                        |
+| --------------------------------- | --------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `infra/scripts/gateway-host.sh`   | `gateway:host*`             | gateway  | Runs the digest-pinned agentgateway container on loopback only.                     |
+| `infra/scripts/loopback-relay.py` | used by `gateway-host.sh`   | gateway  | Bridge-address-only relay so the container can reach host services.                 |
+| `infra/scripts/gateway-tls.sh`    | `gateway:host:auth`         | gateway  | Generates the gitignored demo TLS material for the secured profile.                 |
+| `infra/scripts/gateway-jwt.sh`    | `gateway:host:auth`         | gateway  | Generates the gitignored demo JWT keys and tokens.                                  |
+| `infra/scripts/backup-state.sh`   | `state:backup`              | platform | Snapshots the agent state PVC.                                                      |
+| `infra/scripts/restore-state.sh`  | `state:restore`             | platform | Restores a snapshot into the cluster.                                               |
+| `infra/scripts/backup-drill.sh`   | `state:drill`               | platform | Proves a backup actually restores, end to end.                                      |
+| `infra/scripts/check-state.sh`    | called by `check-infra.sh`  | platform | Asserts the shared state claim, `fsGroup`, and read-only mounts.                    |
+| `infra/scripts/deploy-gke.sh`     | `gke:deploy`                | GCP      | Verifies the exact context, resolves cloud coordinates, and applies the GKE bundle. |
+| `infra/scripts/render-gke.sh`     | called by GKE checks/deploy | GCP      | Resolves project-neutral GKE placeholders from OpenTofu outputs.                    |
+| `infra/scripts/secrets.sh`        | `secrets:*`                 | platform | SOPS + age encryption for the committed ciphertext.                                 |
 
 ## Conventions
 

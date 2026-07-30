@@ -101,8 +101,8 @@ binds:
                   name: vertex
                   provider:
                     vertex:
-                      model: gemini-3.5-flash
-                      projectId: agentops-open-course
+                      model: google/gemini-3.5-flash
+                      projectId: __GCP_PROJECT_ID__
                       region: global
                   policies:
                     backendAuth:

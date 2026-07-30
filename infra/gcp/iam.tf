@@ -56,10 +56,16 @@ resource "google_service_account_iam_member" "agentgateway_workload_identity" {
   service_account_id = google_service_account.agentgateway.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[agentops/agentgateway]"
+
+  # The workload pool becomes bindable only after GKE finishes creating it.
+  depends_on = [google_container_cluster.agentops]
 }
 
 resource "google_service_account_iam_member" "mlflow_workload_identity" {
   service_account_id = google_service_account.mlflow.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[agentops/mlflow]"
+
+  # The workload pool becomes bindable only after GKE finishes creating it.
+  depends_on = [google_container_cluster.agentops]
 }

@@ -1,3 +1,8 @@
+output "project_id" {
+  description = "Google Cloud project that owns the GKE lab."
+  value       = var.project_id
+}
+
 output "cluster_name" {
   description = "Zonal GKE cluster name."
   value       = google_container_cluster.agentops.name
@@ -6,6 +11,11 @@ output "cluster_name" {
 output "cluster_zone" {
   description = "GKE cluster zone."
   value       = google_container_cluster.agentops.location
+}
+
+output "cluster_dns_ip" {
+  description = "ClusterIP used by kube-dns inside the configured service CIDR."
+  value       = cidrhost(var.services_cidr, 10)
 }
 
 output "get_credentials_command" {

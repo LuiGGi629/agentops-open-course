@@ -124,6 +124,8 @@ mise run platform:dev
 
 `smoke:host` is an isolated fake-model composition check with automatic teardown. Chapter 5 owns the real host gateway process order; Chapter 6 owns the Ollama bridge bind, Kubernetes deployment, verification, backup, and teardown. Follow those pages rather than copying a second infrastructure runbook from this README.
 
+The optional GKE path additionally uses `mise run install:gcp`. It installs the pinned Google Cloud CLI and its required kubectl authentication plugin before `mise run doctor:gcp`.
+
 ## Which learning path should you choose?
 
 | Path                | Model                | Infrastructure     | Best for                                                               |
@@ -133,7 +135,7 @@ mise run platform:dev
 | Optional provider   | Gemini               | Host process       | Comparing ADK's native provider integration after the local path works |
 | Optional cloud lab  | Gemini on Vertex AI  | Zonal GKE Standard | Workload Identity, GCS artifacts, and production-shaped cloud delivery |
 
-The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available. The target of less than USD 20 per month assumes the billing account's GKE free-tier credit covers the zonal cluster management fee and that the cluster is destroyed when idle. Compute, storage, network, Artifact Registry, GCS, and Vertex usage remain billable. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
+The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available. At the prices checked on 29 July 2026, the fixed always-on estimate is about USD 28 per month with the GKE free-tier credit, or USD 101 without it. Network, GCS, and Vertex usage remain variable. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
 
 ## Course map
 
@@ -204,6 +206,6 @@ This deletes the course PVCs and their data, but leaves the shared `local` clust
 
 ## Contributing and reuse
 
-Course prose is [CC BY 4.0](./docs/LICENSE.txt); software and repository automation are [MIT](./LICENSE). See [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), [SECURITY.md](./SECURITY.md), and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before opening a change. Release-facing changes are tracked in [CHANGELOG.md](./CHANGELOG.md), and academic/technical citations are available in [CITATION.cff](./CITATION.cff).
+Course prose is [CC BY 4.0](./docs/LICENSE.txt); software and repository automation are [MIT](./LICENSE). See [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), [SECURITY.md](./SECURITY.md), and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before opening a change. Release-facing changes are tracked in [CHANGELOG.md](./CHANGELOG.md), the stable-release review is tracked in [TODO.md](./TODO.md), and academic/technical citations are available in [CITATION.cff](./CITATION.cff).
 
 The rendered course is published at [agentops-open-course.fmind.dev](https://agentops-open-course.fmind.dev/). The source remains the verification surface: every critical excerpt, command, policy, and deployment contract is checked from this repository.

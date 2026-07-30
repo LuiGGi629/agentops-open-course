@@ -82,12 +82,6 @@ EOF
 	exit 0
 fi
 
-if [[ ${overlay} == local ]]; then
-	repository='registry.localhost:5050'
-else
-	repository="\"\$(cd gcp && tofu output -raw artifact_registry_repository)\""
-fi
-
 current_commit=$(git rev-parse --verify HEAD)
 working_tree_status=$(git status --porcelain)
 [[ ${current_commit} == "${candidate_commit}" && -z ${working_tree_status} ]] ||
@@ -99,8 +93,11 @@ printf 'Build and deploy that unchanged source with:\n'
 # shellcheck disable=SC2016
 printf '  test "$(git rev-parse HEAD)" = %q && test -z "$(git status --porcelain)" && \\\n' \
 	"${candidate_commit}"
-printf '    cd infra && SKAFFOLD_DEFAULT_REPO=%s skaffold run --filename skaffold.yaml --profile %s\n' \
-	"${repository}" "${overlay}"
+if [[ ${overlay} == gke ]]; then
+	printf '    mise run gke:deploy\n'
+else
+	printf '    cd infra && SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold run --filename skaffold.yaml --profile local\n'
+fi
 cat <<'EOF'
 
 The command builds after this preflight; no image digest was evaluated here.

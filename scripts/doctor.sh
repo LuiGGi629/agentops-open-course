@@ -56,6 +56,7 @@ gcp)
 		tofu
 		tflint
 		gcloud
+		gke-gcloud-auth-plugin
 	)
 	;;
 *)
@@ -140,16 +141,22 @@ platform | gcp)
 esac
 
 if [[ ${profile} == gcp ]]; then
-	project=$(gcloud config get-value project 2>/dev/null || true)
+	project="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 	if [[ -n ${project} ]]; then
-		printf 'gcp        active project: %s\n' "${project}"
+		gcloud projects describe "${project}" --format='value(projectId)' >/dev/null
+		billing_enabled="$(gcloud billing projects describe "${project}" --format='value(billingEnabled)')"
+		[[ ${billing_enabled} == True ]] || {
+			printf 'gcp        billing is not enabled for project %s\n' "${project}" >&2
+			exit 1
+		}
+		printf 'gcp        project %s is active and billing-enabled\n' "${project}"
 	else
-		printf 'gcp        no active project; select your billing-enabled project before the optional lab\n' >&2
+		printf 'gcp        set GCP_PROJECT_ID or select a billing-enabled active project\n' >&2
 		exit 1
 	fi
 	if ! gcloud auth application-default print-access-token >/dev/null 2>&1; then
 		printf 'gcp        ADC unavailable; run gcloud auth application-default login\n' >&2
 		exit 1
 	fi
-	printf 'gcp        Application Default Credentials ready\n'
+	printf 'gcp        Application Default Credentials and GKE kubectl authentication ready\n'
 fi

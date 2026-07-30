@@ -1,7 +1,6 @@
 variable "project_id" {
   description = "Existing, billing-enabled Google Cloud project."
   type        = string
-  default     = "agentops-open-course"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.project_id))
