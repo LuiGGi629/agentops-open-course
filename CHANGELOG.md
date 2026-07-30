@@ -6,7 +6,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ### Fixed
 
-- Removed the redundant standalone Kustomize binary and render overlays through the pinned kubectl, avoiding an executable-format failure on GitHub's Ubuntu runner.
+- Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the new GKE scripts pass ShellCheck without user-level configuration.
 
 ## [0.2.0] - 2026-07-30
 

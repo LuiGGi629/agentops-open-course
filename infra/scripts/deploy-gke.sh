@@ -4,13 +4,15 @@
 # approved OpenTofu apply. The exact kubectl context check prevents a valid
 # bundle from reaching the wrong cluster.
 
+# shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
 for command_name in helmfile kubeconform kubectl skaffold tofu; do
 	require_cmd "${command_name}" platform
 done
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${repo_dir}" || exit
 project_id="$(tofu -chdir=infra/gcp output -raw project_id)"
 cluster_name="$(tofu -chdir=infra/gcp output -raw cluster_name)"
 cluster_zone="$(tofu -chdir=infra/gcp output -raw cluster_zone)"
@@ -27,7 +29,7 @@ template=".agents/tmp/gke-template.yaml"
 manifest=".agents/tmp/gke.yaml"
 
 (
-	cd infra
+	cd infra || exit
 	SKAFFOLD_DEFAULT_REPO="${repository}" skaffold build \
 		--filename skaffold.yaml \
 		--profile gke \

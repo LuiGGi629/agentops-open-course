@@ -4,11 +4,13 @@
 # are the default source after apply; explicit environment variables keep the
 # renderer testable before any cloud resources exist.
 
+# shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
 require_cmd kubectl platform
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${repo_dir}" || exit
 template="${1:-}"
 project_id="${GCP_PROJECT_ID:-}"
 bucket_name="${MLFLOW_BUCKET_NAME:-}"
