@@ -4,7 +4,7 @@
 # Git hooks (lefthook.yml) and CI (.github/workflows) call these same tasks.
 
 [tools]
-uv = "0.11.32"
+uv = "0.12.0"
 dprint = "0.55.2"
 lefthook = "2.1.10"
 gitleaks = "8.30.1"
@@ -30,7 +30,7 @@ jq = "1.8.2"
 gh = "2.96.0"
 gcloud = "578.0.0"
 "github:mikefarah/yq" = "4.53.3"
-"github:agentgateway/agentgateway" = "1.3.1"
+"github:agentgateway/agentgateway" = "1.4.1"
 
 [settings]
 lockfile = true
@@ -48,11 +48,9 @@ lockfile_platforms = [
 run_auto_install = false # fail fast in hooks instead of silently installing a missing tool
 
 [tasks.install]
-alias = "i"
-description = "Install the learner-facing docs, agent, and git-hook dependencies"
-run = "mise run install:core"
-
-[tasks."install:core"]
+# `install:core` is kept as an alias, not a second task: scripts/check-licenses.sh and older
+# course text name it, and two tasks with the same description made `mise tasks` unreadable.
+alias = ["i", "install:core"]
 description = "Install the learner-facing docs, agent, and git-hook dependencies"
 run = [
   "mise run install:tools:core",
@@ -62,6 +60,7 @@ run = [
 ]
 
 [tasks."install:tools:core"]
+hide = true # implementation detail of install:*; a learner picks a tier, never a tool list
 description = "Install only the tools used by learner and contributor core tasks"
 run = "mise install uv dprint lefthook gitleaks actionlint trivy sqlite sqlite@3.53.3 shellcheck shfmt lychee jq"
 
@@ -81,6 +80,7 @@ run = [
 ]
 
 [tasks."install:tools:platform"]
+hide = true # implementation detail of install:platform
 description = "Install tools used by the local platform and optional GKE plan"
 run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
 
@@ -88,16 +88,16 @@ run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linte
 description = "Install every dependency used by the complete maintainer validation"
 run = [
   "mise install",
-  "mise run install:core",
+  "mise run install",
   "mise run install:platform",
   "mise run install:gcp",
 ]
 
 [tasks.doctor]
-description = "Verify the base course-authoring toolchain"
-run = "./scripts/doctor.sh base"
-
-[tasks."doctor:base"]
+# `doctor` and `doctor:base` were byte-identical tasks. One task, two names: the bare form is
+# the learner entry point, the suffixed form is what the tier pages cite next to doctor:model
+# and friends. It stays the base tier deliberately — the other profiles need Docker or a cluster.
+alias = "doctor:base"
 description = "Verify the base course-authoring toolchain"
 run = "./scripts/doctor.sh base"
 
@@ -122,17 +122,24 @@ description = "Validate the agent configuration and print it with secrets masked
 run = "cd agents/python && mise run config:check"
 
 [tasks.serve]
-alias = "s"
-description = "Serve the documentation locally with live reload (Zensical)"
-run = "uv run zensical serve"
-
-[tasks.watch]
-alias = "w"
-description = "Serve the documentation locally with live reload"
-run = "uv run zensical serve"
+# `watch` was a byte-identical second task; it stays as an alias so the standard task
+# vocabulary (install, format, check, test, secure, build, watch) still resolves.
+alias = ["s", "w", "watch"]
+description = "Serve the documentation locally with live reload (Zensical) on :8003"
+# Not :8000. That port belongs to the raw MCP server in the stable network contract
+# (AGENTS.md), and a docs preview left running would otherwise shadow the ADK web UI a
+# learner opens in Chapter 2.1 — presenting as "the agent did not start".
+run = "uv run zensical serve --dev-addr 127.0.0.1:8003"
 
 [tasks.build]
+# Aggregates like format and check do. Before this, `mise run build` built only the site, so
+# building "everything" before a deploy silently shipped a stale agent image. Both image
+# children need Docker; use build:docs for the container-free documentation build.
 alias = "b"
+description = "Build every release artifact: the documentation site and both container images"
+depends = ["build:docs", "build:agent-image", "build:mlflow-image"]
+
+[tasks."build:docs"]
 description = "Build the static documentation site (Zensical → site/)"
 run = "uv run zensical build"
 
@@ -143,10 +150,6 @@ run = "docker build --file agents/python/Dockerfile --tag agentops-agent:dev age
 [tasks."build:mlflow-image"]
 description = "Build the locked self-hosted MLflow image"
 run = "docker build --file infra/mlflow/Dockerfile --tag agentops-mlflow:3.14.0 infra/mlflow"
-
-[tasks.deploy]
-description = "Build the site for release (GitHub Pages publishes it in CI)"
-run = "uv run zensical build"
 
 [tasks.promote]
 description = "Preflight source behavior and manifests, then print a guarded build/deploy handoff"
@@ -188,7 +191,14 @@ run = "tofu -chdir=infra/gcp fmt -recursive"
 [tasks.check]
 alias = "c"
 description = "Run the complete maintainer validation, including infrastructure and all licenses"
-depends = ["check:infra", "check:licenses", "check:source"]
+depends = ["check:infra", "check:licenses", "check:source", "check:vuln"]
+
+[tasks."check:vuln"]
+# Deliberately out of check:core and off the per-commit hook: a dependency audit is a function of
+# the lockfile and the advisory feed, not of the current diff, and it needs the network — which
+# would make an offline commit impossible. It stays in the maintainer gate and in CI.
+description = "Audit the locked Python dependencies against published advisories"
+run = "cd agents/python && mise run check:vuln"
 
 [tasks."check:core"]
 description = "Run the model-, container-, cluster-, and cloud-free course validation"
@@ -366,11 +376,10 @@ run = "./infra/scripts/restore-state.sh"
 description = "Run the offline backup+restore drill against throwaway state"
 run = "./infra/scripts/backup-drill.sh"
 
-[tasks.scan]
-description = "Run the full repository security scan"
-depends = ["secure"]
-
 [tasks.secure]
+# `scan` was a wrapper that only depended on `secure`; it stays as an alias so the pull-request
+# template, SECURITY.md, and the course pages that name either form both resolve to one gate.
+alias = "scan"
 description = "Scan git history, dependencies, secrets, and infrastructure"
 run = [
   "gitleaks git --verbose",
@@ -391,5 +400,5 @@ run = [
 
 [tasks.clean]
 alias = "n"
-description = "Remove build artifacts"
+description = "Delete the built site and the root .venv; rerun `mise run install` afterwards"
 run = "rm -rf site/ .venv/"

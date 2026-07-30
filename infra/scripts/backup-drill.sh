@@ -15,7 +15,11 @@
 #    entry survived.
 #
 # Usage: backup-drill.sh
-set -Eeuo pipefail
+
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd sqlite3 base
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scripts_dir="${repo_dir}/infra/scripts"
@@ -54,22 +58,19 @@ SQL
 audit_before="$(sql "${state_dir}/incidents.db" 'SELECT count(*) FROM audit_log')"
 sessions_before="$(sql "${state_dir}/runtime.db" 'SELECT count(*) FROM drill_sessions')"
 if [[ "${audit_before}" -lt 1 ]]; then
-	echo "drill setup failed: expected at least one audit row, got ${audit_before}" >&2
-	exit 1
+	fail "drill setup failed: expected at least one audit row, got ${audit_before}"
 fi
 
 # 3. Failure path: a corrupt database fails after earlier files may have been
 # copied, but the hidden staging directory must be cleaned and never published.
 printf 'not a SQLite database\n' >"${state_dir}/zz-corrupt.db"
 if "${scripts_dir}/backup-state.sh" "${state_dir}" "${backup_root}" >"${drill_dir}/expected-failure.log" 2>&1; then
-	echo "drill failed: corrupt database unexpectedly produced a snapshot" >&2
-	exit 1
+	fail "drill failed: corrupt database unexpectedly produced a snapshot"
 fi
 rm "${state_dir}/zz-corrupt.db"
 leftover_snapshot="$(find "${backup_root}" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 if [[ -n "${leftover_snapshot}" ]]; then
-	echo "drill failed: failed backup left a published or staged snapshot" >&2
-	exit 1
+	fail "drill failed: failed backup left a published or staged snapshot"
 fi
 
 # A same-second host backup must fail at the exclusive lock instead of nesting
@@ -78,12 +79,10 @@ locked_stamp="20990101T000000Z"
 mkdir "${backup_root}/.lock-${locked_stamp}"
 if STATE_BACKUP_TIMESTAMP="${locked_stamp}" \
 	"${scripts_dir}/backup-state.sh" "${state_dir}" "${backup_root}" >"${drill_dir}/expected-lock-rejection.log" 2>&1; then
-	echo "drill failed: backup ignored an existing timestamp lock" >&2
-	exit 1
+	fail "drill failed: backup ignored an existing timestamp lock"
 fi
 if [[ -e "${backup_root}/${locked_stamp}" ]]; then
-	echo "drill failed: lock-rejected backup published a snapshot" >&2
-	exit 1
+	fail "drill failed: lock-rejected backup published a snapshot"
 fi
 rmdir "${backup_root}/.lock-${locked_stamp}"
 
@@ -100,13 +99,11 @@ cp "${state_dir}/runtime.db" "${restore_target}/runtime.db"
 restore_before="$(cksum "${restore_target}/incidents.db" "${restore_target}/runtime.db")"
 if "${scripts_dir}/restore-state.sh" "${corrupt_snapshot}" "${restore_target}" \
 	>"${drill_dir}/expected-atomic-restore-rejection.log" 2>&1; then
-	echo "drill failed: restore accepted a corrupt later database" >&2
-	exit 1
+	fail "drill failed: restore accepted a corrupt later database"
 fi
 restore_after="$(cksum "${restore_target}/incidents.db" "${restore_target}/runtime.db")"
 if [[ "${restore_after}" != "${restore_before}" ]]; then
-	echo "drill failed: corrupt snapshot partially replaced existing state" >&2
-	exit 1
+	fail "drill failed: corrupt snapshot partially replaced existing state"
 fi
 rm -rf "${corrupt_snapshot}" "${restore_target}"
 
@@ -123,13 +120,11 @@ cp "${state_dir}/runtime.db" "${missing_target}/runtime.db"
 missing_before="$(cksum "${missing_target}/incidents.db" "${missing_target}/runtime.db")"
 if "${scripts_dir}/restore-state.sh" "${missing_snapshot}" "${missing_target}" \
 	>"${drill_dir}/expected-missing-restore-rejection.log" 2>&1; then
-	echo "drill failed: restore accepted a snapshot with a missing database" >&2
-	exit 1
+	fail "drill failed: restore accepted a snapshot with a missing database"
 fi
 missing_after="$(cksum "${missing_target}/incidents.db" "${missing_target}/runtime.db")"
 if [[ "${missing_after}" != "${missing_before}" ]]; then
-	echo "drill failed: missing-database snapshot partially replaced existing state" >&2
-	exit 1
+	fail "drill failed: missing-database snapshot partially replaced existing state"
 fi
 rm -rf "${missing_snapshot}" "${missing_target}"
 
@@ -140,8 +135,7 @@ mkdir -p "${incomplete_snapshot}"
 cp "${state_dir}/incidents.db" "${incomplete_snapshot}/incidents.db"
 if "${scripts_dir}/restore-state.sh" "${incomplete_snapshot}" "${drill_dir}/rejected-restore" \
 	>"${drill_dir}/expected-restore-rejection.log" 2>&1; then
-	echo "drill failed: restore accepted an incomplete snapshot" >&2
-	exit 1
+	fail "drill failed: restore accepted an incomplete snapshot"
 fi
 # A SIGKILL can land after the marker write but before the atomic rename. The
 # hidden name remains the publication guard even if that staging directory has
@@ -152,8 +146,7 @@ cp "${state_dir}/incidents.db" "${hidden_snapshot}/incidents.db"
 touch "${hidden_snapshot}/.complete"
 if "${scripts_dir}/restore-state.sh" "${hidden_snapshot}" "${drill_dir}/rejected-hidden-restore" \
 	>"${drill_dir}/expected-hidden-restore-rejection.log" 2>&1; then
-	echo "drill failed: restore accepted a hidden unpublished snapshot" >&2
-	exit 1
+	fail "drill failed: restore accepted a hidden unpublished snapshot"
 fi
 
 # 4. Back up successfully, then destroy the state directory (the "volume died"
@@ -161,8 +154,7 @@ fi
 # or unmarked incomplete directories above.
 STATE_BACKUP_KEEP=1 "${scripts_dir}/backup-state.sh" "${state_dir}" "${backup_root}"
 if [[ ! -d "${incomplete_snapshot}" || ! -d "${hidden_snapshot}" ]]; then
-	echo "drill failed: retention touched an incomplete snapshot" >&2
-	exit 1
+	fail "drill failed: retention touched an incomplete snapshot"
 fi
 snapshot_dir=""
 for candidate in "${backup_root}"/*; do
@@ -170,8 +162,7 @@ for candidate in "${backup_root}"/*; do
 	snapshot_dir="${candidate}"
 done
 if [[ -z "${snapshot_dir}" ]]; then
-	echo "drill failed: no completed snapshot was published" >&2
-	exit 1
+	fail "drill failed: no completed snapshot was published"
 fi
 rm -rf "${state_dir}"
 
@@ -185,16 +176,13 @@ last_entry="$(sql "${state_dir}/incidents.db" \
 	 FROM audit_log ORDER BY id DESC LIMIT 1")"
 
 if [[ "${audit_after}" != "${audit_before}" ]]; then
-	echo "drill failed: audit_log rows ${audit_after} != ${audit_before}" >&2
-	exit 1
+	fail "drill failed: audit_log rows ${audit_after} != ${audit_before}"
 fi
 if [[ "${sessions_after}" != "${sessions_before}" ]]; then
-	echo "drill failed: session rows ${sessions_after} != ${sessions_before}" >&2
-	exit 1
+	fail "drill failed: session rows ${sessions_after} != ${sessions_before}"
 fi
 if [[ "${last_entry}" != "restart_service checkout by drill-operator" ]]; then
-	echo "drill failed: unexpected last audit entry: ${last_entry}" >&2
-	exit 1
+	fail "drill failed: unexpected last audit entry: ${last_entry}"
 fi
 
 echo "drill passed: ${audit_after} audit row(s) and ${sessions_after} session row(s) survived backup + restore"

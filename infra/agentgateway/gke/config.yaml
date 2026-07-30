@@ -1,8 +1,13 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.3.1/schema/config.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.4.1/schema/config.json
 # GKE data plane. Vertex authentication comes from ambient GKE Workload Identity.
 config:
   logging:
     format: json
+  # Pod-local readiness endpoint (/healthz/ready) on :15021, the same address
+  # the host wrapper injects. A data port answers TCP before backends, policies,
+  # and JWKS are usable, so the kubelet probes this instead. It needs no Service
+  # port: the kubelet dials the pod IP directly.
+  readinessAddr: 0.0.0.0:15021
   tracing:
     otlpEndpoint: http://otel-collector.agentops.svc.cluster.local:4317
     randomSampling: true

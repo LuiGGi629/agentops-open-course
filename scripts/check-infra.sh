@@ -28,6 +28,15 @@ if [[ ! -d "${gateway_auth_dir}" ]]; then
 fi
 trap 'rm -rf "${tmp_dir}"; [[ "${cleanup_gateway_auth}" == "0" ]] || rm -rf "${gateway_auth_dir}"' EXIT
 
+# One source of truth for the alerting rules (Ch. 7.2): the Compose stack's file
+# is a symlink to the overlay's, so both planes evaluate identical expressions.
+# Assert the link itself — an editor or formatter that writes through it would
+# silently restore two independently drifting copies.
+[[ -L infra/observability/prometheus-rules.yml ]]
+[[ ! -L infra/k8s/overlays/local/prometheus-rules.yaml ]]
+prometheus_rules_link="$(readlink infra/observability/prometheus-rules.yml)"
+[[ "${prometheus_rules_link}" == "../k8s/overlays/local/prometheus-rules.yaml" ]]
+
 for overlay in local gke; do
 	rendered="${tmp_dir}/${overlay}.yaml"
 	if [[ ${overlay} == gke ]]; then
@@ -282,7 +291,14 @@ grep -Fxq -- "--read-only" "${host_container_args}"
 [[ "${container_cap_drop}" == "ALL" ]]
 [[ "${container_security_opt}" == "no-new-privileges=true" ]]
 [[ "${container_tmpfs}" == "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ]]
-grep -Fxq -- "cr.agentgateway.dev/agentgateway:v1.3.1@sha256:c3ce7b75da90fef70239befcc1c3adc05152d7b9dd21fcb8351178026a2c4381" "${host_container_args}"
+grep -Fxq -- "cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29" "${host_container_args}"
+
+# The wrapper must join a dedicated network, never the shared default bridge. On the default
+# bridge the relay's MCP, A2A, and Ollama ports are reachable by every other container on the
+# host — which silently contradicts the loopback-only guarantee Chapter 5.1 sells.
+grep -Fxq -- "--network" "${host_container_args}"
+container_network="$(awk '$0 == "--network" { getline; print; exit }' "${host_container_args}")"
+[[ -n "${container_network}" && "${container_network}" != "bridge" && "${container_network}" != "host" ]]
 
 awk '$0 == "--publish" { getline; print }' "${host_container_args}" >"${tmp_dir}/host-container.published"
 published_count="$(awk 'NF { count++ } END { print count + 0 }' "${tmp_dir}/host-container.published")"
@@ -301,9 +317,65 @@ AGENTOPS_GATEWAY_CONFIG=config-auth.yaml infra/scripts/gateway-host.sh args >"${
 auth_mount="$(grep -F "dst=/etc/agentgateway/auth,readonly" "${host_auth_container_args}")"
 [[ "${auth_mount}" == type=bind,src=*,dst=/etc/agentgateway/auth,readonly ]]
 
-# The browser client is served from one fixed loopback origin. Keep every
-# port-forwardable A2A profile usable without opening CORS to arbitrary sites.
+# The three-profile gateway contract (Ch. 5.0). Host, k3d, and GKE may differ
+# only in upstream address, model identity, caller authentication, and tracing;
+# the ports, the MCP allowlist, the MCP failure mode, the token buckets, the
+# prompt guards, and the browser origin are invariant across all three. Twenty-six
+# hand-copied occurrences used to be verified by eye at the end of 5.0.
+#
+# The allowlist is compared against the tuple the agent's MCP client really
+# pins, not against a literal list repeated here. Adding a read tool to the
+# server must not leave it silently denied at the gateway — a failure that
+# surfaces as a wrong answer, not as an error.
+mcp_read_tools="$(
+	agents/python/.venv/bin/python -c \
+		'from agent.mcp_client import MCP_READ_TOOL_NAMES; print(",".join(sorted(MCP_READ_TOOL_NAMES)))'
+)"
+[[ -n "${mcp_read_tools}" ]]
+mcp_read_tool_count="$(printf '%s\n' "${mcp_read_tools}" | tr ',' '\n' | wc -l)"
+gateway_prompt_guard="$(
+	yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].policies.ai.promptGuard' \
+		infra/agentgateway/host/config.yaml
+)"
+[[ -n "${gateway_prompt_guard}" ]]
+
 for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/k3d/config.yaml infra/agentgateway/gke/config.yaml; do
+	gateway_ports="$(yq -r '.binds[].port' "${gateway_config}" | sort -n | paste -sd, -)"
+	[[ "${gateway_ports}" == "3000,3001,4000" ]]
+
+	# Only rules of the exact `mcp.tool.name == "<tool>"` shape survive the sed,
+	# so a broadened or misspelled rule drops out and fails the set comparison;
+	# the count then catches an extra rule the sed dropped.
+	mcp_rules='.binds[] | select(.port == 3000) | .listeners[].routes[].policies.mcpAuthorization.rules'
+	gateway_tools="$(yq -r "${mcp_rules}[]" "${gateway_config}" |
+		sed -n 's/^mcp\.tool\.name == "\([a-z_]*\)"$/\1/p' | sort | paste -sd, -)"
+	gateway_rule_count="$(yq -r "${mcp_rules} | length" "${gateway_config}")"
+	[[ "${gateway_tools}" == "${mcp_read_tools}" ]]
+	[[ "${gateway_rule_count}" == "${mcp_read_tool_count}" ]]
+
+	# An unreachable tool server must deny the request, never forward it.
+	gateway_failure_mode="$(yq -r '.binds[] | select(.port == 3000) | .listeners[].routes[].backends[].mcp.failureMode' "${gateway_config}" | sort -u)"
+	[[ "${gateway_failure_mode}" == "failClosed" ]]
+
+	# Exactly one token bucket per listener, with the same numbers everywhere:
+	# 120/60s MCP, 60/60s A2A, 30/60s model. A second bucket on a listener would
+	# make these lists comma-joined and fail.
+	for gateway_bucket in 3000:120 3001:60 4000:30; do
+		rate_limit=".binds[] | select(.port == ${gateway_bucket%%:*}) | .listeners[].routes[].policies.localRateLimit"
+		bucket_max_tokens="$(yq -r "${rate_limit}[].maxTokens" "${gateway_config}" | paste -sd, -)"
+		bucket_tokens_per_fill="$(yq -r "${rate_limit}[].tokensPerFill" "${gateway_config}" | paste -sd, -)"
+		bucket_fill_interval="$(yq -r "${rate_limit}[].fillInterval" "${gateway_config}" | paste -sd, -)"
+		[[ "${bucket_max_tokens}" == "${gateway_bucket##*:}" ]]
+		[[ "${bucket_tokens_per_fill}" == "${gateway_bucket##*:}" ]]
+		[[ "${bucket_fill_interval}" == "60s" ]]
+	done
+
+	# Same request and response prompt guards on the model listener.
+	profile_prompt_guard="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].policies.ai.promptGuard' "${gateway_config}")"
+	[[ "${profile_prompt_guard}" == "${gateway_prompt_guard}" ]]
+
+	# The browser client is served from one fixed loopback origin. Keep every
+	# port-forwardable A2A profile usable without opening CORS to arbitrary sites.
 	cors='.binds[] | select(.port == 3001) | .listeners[].routes[].policies.cors'
 	cors_origins=$(yq -r "${cors} | .allowOrigins | join(\",\")" "${gateway_config}")
 	cors_methods=$(yq -r "${cors} | .allowMethods | join(\",\")" "${gateway_config}")
@@ -311,6 +383,14 @@ for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/k3d
 	[[ "${cors_origins}" == "http://localhost:8001" ]]
 	[[ "${cors_methods}" == "GET,POST,OPTIONS" ]]
 	[[ "${cors_headers}" == "content-type" ]]
+done
+
+# The Kubernetes profiles serve their own readiness endpoint, so the kubelet can
+# probe something other than an open data port. The host profile gets the same
+# address injected by the wrapper, asserted on the rendered config above.
+for gateway_config in infra/agentgateway/k3d/config.yaml infra/agentgateway/gke/config.yaml; do
+	profile_readiness_addr="$(yq -r '.config.readinessAddr' "${gateway_config}")"
+	[[ "${profile_readiness_addr}" == "0.0.0.0:15021" ]]
 done
 
 docker compose -f infra/observability/compose.yaml config --quiet
@@ -346,6 +426,24 @@ mcp_liveness="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "agent
 [[ "${mcp_startup}" == "/livez" ]]
 [[ "${mcp_readiness}" == "/healthz" ]]
 [[ "${mcp_liveness}" == "/livez" ]]
+
+# Same rule for the gateway: :3000 answers TCP the moment the listener binds,
+# before backends, policies, and JWKS are usable, so both probes must target the
+# pod-local readiness endpoint instead. It is deliberately not a Service port —
+# the kubelet dials the pod IP.
+gateway_container='select(.kind == "Deployment" and .metadata.name == "agentgateway") | .spec.template.spec.containers[] | select(.name == "agentgateway")'
+gateway_readiness_port="$(yq -r "${gateway_container} | .ports[] | select(.name == \"readiness\") | .containerPort" "${rendered}")"
+gateway_readiness_path="$(yq -r "${gateway_container} | .readinessProbe.httpGet.path" "${rendered}")"
+gateway_readiness_target="$(yq -r "${gateway_container} | .readinessProbe.httpGet.port" "${rendered}")"
+gateway_liveness_path="$(yq -r "${gateway_container} | .livenessProbe.httpGet.path" "${rendered}")"
+gateway_liveness_target="$(yq -r "${gateway_container} | .livenessProbe.httpGet.port" "${rendered}")"
+gateway_service_ports="$(yq -r 'select(.kind == "Service" and .metadata.name == "agentgateway") | .spec.ports[].port' "${rendered}" | sort -n | paste -sd, -)"
+[[ "${gateway_readiness_port}" == "15021" ]]
+[[ "${gateway_readiness_path}" == "/healthz/ready" ]]
+[[ "${gateway_readiness_target}" == "readiness" ]]
+[[ "${gateway_liveness_path}" == "/healthz/ready" ]]
+[[ "${gateway_liveness_target}" == "readiness" ]]
+[[ "${gateway_service_ports}" == "3000,3001,4000,15020" ]]
 
 helmfile --file infra/helmfile.yaml --quiet lint --args '--quiet'
 

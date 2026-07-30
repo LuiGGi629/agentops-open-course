@@ -26,7 +26,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: agentgateway
-          image: cr.agentgateway.dev/agentgateway:v1.3.1@sha256:c3ce7b75da90fef70239befcc1c3adc05152d7b9dd21fcb8351178026a2c4381
+          image: cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29
           imagePullPolicy: IfNotPresent
           args: ["-f", "/etc/agentgateway/config.yaml"]
           ports:
@@ -38,14 +38,25 @@ spec:
               containerPort: 4000
             - name: metrics
               containerPort: 15020
+            - name: readiness
+              containerPort: 15021
+          # Real HTTP probes, for the same reason as mcp.yaml: a data port
+          # accepts TCP as soon as the listener binds, which is before the
+          # backends, policies, and JWKS are loaded — so a tcpSocket probe on
+          # :3000 marks the pod Ready while requests would still fail. The
+          # profile configs set `config.readinessAddr: 0.0.0.0:15021`, which is
+          # pod-local and deliberately absent from the Service: the kubelet
+          # dials the pod IP, so no cluster-reachable port is needed.
           readinessProbe:
-            tcpSocket:
-              port: mcp
+            httpGet:
+              path: /healthz/ready
+              port: readiness
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            tcpSocket:
-              port: mcp
+            httpGet:
+              path: /healthz/ready
+              port: readiness
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:

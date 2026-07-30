@@ -13,7 +13,11 @@
 #   backup_root  defaults to .state-backups (gitignored); each run publishes a
 #                UTC-timestamped snapshot directory and keeps the most recent
 #                STATE_BACKUP_KEEP (default 7) completed snapshots.
-set -Eeuo pipefail
+
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd sqlite3 base
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 state_dir="${1:-${repo_dir}/agents/python/.state}"
@@ -43,30 +47,25 @@ completed_snapshots() {
 trap cleanup_incomplete_snapshot EXIT
 
 if [[ ! -d "${state_dir}" ]]; then
-	echo "error: state directory not found: ${state_dir}" >&2
-	echo "hint: run the agent or MCP server once to initialize it" >&2
-	exit 1
+	log "error: state directory not found: ${state_dir}"
+	fail "hint: run the agent or MCP server once to initialize it"
 fi
 if [[ ! "${keep}" =~ ^[1-9][0-9]*$ ]]; then
-	echo "error: STATE_BACKUP_KEEP must be a positive integer, got ${keep}" >&2
-	exit 1
+	fail "error: STATE_BACKUP_KEEP must be a positive integer, got ${keep}"
 fi
 
 stamp="${STATE_BACKUP_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 if [[ ! "${stamp}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]; then
-	echo "error: STATE_BACKUP_TIMESTAMP must use YYYYMMDDTHHMMSSZ, got ${stamp}" >&2
-	exit 1
+	fail "error: STATE_BACKUP_TIMESTAMP must use YYYYMMDDTHHMMSSZ, got ${stamp}"
 fi
 snapshot_dir="${backup_root}/${stamp}"
 mkdir -p "${backup_root}"
 if [[ -e "${snapshot_dir}" ]]; then
-	echo "error: completed snapshot already exists: ${snapshot_dir}" >&2
-	exit 1
+	fail "error: completed snapshot already exists: ${snapshot_dir}"
 fi
 lock_candidate="${backup_root}/.lock-${stamp}"
 if ! mkdir "${lock_candidate}" 2>/dev/null; then
-	echo "error: another backup owns timestamp ${stamp}" >&2
-	exit 1
+	fail "error: another backup owns timestamp ${stamp}"
 fi
 snapshot_lock="${lock_candidate}"
 snapshot_staging="$(mktemp -d "${backup_root}/.incomplete-${stamp}.XXXXXX")"
@@ -80,22 +79,19 @@ while IFS= read -r database; do
 	# The target path is interpolated into SQL, so refuse the one character
 	# that could break out of the string literal.
 	if [[ "${target}" == *"'"* ]]; then
-		echo "error: backup path must not contain a single quote: ${target}" >&2
-		exit 1
+		fail "error: backup path must not contain a single quote: ${target}"
 	fi
 	sqlite3 -readonly -batch -init /dev/null "${database}" "VACUUM INTO '${target}'"
 	integrity="$(sqlite3 -batch -init /dev/null "${target}" 'PRAGMA integrity_check')"
 	if [[ "${integrity}" != "ok" ]]; then
-		echo "error: integrity check failed for ${target}: ${integrity}" >&2
-		exit 1
+		fail "error: integrity check failed for ${target}: ${integrity}"
 	fi
 	echo "backed up $(basename "${database}") -> ${target}"
 	backed_up=$((backed_up + 1))
 done <<<"${databases}"
 
 if [[ "${backed_up}" -eq 0 ]]; then
-	echo "error: no SQLite databases in ${state_dir}" >&2
-	exit 1
+	fail "error: no SQLite databases in ${state_dir}"
 fi
 
 # The marker and rename are the publication boundary. Restore/retention ignore

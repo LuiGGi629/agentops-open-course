@@ -13,7 +13,11 @@
 #
 # Usage: restore-state.sh <snapshot_dir> [state_dir]
 #   state_dir  defaults to agents/python/.state
-set -Eeuo pipefail
+
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd sqlite3 base
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 snapshot_dir="${1:?usage: restore-state.sh <snapshot_dir> [state_dir]}"
@@ -29,21 +33,17 @@ cleanup_restore_staging() {
 trap cleanup_restore_staging EXIT
 
 if [[ ! -d "${snapshot_dir}" ]]; then
-	echo "error: snapshot directory not found: ${snapshot_dir}" >&2
-	exit 1
+	fail "error: snapshot directory not found: ${snapshot_dir}"
 fi
 if [[ "$(basename "${snapshot_dir}")" == .* ]]; then
-	echo "error: snapshot is still hidden/unpublished: ${snapshot_dir}" >&2
-	exit 1
+	fail "error: snapshot is still hidden/unpublished: ${snapshot_dir}"
 fi
 if [[ ! -f "${snapshot_dir}/.complete" ]]; then
-	echo "error: snapshot is incomplete or unpublished (missing .complete): ${snapshot_dir}" >&2
-	exit 1
+	fail "error: snapshot is incomplete or unpublished (missing .complete): ${snapshot_dir}"
 fi
 expected_databases="$(sed -n 's/^databases=//p' "${snapshot_dir}/.complete")"
 if [[ ! "${expected_databases}" =~ ^[1-9][0-9]*$ ]]; then
-	echo "error: snapshot marker has no single positive databases count: ${snapshot_dir}/.complete" >&2
-	exit 1
+	fail "error: snapshot marker has no single positive databases count: ${snapshot_dir}/.complete"
 fi
 
 mkdir -p "${state_dir}"
@@ -59,20 +59,17 @@ while IFS= read -r database; do
 	name="$(basename "${database}")"
 	integrity="$(sqlite3 -batch -init /dev/null "${database}" 'PRAGMA integrity_check')"
 	if [[ "${integrity}" != "ok" ]]; then
-		echo "error: snapshot ${name} failed integrity check: ${integrity}" >&2
-		exit 1
+		fail "error: snapshot ${name} failed integrity check: ${integrity}"
 	fi
 	cp "${database}" "${restore_staging}/${name}"
 	staged=$((staged + 1))
 done <<<"${databases}"
 
 if [[ "${staged}" -eq 0 ]]; then
-	echo "error: no SQLite databases in snapshot ${snapshot_dir}" >&2
-	exit 1
+	fail "error: no SQLite databases in snapshot ${snapshot_dir}"
 fi
 if [[ "${staged}" != "${expected_databases}" ]]; then
-	echo "error: snapshot ${snapshot_dir} declares ${expected_databases} database(s), found ${staged}" >&2
-	exit 1
+	fail "error: snapshot ${snapshot_dir} declares ${expected_databases} database(s), found ${staged}"
 fi
 
 restored=0

@@ -14,8 +14,10 @@
 # docker build -f agents/python/Dockerfile -t agentops-agent:dev agents
 
 # --- Stage 1: resolve dependencies into /app/.venv with uv -------------------
+# --8<-- [start:base-images]
 FROM ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 AS uv
 FROM python:3.13.14-slim-trixie@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS build
+# --8<-- [end:base-images]
 
 COPY --from=uv /uv /uvx /bin/
 
@@ -39,16 +41,21 @@ COPY python/README.md ./README.md
 COPY python/src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
+# --8<-- [start:venv-repoint]
 # The build image installs Python under /usr/local, while Wolfi exposes it
 # under /usr/bin. Repoint the venv after the last build-stage Python invocation.
 RUN ln -sfn /usr/bin/python3 /app/.venv/bin/python \
  && ln -sfn /usr/bin/python3 /app/.venv/bin/python3 \
  && ln -sfn /usr/bin/python3 /app/.venv/bin/python3.13 \
  && install -d -o 10001 -g 10001 /app/state
+# --8<-- [end:venv-repoint]
 
 # --- Stage 2: minimal, non-root runtime --------------------------------------
+# --8<-- [start:runtime-base]
 FROM cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e AS runtime
+# --8<-- [end:runtime-base]
 
+# --8<-- [start:apk-pins]
 # Exact apk pins keep the runtime reproducible. Wolfi is a *rolling* repository:
 # it removes superseded package versions, so these pins periodically stop
 # resolving ("no such package"). Dependabot does not watch apk pins, so this is
@@ -57,6 +64,7 @@ FROM cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594
 RUN apk add --no-cache \
     libstdc++=16.1.0-r4 \
     python-3.13=3.13.14-r3
+# --8<-- [end:apk-pins]
 
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \

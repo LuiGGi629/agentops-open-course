@@ -6,7 +6,10 @@
 #
 # Usage: infra/scripts/gateway-tls.sh [--force]
 
-set -Eeuo pipefail
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd openssl gateway
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 out_dir="infra/agentgateway/host/auth"

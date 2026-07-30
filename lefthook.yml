@@ -1,6 +1,10 @@
 # https://lefthook.dev
 # Thin hooks: every command delegates to a `mise run` task so local hooks and CI stay identical.
 # lefthook, dprint, actionlint, and gitleaks are provided on PATH by mise (see mise.toml [tools]).
+#
+# pre-commit is globbed per language: the whole `check:core` costs ~37 s warm even for a
+# one-word README fix. pre-push still runs it unglobbed, so nothing reaches a remote unchecked.
+# Every command here is offline — `check:vuln` queries PyPI and runs in CI instead.
 pre-commit:
   parallel: false # formatters must restage before check reads the files
   commands:
@@ -11,16 +15,58 @@ pre-commit:
       stage_fixed: true
     format-python:
       priority: 20
-      glob: "**/*.py"
+      glob: "*.py"
       run: mise run format:python
       stage_fixed: true
-    check:
+    check-format:
       priority: 30
-      run: mise run check:core
+      glob: "*.{json,md,toml,yaml,yml}"
+      run: mise run check:format
+    check-python:
+      priority: 31
+      glob: "*.{py,toml,lock}"
+      run: mise run check:python
+    check-shell:
+      priority: 32
+      glob: "*.sh"
+      run: mise run check:shell
+    check-workflows:
+      priority: 33
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: mise run check:workflows
+    check-docs:
+      priority: 34
+      glob: "{docs/**,mkdocs.yml}"
+      run: mise run check:docs
+    check-links:
+      priority: 35
+      glob: "*.md"
+      run: mise run check:links
+    check-skills:
+      priority: 36
+      glob: "skills/**"
+      run: mise run check:skills
+    check-data:
+      priority: 37
+      glob: "agents/data/**"
+      run: mise run check:data
+    check-release-metadata:
+      priority: 38
+      glob: "{*pyproject.toml,CITATION.cff,CHANGELOG.md}"
+      run: mise run check:release-metadata
+    check-licenses:
+      priority: 39
+      glob: "{*pyproject.toml,*uv.lock}"
+      run: mise run check:licenses:core
     secure:
       priority: 40
       run: mise run secure:staged
 pre-push:
+  parallel: false
   commands:
+    check:
+      priority: 10
+      run: mise run check:core
     test:
+      priority: 20
       run: mise run test

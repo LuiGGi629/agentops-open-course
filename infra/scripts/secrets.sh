@@ -10,7 +10,10 @@
 #   decrypt <file>  print the decrypted manifest on stdout (pipe to kubectl apply)
 #   edit <file>     edit the encrypted manifest through sops with $EDITOR
 
-set -Eeuo pipefail
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd sops platform
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 key_file="infra/secrets/age.agekey"
@@ -22,14 +25,12 @@ command="${1:-}"
 file="${2:-}"
 
 require_file() {
-	if [[ ! -f "${file}" ]]; then
-		echo "Usage: infra/scripts/secrets.sh ${command} <file>" >&2
-		exit 1
-	fi
+	[[ -f "${file}" ]] || fail "Usage: infra/scripts/secrets.sh ${command} <file>"
 }
 
 case "${command}" in
 keygen)
+	require_cmd age-keygen platform
 	if [[ -f "${key_file}" && "${file}" != "--force" ]]; then
 		echo "Key already present at ${key_file} (use --force to overwrite)." >&2
 	else
@@ -56,7 +57,6 @@ edit)
 	sops edit "${file}"
 	;;
 *)
-	echo "Usage: infra/scripts/secrets.sh <keygen|encrypt|decrypt|edit> [file]" >&2
-	exit 1
+	fail "Usage: infra/scripts/secrets.sh <keygen|encrypt|decrypt|edit> [file]"
 	;;
 esac

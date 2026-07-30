@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd kubectl platform
+require_cmd yq gateway
 
 infra_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp_dir="$(mktemp -d)"

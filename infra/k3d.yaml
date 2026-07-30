@@ -3,7 +3,12 @@ kind: Simple
 metadata:
   name: local
 servers: 1
-agents: 1
+# No agent node, on purpose. The kagent Agent, the MCP Deployment, and the
+# state-backup Job all mount the same ReadWriteOnce `agentops-agent-state` claim
+# with no affinity, and k3s `local-path` pins the PersistentVolume to whichever
+# node provisioned it — so a second schedulable node makes Chapter 6.3 a coin flip
+# between "runs" and "volume node affinity conflict". One node also frees 300-400 MiB.
+agents: 0
 image: docker.io/rancher/k3s:v1.35.5-k3s1
 kubeAPI:
   hostIP: 127.0.0.1

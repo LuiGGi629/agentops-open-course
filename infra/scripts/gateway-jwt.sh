@@ -8,7 +8,10 @@
 #   subject      JWT `sub` claim: ops-admin (default) or ops-viewer
 #   ttl-seconds  token lifetime (default: 3600)
 
-set -Eeuo pipefail
+# shellcheck source=scripts/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
+
+require_cmd openssl gateway
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 out_dir="infra/agentgateway/host/auth"

@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
-
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
 repo_root="$(cd -- "${script_dir}/../.." && pwd)"
 readonly repo_root
+# shellcheck source=scripts/lib.sh
+source "${repo_root}/scripts/lib.sh"
+
 readonly host_config_dir="${repo_root}/infra/agentgateway/host"
-readonly image="cr.agentgateway.dev/agentgateway:v1.3.1@sha256:c3ce7b75da90fef70239befcc1c3adc05152d7b9dd21fcb8351178026a2c4381"
+readonly image="cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29"
 readonly managed_label="dev.fmind.agentops.host-gateway"
 readonly relay_script="${script_dir}/loopback-relay.py"
 
 readonly container_name="${AGENTOPS_GATEWAY_CONTAINER:-agentops-host-gateway}"
+# The wrapper owns its own bridge network instead of joining Docker's shared
+# default one. The Linux relay has to listen on an address the container can route
+# to; on the default bridge that address is reachable by every container on the
+# machine, so the learner's MCP, A2A, model, and metrics ports were exposed to all
+# of them for as long as the gateway ran.
+readonly network_name="${AGENTOPS_GATEWAY_NETWORK:-${container_name}-net}"
 readonly mcp_port="${AGENTOPS_GATEWAY_MCP_PORT:-3000}"
 readonly a2a_port="${AGENTOPS_GATEWAY_A2A_PORT:-3001}"
 readonly model_port="${AGENTOPS_GATEWAY_MODEL_PORT:-4000}"
@@ -52,6 +59,7 @@ Commands:
 
 Environment:
   AGENTOPS_GATEWAY_CONTAINER       Container name (agentops-host-gateway).
+  AGENTOPS_GATEWAY_NETWORK         Dedicated Docker network (<container>-net).
   AGENTOPS_GATEWAY_MCP_PORT        Loopback MCP port (3000).
   AGENTOPS_GATEWAY_A2A_PORT        Loopback A2A port (3001).
   AGENTOPS_GATEWAY_MODEL_PORT      Loopback model port (4000).
@@ -67,9 +75,9 @@ Environment:
 EOF
 }
 
+# Keep the `gateway-host:` prefix: Chapter 5.1's troubleshooting table matches on it.
 die() {
-	echo "gateway-host: $*" >&2
-	exit 1
+	fail "gateway-host: $*"
 }
 
 validate_port() {
@@ -92,7 +100,7 @@ validate_inputs() {
 	[[ "${container_name}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] ||
 		die "AGENTOPS_GATEWAY_CONTAINER is not a valid Docker name: '${container_name}'"
 	[[ -f "${canonical_config_input}" ]] || die "canonical config not found: ${canonical_config_input}"
-	command -v yq >/dev/null || die "yq is required"
+	require_cmd yq gateway
 	case "${relay_mode}" in
 	auto | on | off) ;;
 	*) die "AGENTOPS_GATEWAY_LOOPBACK_RELAY must be auto, on, or off" ;;
@@ -199,8 +207,38 @@ write_runtime_config() {
 }
 
 require_docker() {
-	command -v docker >/dev/null || die "docker is required"
+	require_cmd docker gateway
 	docker info >/dev/null 2>&1 || die "Docker daemon is unavailable"
+}
+
+ensure_network() {
+	if docker network inspect "${network_name}" >/dev/null 2>&1; then
+		return 0
+	fi
+	docker network create --label "${managed_label}=true" "${network_name}" >/dev/null
+}
+
+network_is_managed() {
+	local label
+
+	label="$(docker network inspect --format "{{ index .Labels \"${managed_label}\" }}" "${network_name}" 2>/dev/null || true)"
+	[[ "${label}" == "true" ]]
+}
+
+remove_network() {
+	network_is_managed || return 0
+	# Removal fails while any container is still attached, which is the wanted
+	# outcome: a second wrapper instance keeps its network.
+	docker network rm "${network_name}" >/dev/null 2>&1 || true
+}
+
+network_gateway() {
+	local gateway
+
+	gateway="$(docker network inspect "${network_name}" --format '{{(index .IPAM.Config 0).Gateway}}')"
+	[[ "${gateway}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+		die "could not discover the IPv4 gateway of Docker network '${network_name}'"
+	printf '%s\n' "${gateway}"
 }
 
 container_exists() {
@@ -239,6 +277,17 @@ stop_managed_container() {
 }
 
 declare -a docker_args
+host_alias_ip=""
+
+# `--add-host host.docker.internal:host-gateway` always resolves to the *default*
+# bridge's gateway, whichever network the container joins — exactly the address the
+# relay must not listen on. Whenever the relay runs, point the alias at this
+# wrapper's own network gateway so nothing outside that network can reach it.
+resolve_host_alias() {
+	host_alias_ip=""
+	loopback_relay_required || return 0
+	host_alias_ip="$(network_gateway)"
+}
 
 build_docker_args() {
 	local config_path="$1"
@@ -255,10 +304,11 @@ build_docker_args() {
 		--cap-drop ALL
 		--security-opt no-new-privileges=true
 		--tmpfs "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"
-		--add-host host.docker.internal:host-gateway
+		--add-host "host.docker.internal:${host_alias_ip:-host-gateway}"
 	)
 	if [[ "${lifecycle}" != "validate" ]]; then
 		docker_args+=(
+			--network "${network_name}"
 			--name "${container_name}"
 			--label "${managed_label}=true"
 			--publish "127.0.0.1:${mcp_port}:3000"
@@ -329,15 +379,6 @@ loopback_relay_required() {
 	[[ "${docker_os}" != *"Docker Desktop"* ]]
 }
 
-docker_bridge_gateway() {
-	local gateway
-
-	gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-	[[ "${gateway}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
-		die "could not discover Docker's IPv4 bridge gateway"
-	echo "${gateway}"
-}
-
 stop_loopback_relay() {
 	local run_dir="$1"
 	local relay_dir="${run_dir}/relay"
@@ -388,8 +429,10 @@ start_loopback_relay() {
 	[[ -x "${relay_python}" ]] ||
 		die "Linux loopback relay requires the installed agent Python; run 'mise run install' first"
 	[[ -f "${relay_script}" ]] || die "loopback relay helper not found: ${relay_script}"
+	[[ -n "${host_alias_ip}" ]] ||
+		die "the dedicated network gateway was not resolved before the relay started"
 
-	listen_host="$(docker_bridge_gateway)"
+	listen_host="${host_alias_ip}"
 	token="${container_name}-$$-${RANDOM}-${RANDOM}"
 	mkdir -p -- "${relay_dir}"
 	chmod 0700 -- "${relay_dir}"
@@ -430,6 +473,8 @@ run_foreground() {
 	assert_container_absent
 	remove_runtime_dir "${run_dir}"
 	write_runtime_config "${run_dir}"
+	ensure_network
+	resolve_host_alias
 	build_docker_args "${run_dir}/config.yaml" run
 
 	cleanup_foreground() {
@@ -438,6 +483,7 @@ run_foreground() {
 		fi
 		stop_loopback_relay "${run_dir}"
 		remove_runtime_dir "${run_dir}"
+		remove_network
 	}
 	trap cleanup_foreground EXIT
 	trap 'exit 130' INT
@@ -454,10 +500,13 @@ start_detached() {
 	assert_container_absent
 	remove_runtime_dir "${run_dir}"
 	write_runtime_config "${run_dir}"
+	ensure_network
+	resolve_host_alias
 	build_docker_args "${run_dir}/config.yaml" start
 	cleanup_failed_start() {
 		stop_loopback_relay "${run_dir}"
 		remove_runtime_dir "${run_dir}"
+		remove_network
 	}
 	trap cleanup_failed_start EXIT
 	start_loopback_relay "${run_dir}"
@@ -474,6 +523,7 @@ stop_detached() {
 	stop_managed_container
 	stop_loopback_relay "${run_dir}"
 	remove_runtime_dir "${run_dir}"
+	remove_network
 }
 
 show_status() {

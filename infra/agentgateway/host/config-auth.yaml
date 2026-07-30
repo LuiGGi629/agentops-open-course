@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.3.1/schema/config.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.4.1/schema/config.json
 # Secured host data plane (opt-in, Chapter 5.5): same upstreams as config.yaml
 # plus caller authentication and TLS on every exposed listener.
 #

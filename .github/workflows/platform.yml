@@ -3,6 +3,12 @@ name: Platform
 
 on:
   workflow_dispatch:
+  schedule:
+    # Monthly, 1st at 05:00 UTC. This is the only end-to-end proof of Chapter 6,
+    # and it depends on upstream Helm charts that move independently of
+    # mise.lock — dispatch-only means a broken platform is discovered by a
+    # learner, not by CI.
+    - cron: "0 5 1 * *"
 
 permissions:
   contents: read
@@ -14,6 +20,9 @@ concurrency:
 jobs:
   platform:
     runs-on: ubuntu-24.04
+    # Guard forks and mirrors: a 60-minute cluster acceptance run only makes
+    # sense on the canonical repository. Elsewhere the job is skipped, not failed.
+    if: github.repository == 'MLOps-Courses/agentops-open-course'
     timeout-minutes: 60
     steps:
       - name: Checkout repository

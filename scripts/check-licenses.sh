@@ -128,6 +128,18 @@ check_embedded_license() {
 	local package=$3
 	local expected=$4
 
+	# Absent is not a violation, but present-and-unverifiable is. Some of these packages arrive
+	# only through MLflow, which now lives in the agent project's optional `eval` dependency
+	# group — so a default `mise run install` legitimately has no huey or skops to inspect,
+	# while `mise run install:eval` does. Skipping silently would let a real license regression
+	# hide behind an uninstalled package, so say which case this was.
+	if ! jq -e --arg package "${package}" '[.[] | select(.Name == $package)] | length > 0' \
+		"${inventory_file}" >/dev/null; then
+		printf '%s: %s is not installed in this profile; embedded license not checked\n' \
+			"${label}" "${package}"
+		return 0
+	fi
+
 	if ! jq -e \
 		--arg expected "${expected}" \
 		--arg package "${package}" '

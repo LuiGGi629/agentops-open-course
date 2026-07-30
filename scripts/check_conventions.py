@@ -58,7 +58,32 @@ KINDS: Final = ("concept", "hands-on", "reference", "orientation", "lookup")
 # documented ceiling; more turns the page into a wall of triangles.
 MAX_COLLAPSIBLES: Final = 3
 
+# Chapters 2 and 3 quote the reference agent on nearly every page, so a hand-written Python block
+# there is the excerpt that rots. Each one must either include the real file or open with a comment
+# telling the reader it is deliberately not the source.
+SNIPPET_CHAPTERS: Final = ("docs/2. ", "docs/3. ")
+SNIPPET_DECLARATIONS: Final = ("# simplified", "# illustrative", "# pseudocode")
+
+# Blocks that predate the rule, counted per page. A ceiling, not a target: it may only go down.
+# Convert one block to an include (or declare it) and lower the number in the same change.
+# Retrofitting all 44 in one commit would touch every page of both chapters, which is how a gate
+# gets reverted instead of obeyed.
+SNIPPET_LEGACY: Final = {
+    "docs/2. Agents/2.0. Concepts.md": 4,
+    "docs/2. Agents/2.1. First Agent.md": 4,
+    "docs/2. Agents/2.3. Instructions.md": 3,
+    "docs/2. Agents/2.4. Sessions.md": 1,
+    "docs/3. Capabilities/3.0. Packaging.md": 4,
+    "docs/3. Capabilities/3.1. Tools.md": 6,
+    "docs/3. Capabilities/3.2. Skills.md": 1,
+    "docs/3. Capabilities/3.3. MCP.md": 6,
+    "docs/3. Capabilities/3.4. Memory.md": 4,
+    "docs/3. Capabilities/3.6. A2A.md": 6,
+    "docs/3. Capabilities/3.7. Multi-Agent.md": 5,
+}
+
 FRONT_MATTER: Final = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+FENCE: Final = re.compile(r"^\s*(`{3,}|~{3,})\s*(\S*)")
 MACHINE_PATH: Final = re.compile(r"/home/[^ /]+|file:///|k3d-registry\.localhost")
 COLLAPSIBLE: Final = re.compile(r'^\s*\?\?\? \w+ "([^"]*)"')
 BARE_NUMBER_LABEL: Final = re.compile(r"\[(\d+(?:\.\d+)*)\]\(")
@@ -77,6 +102,28 @@ def outside_fences(text: str) -> Iterator[tuple[int, str]]:
             continue
         if not fenced:
             yield number, line
+
+
+def fenced_blocks(text: str, language: str) -> Iterator[tuple[int, list[str]]]:
+    """Yield (opening line number, body lines) for every fenced block in one language.
+
+    A fence can be indented inside an admonition and can use either delimiter, so the close is
+    matched against the run that opened it — a shorter fence inside a block does not end it.
+    """
+    delimiter = language_of = ""
+    start, body = 0, []
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = FENCE.match(line)
+        if not delimiter:
+            if match:
+                delimiter, language_of, start, body = match.group(1), match.group(2), number, []
+            continue
+        if match and not match.group(2) and match.group(1)[0] == delimiter[0] and len(match.group(1)) >= len(delimiter):
+            if language_of == language:
+                yield start, body
+            delimiter = ""
+            continue
+        body.append(line)
 
 
 def declared_kind(text: str) -> str | None:
@@ -211,6 +258,35 @@ def check_snippets(page: pathlib.Path, text: str) -> list[Problem]:
     ]
 
 
+def sourced(body: list[str]) -> bool:
+    """True when a code block pulls its source in, or admits it is not the source."""
+    lines = [line.strip() for line in body if line.strip()]
+    if not lines:
+        return False
+    return lines[0].startswith(SNIPPET_DECLARATIONS) or any(line.startswith("--8<--") for line in lines)
+
+
+def check_python_blocks(page: pathlib.Path, text: str) -> list[Problem]:
+    """A Python block in the chapters that quote the agent is the source, or says it is not.
+
+    ``pymdownx.snippets`` re-reads an include on every build, so an include cannot drift; a pasted
+    block can, and four already had. Nothing here compares text to source — that is the include's
+    whole job. This rule removes the third option: quoting source by hand without saying so.
+    """
+    name = page.as_posix()
+    if not name.startswith(SNIPPET_CHAPTERS):
+        return []
+    undeclared = [number for number, body in fenced_blocks(text, "python") if not sourced(body)]
+    allowed = SNIPPET_LEGACY.get(name, 0)
+    if len(undeclared) <= allowed:
+        return []
+    lines = ", ".join(str(number) for number in undeclared)
+    remedy = (
+        f'make it a "--8<--" include of the real source, or open the block with a `{SNIPPET_DECLARATIONS[0]}` comment'
+    )
+    return [(name, f"{len(undeclared)} hand-written python blocks (lines {lines}), {allowed} allowed: {remedy}")]
+
+
 def check_machine_paths(page: pathlib.Path, text: str) -> list[Problem]:
     """No machine-specific path, local file URL, or obsolete registry hostname."""
     return [
@@ -311,6 +387,7 @@ def check_docs() -> list[Problem]:
         problems += check_collapsibles(relative, text)
         problems += check_link_labels(relative, text)
         problems += check_snippets(relative, text)
+        problems += check_python_blocks(relative, text)
         problems += check_machine_paths(relative, text)
         if relative.as_posix() != LANDING_PAGE:
             problems += check_closing(relative, text)

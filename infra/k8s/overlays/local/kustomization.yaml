@@ -13,6 +13,10 @@ configMapGenerator:
     namespace: agentops
     files:
       - prometheus.yml=prometheus-config.yaml
+      # prometheus-rules.yaml is the single source for both alerting planes;
+      # infra/observability/prometheus-rules.yml (host Compose) symlinks to it.
+      # It has to live here because configMapGenerator rejects a source outside
+      # this directory. check-infra.sh asserts the symlink still exists.
       - rules.yml=prometheus-rules.yaml
   - name: alertmanager-config
     namespace: agentops

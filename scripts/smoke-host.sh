@@ -252,14 +252,28 @@ wait_http "gateway readiness" "http://localhost:${gateway_readiness_port}/health
 
 kernel="$(uname -s)"
 docker_os="$(docker info --format '{{.OperatingSystem}}')"
+# How a container on the wrapper's network reaches host loopback. Docker Desktop provides its
+# own transport, so `host-gateway` is right there. On native Linux the wrapper runs a relay on
+# its dedicated network's gateway address — and `host-gateway` would resolve to the DEFAULT
+# bridge instead, which is exactly the address we moved off. The Linux branch below overrides it.
+relay_host_alias="host-gateway"
 if [[ "${kernel}" == "Linux" && "${docker_os}" != *"Docker Desktop"* ]]; then
 	relay_ready="${gateway_runtime_dir}/${gateway_container}/relay/ready"
 	[[ -f "${relay_ready}" ]] || die "native Linux gateway started without its bridge-only loopback relay"
 	relay_listen_host="$(awk -F= '$1 == "listen_host" { print $2 }' "${relay_ready}")"
 	relay_ports="$(awk -F= '$1 == "ports" { print $2 }' "${relay_ready}")"
-	bridge_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-	[[ "${relay_listen_host}" == "${bridge_gateway}" ]]
+	# The relay binds the wrapper's OWN network, not the shared default bridge. That is the
+	# whole point of the dedicated network: on the default bridge every unrelated container on
+	# the host could reach the learner's MCP, A2A, and Ollama ports while the gateway ran.
+	gateway_network="${AGENTOPS_GATEWAY_NETWORK:-${gateway_container}-net}"
+	network_gateway="$(docker network inspect "${gateway_network}" --format '{{(index .IPAM.Config 0).Gateway}}')"
+	[[ "${relay_listen_host}" == "${network_gateway}" ]]
 	[[ "${relay_listen_host}" != "0.0.0.0" && "${relay_listen_host}" != "127.0.0.1" ]]
+	# Prove the isolation claim rather than assuming it: the default bridge must NOT be where
+	# the relay listens, or the wrapper has silently regressed to the shared address.
+	default_bridge_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+	[[ -z "${default_bridge_gateway}" || "${relay_listen_host}" != "${default_bridge_gateway}" ]]
+	relay_host_alias="${relay_listen_host}"
 	[[ ",${relay_ports}," == *",${gateway_metrics_port},"* ]]
 fi
 
@@ -424,11 +438,11 @@ grep -Eq '^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? [0-9]' "${work_dir}/gateway-metr
 # native Linux this crosses the wrapper-owned bridge relay; Docker Desktop
 # provides its own host.docker.internal transport.
 docker run --rm \
-	--network bridge \
+	--network "${AGENTOPS_GATEWAY_NETWORK:-${gateway_container}-net}" \
 	--read-only \
 	--cap-drop ALL \
 	--security-opt no-new-privileges=true \
-	--add-host host.docker.internal:host-gateway \
+	--add-host "host.docker.internal:${relay_host_alias}" \
 	"${curl_image}" \
 	--fail --silent --show-error --max-time 5 \
 	"http://host.docker.internal:${gateway_metrics_port}/metrics" \

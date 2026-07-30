@@ -6,9 +6,11 @@
 # - Agent OTLP counters: agentops_tokens_token_total (unit "token" is also
 #   suffixed), agentops_guardrails_injections_neutralized_total, and
 #   agentops_triage_report_schema_failures_total.
-# Twin files: infra/observability/prometheus-rules.yml (host Compose) and
-# infra/k8s/overlays/local/prometheus-rules.yaml (in-cluster). Keep them
-# byte-identical.
+# Single source for both alerting planes. infra/observability/prometheus-rules.yml
+# (host Compose) is a symlink to this file, so the two cannot drift. The real
+# file lives here because kustomize refuses to read a configMapGenerator source
+# outside its own directory, while a Compose bind mount resolves symlinks fine.
+# Edit either path — they are the same bytes.
 groups:
   - name: agentops-slo
     rules:
