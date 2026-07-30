@@ -130,11 +130,26 @@ url_api = "https://api.github.com/repos/dprint/dprint/releases/assets/477041355"
 version = "578.0.0"
 backend = "vfox:mise-plugins/vfox-gcloud"
 
+[tools.gcloud."platforms.linux-arm64"]
+url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-linux-arm.tar.gz"
+
+[tools.gcloud."platforms.linux-arm64-musl"]
+url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-linux-arm.tar.gz"
+
 [tools.gcloud."platforms.linux-x64"]
+url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-linux-x86_64.tar.gz"
+
+[tools.gcloud."platforms.linux-x64-musl"]
 url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-linux-x86_64.tar.gz"
 
 [tools.gcloud."platforms.macos-arm64"]
 url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-darwin-arm.tar.gz"
+
+[tools.gcloud."platforms.macos-x64"]
+url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-darwin-x86_64.tar.gz"
+
+[tools.gcloud."platforms.windows-x64"]
+url = "https://storage.googleapis.com/cloud-sdk-release/google-cloud-sdk-578.0.0-windows-x86_64.zip"
 
 [[tools.gh]]
 version = "2.96.0"

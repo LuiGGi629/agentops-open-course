@@ -6,7 +6,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ### Fixed
 
-- Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the new GKE scripts pass ShellCheck without user-level configuration.
+- Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the tool lock and GKE scripts independent of user-level mise and ShellCheck configuration.
 
 ## [0.2.0] - 2026-07-30
 
