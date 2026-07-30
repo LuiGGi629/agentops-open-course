@@ -133,7 +133,7 @@ def _stream_events(*, fail_after_first: bool) -> list[dict[str, Any]]:
 def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
     # a2a-sdk 1.x moved the endpoint from a single ``url`` to a transport-interface list.
     assert [interface.url for interface in server.agent_card.supported_interfaces] == ["http://localhost:8080/"]
-    assert server.agent_card.version == "0.1.1"
+    assert server.agent_card.version == "0.2.0"
     assert "Operating rules" not in server.agent_card.description
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
 

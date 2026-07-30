@@ -4,11 +4,15 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-30
+
 ### Added
 
 - Added a bounded read-only `plan → investigate → evidence_review → recommend` workflow, a least-privilege coordinator path, and model-backed evaluation for the planning and reflection loop.
 - Added explicit learner, platform, and maintainer install tiers plus stable aggregate CI and security-scan jobs that import-smoke every built image.
 - Added explicit accessibility and single-maintainer governance contracts for diagrams, keyboard/contrast expectations, review authority, and the path to maintainership.
+- Added a repository-wide `TODO.md` that defines the OSS, course, runtime, security, accessibility, maintenance, and release evidence required before v1.0.0.
+- Added project-neutral GKE render and deployment helpers, a balanced persistent-disk storage class, and output-driven Workload Identity manifests for the optional GCP lab.
 
 ### Changed
 
@@ -17,6 +21,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Made promotion a truthful offline preflight by default, with model-backed evidence required before it prints deploy and rollback commands.
 - Bound scheduled model evidence to one provider, immutable prompt, model digest, evaluation contract, source revision, serving context, and sampling configuration while reusing the exact MLflow transcript for required cost and groundedness verdicts.
 - Made skill loading and both guarded-action confirmation trajectories strict named Qwen gates, so an aggregate pass rate cannot hide a failed safety contract.
+- Made the optional GCP module and GKE delivery path variable-driven, quota-aware, and cheaper by default while preserving explicit plan, verification, and teardown boundaries.
 
 ### Fixed
 
@@ -80,6 +85,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Untrusted tool-output sanitization is enabled by default.
 - Release publishing now pushes and signs the exact local image that passed the pre-push scan instead of rebuilding it.
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.1.1...HEAD
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0
