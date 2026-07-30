@@ -13,7 +13,7 @@ The supported v1 outcome is the account-free OSS path from a clean checkout to:
 - self-hosted MLflow, OpenTelemetry, Prometheus, Grafana, and Loki;
 - state backup and restore, deterministic adversarial tests, model evaluation, and load testing.
 
-The complete release gate is verified on Linux x86_64. CI uses Ubuntu 24.04; the maintainer gate also runs on Debian 12. A machine running the entire local model and Kubernetes path should have at least 14 GiB RAM and 15 GiB free disk. The core documentation and offline Python path needs substantially less.
+The complete release gate is verified on Linux x86_64 with cgroup v2. CI uses Ubuntu 24.04; the maintainer gate also runs on Debian 12. Pinned Kubernetes 1.35 refuses cgroup v1, and `mise run doctor:platform` checks this before creating a cluster. A machine running the entire local model and Kubernetes path should have at least 14 GiB RAM and 15 GiB free disk. The core documentation and offline Python path needs substantially less.
 
 macOS, Linux arm64, and WSL2 remain best-effort for v1. Their lock entries keep tool installation reproducible, but they are not release-gated through the full container, loopback-relay, and k3d journey. Report platform-specific defects, but do not infer full-platform support from a successful `mise run install`.
 

@@ -261,6 +261,7 @@ description = "Lint repository shell scripts"
 run = [
   "shfmt -d scripts infra/scripts",
   "shellcheck scripts/*.sh infra/scripts/*.sh",
+  "scripts/test-lib.sh",
 ]
 
 [tasks."check:workflows"]

@@ -1,0 +1,126 @@
+# Exact-head, account-free acceptance for the supported Linux x86_64 k3d path.
+name: Platform
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  platform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the pinned toolchain
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+
+      - name: Install project dependencies
+        run: mise run install:maintainer
+
+      - name: Verify the cgroup-v2 platform prerequisites
+        run: mise run doctor:platform
+
+      - name: Create the pinned cluster and install kagent
+        run: |
+          mise run cluster:start
+          mise run platform:install
+
+      - name: Start the deterministic host model
+        run: |
+          bridge="$(
+            docker network inspect k3d-local \
+              --format '{{(index .IPAM.Config 0).Gateway}}'
+          )"
+          nohup uv run --script load/fake_model.py --host "${bridge}" \
+            >"${RUNNER_TEMP}/fake-model.log" 2>&1 &
+          echo "$!" >"${RUNNER_TEMP}/fake-model.pid"
+          timeout 60 bash -c \
+            "until curl -fsS 'http://${bridge}:11434/healthz' >/dev/null; do sleep 1; done"
+
+      - name: Build and deploy the local overlay
+        run: |
+          cd infra
+          SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 \
+            skaffold run --filename skaffold.yaml --profile local
+
+      - name: Verify workload readiness and private exposure
+        run: |
+          timeout 300 bash -c \
+            'until kubectl -n agentops get deployment agentops-agent >/dev/null 2>&1; do sleep 2; done'
+          kubectl -n agentops wait --for=condition=Available deployment --all --timeout=600s
+          kubectl -n agentops wait --for=condition=Ready pod --all --timeout=600s
+          kubectl get service --all-namespaces -o json |
+            jq -e '[.items[] | select(.spec.type != "ClusterIP")] | length == 0'
+          test -z "$(kubectl get ingress --all-namespaces --no-headers 2>/dev/null)"
+
+      - name: Prove the in-cluster backup and offline restore contracts
+        run: |
+          kubectl -n agentops create job \
+            --from=cronjob/agentops-state-backup state-backup-drill
+          kubectl -n agentops wait \
+            --for=condition=complete job/state-backup-drill --timeout=180s
+          kubectl -n agentops logs job/state-backup-drill
+          kubectl -n agentops delete job state-backup-drill
+          mise run state:drill
+
+      - name: Forward only the tested private services
+        run: |
+          kubectl -n agentops port-forward service/agentgateway \
+            3000:3000 3001:3001 4000:4000 15020:15020 \
+            >"${RUNNER_TEMP}/gateway-forward.log" 2>&1 &
+          echo "$!" >"${RUNNER_TEMP}/gateway-forward.pid"
+          kubectl -n agentops port-forward service/agentops-mcp 8000:8000 \
+            >"${RUNNER_TEMP}/mcp-forward.log" 2>&1 &
+          echo "$!" >"${RUNNER_TEMP}/mcp-forward.pid"
+          kubectl -n agentops port-forward service/agentops-agent 8080:8080 \
+            >"${RUNNER_TEMP}/a2a-forward.log" 2>&1 &
+          echo "$!" >"${RUNNER_TEMP}/a2a-forward.pid"
+          timeout 60 bash -c \
+            'until curl -fsS http://127.0.0.1:3001/healthz >/dev/null &&
+              curl -fsS http://127.0.0.1:8000/healthz >/dev/null &&
+              curl -fsS http://127.0.0.1:8080/healthz >/dev/null; do sleep 1; done'
+
+      - name: Run the committed platform latency budgets
+        env:
+          DURATION: 10s
+          RATE: "2"
+        run: |
+          mise run load:health
+          DURATION=15s RATE=12 mise run load:mcp
+          ITERATIONS=1 mise run load:a2a
+
+      - name: Tear down every temporary resource
+        if: always()
+        run: |
+          status=0
+          for process_file in \
+            "${RUNNER_TEMP}/gateway-forward.pid" \
+            "${RUNNER_TEMP}/mcp-forward.pid" \
+            "${RUNNER_TEMP}/a2a-forward.pid" \
+            "${RUNNER_TEMP}/fake-model.pid"; do
+            if [[ -f "${process_file}" ]]; then
+              kill "$(cat "${process_file}")" 2>/dev/null || true
+            fi
+          done
+          if [[ "$(kubectl config current-context 2>/dev/null || true)" == k3d-local ]]; then
+            SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 \
+              skaffold delete --filename infra/skaffold.yaml --profile local || status=1
+            helmfile --file infra/helmfile.yaml destroy || status=1
+          fi
+          if k3d cluster list -o json | jq -e 'any(.[]; .name == "local")' >/dev/null; then
+            k3d cluster delete local || status=1
+          fi
+          if k3d registry list -o json |
+            jq -e 'any(.[]; .name == "registry.localhost")' >/dev/null; then
+            echo "registry.localhost remains after platform teardown" >&2
+            status=1
+          fi
+          exit "${status}"

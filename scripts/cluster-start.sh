@@ -9,6 +9,8 @@ require_cmd k3d platform
 require_cmd kubectl platform
 require_cmd jq base
 
+require_cgroup_v2 /sys/fs/cgroup
+
 if ! docker info >/dev/null 2>&1; then
 	printf 'docker: daemon is unavailable\n' >&2
 	exit 1

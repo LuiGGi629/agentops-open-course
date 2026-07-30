@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "${lib_dir}/lib.sh"
 
 profile=${1:-base}
 case "${profile}" in
@@ -119,6 +121,9 @@ esac
 
 case "${profile}" in
 platform | gcp)
+	require_cgroup_v2 /sys/fs/cgroup
+	printf 'cgroup     v2 ready\n'
+
 	if ! helm plugin list | rg -q '^diff[[:space:]]+3\.15\.10'; then
 		printf 'helm       helm-diff 3.15.10 is missing; run mise run install\n' >&2
 		exit 1

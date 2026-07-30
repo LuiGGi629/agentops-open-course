@@ -19,7 +19,8 @@ Two directories, split by what the code does:
 | `cluster-start.sh`     | `cluster:start`                                        | platform | Creates the local k3d cluster and its registry, or reconciles an existing one.   |
 | `promote.sh`           | `promote`                                              | platform | Eval-gated promotion: gate, render the overlay, print promote/rollback commands. |
 | `smoke-host.sh`        | `smoke:host`                                           | gateway  | Proves the host composition against a fake model, then tears it down.            |
-| `lib.sh`               | sourced by the others                                  | —        | Strict mode plus the shared `require_cmd`, `log`, and `fail` helpers.            |
+| `lib.sh`               | sourced by the others                                  | —        | Strict mode plus shared command and cgroup prerequisite helpers.                 |
+| `test-lib.sh`          | `check:shell`                                          | base     | Deterministically checks both cgroup-v1 rejection and cgroup-v2 acceptance.      |
 
 ## Runtime orchestration
 

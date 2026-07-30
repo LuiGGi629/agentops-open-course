@@ -20,6 +20,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 ### Fixed
 
 - Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the tool lock and GKE scripts independent of user-level mise and ShellCheck configuration.
+- Made the platform doctor and cluster startup reject cgroup v1 before pinned Kubernetes 1.35 can leave a partial k3d cluster.
 
 ## [0.2.0] - 2026-07-30
 

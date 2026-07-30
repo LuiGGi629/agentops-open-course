@@ -6,10 +6,8 @@
 #
 #     source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 #
-# It sets strict mode, and provides `require_cmd`, `log` and `fail`. The point of `require_cmd` is
-# that a missing tool should tell you which `mise` command installs it, instead of dying with a
-# bare "command not found" — the pinned toolchain is laddered by tier, and a script knows which
-# tier it belongs to.
+# It sets strict mode and provides the small prerequisite helpers shared by the
+# repository scripts.
 
 set -Eeuo pipefail
 
@@ -37,4 +35,15 @@ require_cmd() {
 		fail "missing ${command_name}: run 'mise install', then 'mise run doctor:${profile}' to check the whole tier"
 	fi
 	fail "missing ${command_name}: run 'mise install' to materialize the pinned toolchain"
+}
+
+# require_cgroup_v2 <cgroup-root> — Kubernetes 1.35 refuses its default kubelet
+# startup on cgroup v1. Check the host before k3d creates a partial cluster.
+require_cgroup_v2() {
+	local cgroup_root="$1"
+
+	if [[ -r ${cgroup_root}/cgroup.controllers ]]; then
+		return 0
+	fi
+	fail "cgroup v2 required for pinned Kubernetes 1.35; enable the unified cgroup hierarchy before running local k3d"
 }
