@@ -55,6 +55,7 @@ def list_incidents(status: str = "", service: str = "") -> dict[str, Any]:
     return {"count": len(incidents), "incidents": incidents}
 
 
+# --8<-- [start:get-incident]
 def get_incident(incident_id: str) -> dict[str, Any]:
     """Get the full details of one incident by its id.
 
@@ -73,6 +74,9 @@ def get_incident(incident_id: str) -> dict[str, Any]:
     if incident is None:
         return {"error": f"No incident found with id {normalized!r}."}
     return {"incident": incident.model_dump(mode="json")}
+
+
+# --8<-- [end:get-incident]
 
 
 def get_service_status(name: str) -> dict[str, Any]:

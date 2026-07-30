@@ -12,12 +12,8 @@ from __future__ import annotations
 from google.adk import Agent, Workflow
 from google.adk.agents.llm_agent import ToolUnion
 
-from .budget import enforce_token_budget, record_token_usage
-from .compaction import compact_history
-from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import GET_RUNBOOK_TOOL
 from .model import build_generation_config, build_model
-from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
 from .tools import GET_INCIDENT_TOOL, GET_SERVICE_STATUS_TOOL, LIST_INCIDENTS_TOOL, SEARCH_SERVICE_LOGS_TOOL
 
@@ -54,11 +50,6 @@ plan = Agent(
         "symptoms, causes, systems, time windows, hypotheses, or recovery facts absent from the "
         "request. Do not diagnose or recommend. State the condition for stopping or escalating."
     ),
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 # 2) Investigate: collect the incident, service, logs, and runbook evidence named by the plan.
@@ -81,11 +72,6 @@ investigate = Agent(
         "runbook guidance."
     ),
     tools=_INVESTIGATION_TOOLS,
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 # 3) Evidence review: challenge the investigation before advice is produced.
@@ -106,11 +92,6 @@ evidence_review = Agent(
         "and name it; never return an opaque error. Do not recommend or take an action."
     ),
     tools=_REVIEW_TOOLS,
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 # 4) Recommend: propose a bounded next step only after evidence review.
@@ -129,11 +110,6 @@ recommend = Agent(
         "requiring human approval; never call either action. Cite the handed-off runbook slug."
     ),
     tools=[GET_RUNBOOK_TOOL],
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 # The graph is intentionally linear: each output becomes the next node's input.

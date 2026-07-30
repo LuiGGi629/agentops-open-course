@@ -12,21 +12,19 @@ from starlette.requests import HTTPConnection, Request
 
 from agent import data, mcp_server, tools
 from agent.config import settings
-from agent.mcp_client import ops_mcp_toolset
+from agent.mcp_client import MCP_READ_TOOL_NAMES, ops_mcp_toolset
 from agent.mcp_server import mcp
 
 
-def test_mcp_server_exposes_the_read_tools() -> None:
+def test_mcp_server_exposes_exactly_the_allowlisted_read_tools() -> None:
+    """Server registration and client allowlist are one contract, asserted in both directions.
+
+    Adding a tool to the server without adding it here means it is silently never offered to
+    the model; removing one leaves a stale allow entry. Set equality catches both, and
+    ``scripts/check-infra.sh`` asserts the three gateway configs carry the same six names.
+    """
     registered = asyncio.run(mcp.list_tools())
-    names = {tool.name for tool in registered}
-    assert {
-        "list_incidents",
-        "get_incident",
-        "get_service_status",
-        "search_service_logs",
-        "get_runbook",
-        "search_runbooks",
-    } <= names
+    assert {tool.name for tool in registered} == set(MCP_READ_TOOL_NAMES)
 
 
 def test_mcp_transport_security_uses_a_narrow_host_allowlist() -> None:

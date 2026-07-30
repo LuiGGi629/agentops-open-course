@@ -25,6 +25,7 @@ from google.adk.a2a.executor.executor_context import ExecutorContext
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from google.adk.agents import BaseAgent, RunConfig
 from google.adk.agents.run_config import StreamingMode
+from google.adk.apps import App
 from google.adk.errors.already_exists_error import AlreadyExistsError
 from google.adk.events import Event
 from google.adk.runners import Runner
@@ -39,8 +40,8 @@ from starlette.responses import JSONResponse
 from .composition import root_agent
 from .config import settings
 from .data import prepare_runtime_database, probe_runtime_database
-
-_APP_NAME = "agentops-agent"
+from .governance import APP_NAME as _APP_NAME
+from .governance import AgentOpsPolicyPlugin
 
 # The gateway-verified caller identity for the request currently being served.
 # A pure-ASGI middleware sets it from the trusted header (same task as the
@@ -97,11 +98,10 @@ class _SessionSerializingRunner(Runner):
     def __init__(
         self,
         *,
-        agent: BaseAgent,
-        app_name: str,
+        app: App,
         session_service: DatabaseSessionService,
     ) -> None:
-        super().__init__(agent=agent, app_name=app_name, session_service=session_service)
+        super().__init__(app=app, session_service=session_service)
         self._session_locks_guard = asyncio.Lock()
         self._session_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._session_lock_refs: dict[tuple[str, str], int] = {}
@@ -386,9 +386,12 @@ def create_app(agent: BaseAgent | None = None) -> Starlette:
         max_overflow=0,
         connect_args={"timeout": 30},
     )
+    # Build the App here rather than importing the module-level one, so an injected agent
+    # (tests, embedding) is governed by the same policy plugin as the shipped composition.
+    # ``app=`` is ADK's recommended Runner form; the deprecated ``agent=``/``plugins=`` pair
+    # would attach the policy to only this Runner instead of to the application.
     runner = _SessionSerializingRunner(
-        agent=selected_agent,
-        app_name=_APP_NAME,
+        app=App(name=_APP_NAME, root_agent=selected_agent, plugins=[AgentOpsPolicyPlugin()]),
         session_service=session_service,
     )
     task_engine = session_service.db_engine

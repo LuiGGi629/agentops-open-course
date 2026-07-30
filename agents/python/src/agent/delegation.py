@@ -16,12 +16,8 @@ from __future__ import annotations
 from google.adk import Agent
 
 from .actions import ACTION_TOOLS
-from .budget import enforce_token_budget, record_token_usage
-from .compaction import compact_history
-from .guardrails import handle_model_error, handle_tool_error, secure_tool_output, validate_actions
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_generation_config, build_model
-from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
 from .tools import ALL_TOOLS
 
@@ -42,11 +38,6 @@ diagnosis_agent = Agent(
         "it. You cannot take actions — hand your findings back to the coordinator."
     ),
     tools=[*ALL_TOOLS, *KNOWLEDGE_TOOLS],
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 # The remediation specialist: write-only by construction. It executes a diagnosed,
@@ -66,12 +57,6 @@ remediation_agent = Agent(
         "never invent targets."
     ),
     tools=[*ACTION_TOOLS],
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    before_tool_callback=validate_actions,
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 # The coordinator: triages, then routes — diagnosis first, remediation only after.
@@ -92,9 +77,4 @@ coordinator_agent = Agent(
     ),
     tools=ALL_TOOLS,
     sub_agents=[diagnosis_agent, remediation_agent],
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )

@@ -1,9 +1,5 @@
 """Unit tests for the bounded read-only incident workflow (Ch. 3.5)."""
 
-from agent.budget import enforce_token_budget, record_token_usage
-from agent.compaction import compact_history
-from agent.guardrails import handle_model_error, handle_tool_error, secure_tool_output
-from agent.pii import redact_request_pii, redact_response_pii
 from agent.workflow import evidence_review, investigate, plan, recommend, triage_workflow
 
 _STEPS = (plan, investigate, evidence_review, recommend)
@@ -42,14 +38,21 @@ def test_workflow_uses_stage_specific_read_only_tools() -> None:
         assert set(_tool_names(step)).isdisjoint(_WRITE_TOOLS)
 
 
-def test_each_step_keeps_the_runtime_safety_callbacks() -> None:
+def test_no_step_wires_its_own_policy_callbacks() -> None:
+    """Policy is the app's job, not each step's.
+
+    Asserting the *absence* of per-agent wiring is what keeps the guarantee honest: if a step
+    ever re-attaches its own callbacks, the app-level plugin would run twice (double-counting
+    tokens, double-redacting) and the duplication this refactor removed would creep back.
+    """
     for step in _STEPS:
         assert step.model
-        assert step.before_model_callback == [enforce_token_budget, compact_history, redact_request_pii]
-        assert step.after_model_callback == [record_token_usage, redact_response_pii]
-        assert step.after_tool_callback is secure_tool_output
-        assert step.on_model_error_callback is handle_model_error
-        assert step.on_tool_error_callback is handle_tool_error
+        assert step.before_model_callback is None
+        assert step.after_model_callback is None
+        assert step.before_tool_callback is None
+        assert step.after_tool_callback is None
+        assert step.on_model_error_callback is None
+        assert step.on_tool_error_callback is None
 
 
 def test_instructions_bound_planning_review_and_recommendation() -> None:

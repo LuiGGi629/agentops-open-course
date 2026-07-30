@@ -249,7 +249,7 @@ class Settings(BaseSettings):
         if self.mcp_url and not self.mcp_url.startswith(("http://", "https://")):
             problems.append(
                 f"AGENT_MCP_URL must be an http(s) URL such as http://127.0.0.1:3000/mcp, got {self.mcp_url!r}. "
-                "Unset it to use the in-process stdio MCP server."
+                "Unset it to call the six read tools directly, in process."
             )
         if self.model_fallback is not None and self.model_fallback == self.model:
             problems.append(

@@ -64,11 +64,33 @@ def test_safe_operational_tokens_inside_email_domains_still_redact(address: str)
     assert "<EMAIL_ADDRESS>" in redacted
 
 
-def test_safe_operational_tokens_inside_urls_still_redact() -> None:
-    url = "https://inc-002.com/releases/v2.4.0"
-    redacted = pii.redact_pii(f"Visit {url}")
-    assert url not in redacted
-    assert "<URL>" in redacted
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://grafana.internal/d/abc",
+        "http://agentops-mcp.agentops.svc.cluster.local:8000/mcp",
+        "https://inc-002.com/releases/v2.4.0",
+    ],
+)
+def test_urls_survive_the_boundary_intact(url: str) -> None:
+    """A URL is operational evidence here, not personal data — and must never be half-rewritten.
+
+    The old policy listed ``URL`` as a boundary entity, and the recognizer matched only the
+    leading part of an internal hostname: ``http://grafana.internal/d/abc`` reached the model
+    as ``<URL>ernal/d/abc``. Partial rewriting is the worst outcome, because the result still
+    looks like a hostname. The previous test for this used a public ``.com`` domain, which
+    matched cleanly and hid the bug.
+    """
+    text = f"Visit {url} for the dashboard"
+    assert pii.redact_pii(text) == text
+    # The persisted policy never redacted URLs, so both boundaries now agree.
+    assert pii.redact_persisted_text(text) == text
+
+
+def test_credentials_inside_a_url_are_still_removed() -> None:
+    """Dropping the URL entity must not weaken the credential tripwires that run first."""
+    redacted = pii.redact_pii("curl https://api.example.com/v1?OPENAI_API_KEY=sk-secret-value")
+    assert "sk-secret-value" not in redacted
 
 
 def test_keeps_service_and_runbook_identifiers() -> None:

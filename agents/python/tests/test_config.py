@@ -246,8 +246,11 @@ def test_prompt_uri_must_be_a_registry_uri() -> None:
     assert settings.prompt_uri == "prompts:/agentops-agent-instruction/2"
 
 
-def test_component_env_example_documents_every_active_settings_variable() -> None:
-    example = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
+def test_repository_env_example_documents_every_active_settings_variable() -> None:
+    # Gate the file learners actually copy (`cp .env.example .env` at the repository
+    # root) and every runtime task loads. A component-local second copy would drift
+    # silently, so there is exactly one.
+    example = (Path(__file__).parents[3] / ".env.example").read_text(encoding="utf-8")
     documented = set(re.findall(r"(?m)^#?\s*([A-Z][A-Z0-9_]+)=", example))
     expected: set[str] = set()
     for name, field in Settings.model_fields.items():

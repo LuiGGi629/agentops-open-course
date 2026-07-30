@@ -20,19 +20,40 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.skill_toolset import LoadSkillTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 from opentelemetry import metrics
 
+from .circuit import CircuitOpenError
 from .config import settings
+from .data import DataAccessError
 from .models import normalize_incident_id, normalize_slug
 from .pii import redact_tool_output_pii
+from .resilience import ToolDeadlineError
 
 logger = logging.getLogger(__name__)
 
 # Tools that change state — the ones worth validating strictly before they run.
 _ACTION_TOOLS = frozenset({"restart_service", "resolve_incident"})
-_TRUSTED_INSTRUCTION_TOOL = "load_skill"
+
+
+def _is_trusted_instruction_tool(tool: BaseTool) -> bool:
+    """Return whether this tool's output is reviewed repository instruction.
+
+    Provenance, not name. ``load_skill`` is the single carve-out in the guardrail chain: its
+    result bypasses injection neutralization and spotlighting because the body came from
+    ``agents/data/skills``, which a maintainer reviews. Keying that on ``tool.name`` would let
+    *any* tool called ``load_skill`` inherit the bypass — including one served by a remote MCP
+    server through ``AGENT_MCP_URL``, which is a route this course actively teaches. A trust
+    boundary keyed on a name an attacker chooses is not a trust boundary.
+
+    ``LoadSkillTool`` is constructed only by the locally built ``skill_toolset()``; a foreign
+    tool is an ``McpTool`` (or similar) no matter what it calls itself. PII and credential
+    redaction still applies to the result either way.
+    """
+    return isinstance(tool, LoadSkillTool)
+
 
 # Known injection markers in retrieved content. Text is NFKC-normalized first so
 # homoglyph/fullwidth spellings collapse to their ASCII forms before matching.
@@ -81,6 +102,15 @@ def neutralize_injections(text: str) -> tuple[str, int]:
     """Return NFKC-normalized text with known injection markers replaced, plus a hit count."""
     normalized = unicodedata.normalize("NFKC", text)
     hits = 0
+    # Strip the spotlight delimiters first. A fence is only a boundary if it cannot occur in
+    # the data it fences: without this, any attacker-controlled log line, runbook, MCP result,
+    # or memory note could close the block and reopen it, placing its own text outside the
+    # data-marked region entirely. Counting it as a hit makes the attempt visible in the
+    # metric and the log rather than silently absorbed.
+    for delimiter in (SPOTLIGHT_PREFIX, SPOTLIGHT_SUFFIX):
+        if delimiter in normalized:
+            hits += normalized.count(delimiter)
+            normalized = normalized.replace(delimiter, _NEUTRALIZED)
     for pattern in _INJECTION_PATTERNS:
         normalized, count = pattern.subn(_NEUTRALIZED, normalized)
         hits += count
@@ -136,7 +166,7 @@ def secure_tool_output(
     second. Explicit composition keeps both.
     """
     current = tool_response
-    if settings.sanitize_tool_output and tool.name != _TRUSTED_INSTRUCTION_TOOL:
+    if settings.sanitize_tool_output and not _is_trusted_instruction_tool(tool):
         current = sanitize_tool_response(current)
     redacted = redact_tool_output_pii(tool, args, tool_context, current)
     if redacted is not None:
@@ -167,9 +197,19 @@ def validate_actions(tool: BaseTool, args: dict[str, Any], tool_context: ToolCon
 def handle_tool_error(
     tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, error: Exception
 ) -> dict[str, Any]:
-    """Log an unexpected tool failure and return a stable, non-sensitive error."""
+    """Log a tool failure and return an error the caller can act on — or a safe opaque one.
+
+    Error hygiene is classification, not silence. This repository authors three failure types
+    whose messages are first-party, carry no untrusted content, and name the setting to change
+    ("circuit is open, retrying in at most 30s (AGENT_CIRCUIT_RESET_TIMEOUT_S)"). Collapsing
+    those into "inspect the service logs" told an on-call engineer nothing the process already
+    knew. Every *other* exception stays opaque, because an arbitrary message may embed a query,
+    a path, or a driver detail that should not reach the model.
+    """
     del args, tool_context
     logger.error("Tool %s failed", tool.name, exc_info=(type(error), error, error.__traceback__))
+    if isinstance(error, CircuitOpenError | ToolDeadlineError | DataAccessError):
+        return {"error": str(error)}
     return {"error": f"Tool {tool.name!r} failed safely; inspect the service logs for the root cause."}
 
 

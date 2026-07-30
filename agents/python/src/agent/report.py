@@ -18,13 +18,9 @@ from google.adk import Agent
 from opentelemetry import metrics
 from pydantic import ValidationError
 
-from .budget import enforce_token_budget, record_token_usage
-from .compaction import compact_history
-from .guardrails import handle_model_error, handle_tool_error, secure_tool_output
 from .memory import GET_RUNBOOK_TOOL
 from .model import build_generation_config, build_model
 from .models import TriageReport
-from .pii import redact_request_pii, redact_response_pii
 from .telemetry import setup_telemetry
 from .tools import GET_INCIDENT_TOOL, SEARCH_SERVICE_LOGS_TOOL
 
@@ -58,11 +54,6 @@ triage_report_agent = Agent(
     instruction=REPORT_INSTRUCTION,
     tools=[GET_INCIDENT_TOOL, SEARCH_SERVICE_LOGS_TOOL, GET_RUNBOOK_TOOL],
     output_schema=TriageReport,
-    before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-    after_model_callback=[record_token_usage, redact_response_pii],
-    after_tool_callback=secure_tool_output,
-    on_model_error_callback=handle_model_error,
-    on_tool_error_callback=handle_tool_error,
 )
 
 

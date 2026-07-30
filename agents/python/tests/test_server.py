@@ -7,6 +7,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,6 +16,7 @@ from a2a.server.agent_execution import RequestContext
 from google.adk.a2a.converters.part_converter import A2APartToGenAIPartConverter
 from google.adk.a2a.converters.request_converter import AgentRunRequest
 from google.adk.agents import Agent, RunConfig
+from google.adk.apps import App
 from google.adk.models import BaseLlm, LlmRequest, LlmResponse
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -148,7 +150,9 @@ def _stream_events(*, fail_after_first: bool) -> list[dict[str, Any]]:
 def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
     # a2a-sdk 1.x moved the endpoint from a single ``url`` to a transport-interface list.
     assert [interface.url for interface in server.agent_card.supported_interfaces] == ["http://localhost:8080/"]
-    assert server.agent_card.version == "1.0.0"
+    # Derive, never hard-code: the card must carry the installed distribution version, and a release
+    # bump should not turn this suite red. `check:release-metadata` is what pins the number itself.
+    assert server.agent_card.version == version("agentops-agent")
     assert "Operating rules" not in server.agent_card.description
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
 
@@ -253,12 +257,14 @@ def test_a2a_runner_serializes_detached_snapshots_for_one_session(monkeypatch) -
 
         monkeypatch.setattr(server.Runner, "run_async", detached_snapshot_run)
         runner = server._SessionSerializingRunner(  # noqa: SLF001 - concurrency boundary under test
-            agent=Agent(
-                name="serialized_test_agent",
-                instruction="Reply using the fake model.",
-                model=_StreamingLlm(model="serialized-test"),
+            app=App(
+                name="agentops-agent",
+                root_agent=Agent(
+                    name="serialized_test_agent",
+                    instruction="Reply using the fake model.",
+                    model=_StreamingLlm(model="serialized-test"),
+                ),
             ),
-            app_name="agentops-agent",
             session_service=cast("Any", object()),
         )
 
@@ -306,12 +312,14 @@ def test_a2a_runner_keeps_different_sessions_concurrent(monkeypatch) -> None:
 
         monkeypatch.setattr(server.Runner, "run_async", concurrent_run)
         runner = server._SessionSerializingRunner(  # noqa: SLF001 - concurrency boundary under test
-            agent=Agent(
-                name="parallel_test_agent",
-                instruction="Reply using the fake model.",
-                model=_StreamingLlm(model="parallel-test"),
+            app=App(
+                name="agentops-agent",
+                root_agent=Agent(
+                    name="parallel_test_agent",
+                    instruction="Reply using the fake model.",
+                    model=_StreamingLlm(model="parallel-test"),
+                ),
             ),
-            app_name="agentops-agent",
             session_service=cast("Any", object()),
         )
 

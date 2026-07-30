@@ -41,9 +41,15 @@ def test_mcp_import_does_not_initialize_adk_or_emit_warnings() -> None:
     "script",
     [
         (
+            # ADK discovery prefers a module-level ``App`` over a bare ``root_agent``, so the
+            # loader must hand back the governed application — not an agent with no policy.
             "import sys; import agent; assert 'agent.composition' not in sys.modules; "
+            "from google.adk.apps import App; "
             "from google.adk.cli.utils.agent_loader import AgentLoader; "
-            "loaded = AgentLoader('src').load_agent('agent'); assert loaded.name == 'agentops_agent'"
+            "loaded = AgentLoader('src').load_agent('agent'); "
+            "assert isinstance(loaded, App); assert loaded.name == 'agentops-agent'; "
+            "assert loaded.root_agent.name == 'agentops_agent'; "
+            "assert [p.name for p in loaded.plugins] == ['agentops_policy']"
         ),
         (
             "from google.adk.cli.cli_eval import get_root_agent; "

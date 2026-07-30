@@ -11,17 +11,15 @@ from __future__ import annotations
 
 from google.adk import Agent, Workflow
 from google.adk.agents.llm_agent import ToolUnion
+from google.adk.apps import App
 
 from .actions import ACTION_TOOLS
-from .budget import enforce_token_budget, record_token_usage
-from .compaction import compact_history
 from .config import AgentEntrypoint, settings
-from .guardrails import handle_model_error, handle_tool_error, secure_tool_output, validate_actions
+from .governance import APP_NAME, AgentOpsPolicyPlugin
 from .longterm import MEMORY_TOOLS
 from .mcp_client import ops_mcp_toolset
 from .memory import KNOWLEDGE_TOOLS
 from .model import build_generation_config, build_model
-from .pii import redact_request_pii, redact_response_pii
 from .skills import skill_toolset
 from .telemetry import setup_telemetry
 from .tools import ALL_TOOLS
@@ -107,18 +105,10 @@ def build_conversational_agent() -> Agent:
         description="An on-call AgentOps Agent that triages and resolves incidents from a local dataset.",
         instruction=_instruction(),
         tools=[*_read_tools(), *ACTION_TOOLS, *MEMORY_TOOLS, skill_toolset()],
-        # Callback lists chain with first-non-None-wins: the budget check runs first
-        # (a refused call needs no further work), then compaction bounds the history,
-        # then redaction runs on only the messages that survive. Usage recording
-        # returns None so the PII pass still sees every response.
-        # --8<-- [start:root-agent-guardrails]
-        before_model_callback=[enforce_token_budget, compact_history, redact_request_pii],
-        after_model_callback=[record_token_usage, redact_response_pii],
-        before_tool_callback=validate_actions,
-        after_tool_callback=secure_tool_output,
-        on_model_error_callback=handle_model_error,
-        on_tool_error_callback=handle_tool_error,
-        # --8<-- [end:root-agent-guardrails]
+        # No guardrail wiring here on purpose. Budget, compaction, PII redaction, write
+        # validation, output hardening, and error handling are attached once for the whole
+        # application by AgentOpsPolicyPlugin (governance.py), so every agent — including
+        # sub-agents and workflow nodes — is governed without repeating a line of it.
     )
     # --8<-- [end:root-agent]
 
@@ -137,3 +127,10 @@ def _select_root_agent() -> Agent | Workflow:
 
 
 root_agent = _select_root_agent()
+
+# --8<-- [start:app]
+# The application boundary. ADK discovery prefers a module-level ``App`` over a bare
+# ``root_agent``, and the Runner takes it directly — so registering the policy plugin here
+# governs every entrypoint (conversational, workflow, coordinator) from one place.
+app = App(name=APP_NAME, root_agent=root_agent, plugins=[AgentOpsPolicyPlugin()])
+# --8<-- [end:app]

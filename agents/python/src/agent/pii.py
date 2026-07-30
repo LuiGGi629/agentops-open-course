@@ -48,9 +48,18 @@ _PERSISTED_PII_ENTITIES = [
     "US_PASSPORT",
     "US_SSN",
 ]
-# Model and tool boundaries retain Presidio's broader default coverage. Only its
-# ``ORGANIZATION`` class is excluded because it misclassifies identifiers such
-# as ``INC-002`` and would corrupt the arguments the agent needs.
+# Model and tool boundaries retain Presidio's broader default coverage, minus two classes:
+#
+# * ``ORGANIZATION`` misclassifies identifiers such as ``INC-002`` and would corrupt the
+#   arguments the agent needs.
+# * ``URL`` matched only the leading part of an internal hostname, so
+#   ``http://grafana.internal/d/abc`` came back as ``<URL>ernal/d/abc`` — a partially
+#   rewritten token the model then reasoned over. Silently corrupted evidence is worse than
+#   either a miss or an over-redaction, and an on-call agent's logs are full of ``.internal``,
+#   ``.local``, and ``.svc.cluster.local`` names. A URL is not personal data in this domain;
+#   the persisted policy already omitted it, so dropping it here also removes an asymmetry
+#   that was never justified. Credentials embedded in a URL are still caught by the
+#   credential tripwires that run before Presidio.
 _BOUNDARY_PII_ENTITIES = [
     *_PERSISTED_PII_ENTITIES,
     "AGE",
@@ -60,9 +69,8 @@ _BOUNDARY_PII_ENTITIES = [
     "MAC_ADDRESS",
     "NRP",
     "UK_NHS",
-    "URL",
 ]
-_CONTAINER_ENTITIES = frozenset({"EMAIL_ADDRESS", "URL"})
+_CONTAINER_ENTITIES = frozenset({"EMAIL_ADDRESS"})
 _DOMAIN_SAFE_TOKEN = re.compile(
     r"(?<![\w-])(?:"
     r"INC-\d+|"

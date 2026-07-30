@@ -13,7 +13,9 @@ from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.tool_context import ToolContext
 
 from agent import actions, data, guardrails, tools
+from agent.circuit import CircuitOpenError
 from agent.models import CURRENT_AUDIT_SCHEMA_VERSION, MAX_AUDIT_RATIONALE_LENGTH
+from agent.resilience import ToolDeadlineError
 
 # The guardrail only reads tool.name and never touches the context, so a cast None is enough.
 _NO_CONTEXT = cast("ToolContext", None)
@@ -402,3 +404,27 @@ def test_kill_switch_leaves_reads_and_approvals_working_when_clear(monkeypatch) 
     monkeypatch.setattr(actions.settings, "writes_disabled", False)
     result = _run_action("restart_service", {"name": "inventory"}, _approved_context({"rationale": "runbook says so"}))
     assert "restarted" in result["result"]
+
+
+def test_first_party_tool_errors_reach_the_caller_verbatim() -> None:
+    """Classify what is safe to surface; do not answer every failure with silence.
+
+    ``resilience.py`` and ``circuit.py`` author messages that name the exact knob to turn.
+    Collapsing them into "inspect the service logs" left the on-call engineer with less
+    information than the process already had.
+    """
+    tool = _ACTIONS_BY_NAME["restart_service"]
+
+    for error in (
+        CircuitOpenError("Tool 'get_incident' circuit is open after repeated failures; retrying in at most 30s."),
+        ToolDeadlineError("Tool 'get_incident' exceeded its 30s deadline (AGENT_TOOL_TIMEOUT_S)."),
+        data.DataAccessError("Cannot open the incident database at /srv/state/runtime.db"),
+    ):
+        result = guardrails.handle_tool_error(tool, {}, _NO_CONTEXT, error)
+        assert result["error"] == str(error)
+        assert "failed safely" not in result["error"]
+
+    # An arbitrary exception stays opaque: its message may carry a query, path, or driver detail.
+    opaque = guardrails.handle_tool_error(tool, {}, _NO_CONTEXT, RuntimeError("SELECT * FROM secrets"))
+    assert "failed safely" in opaque["error"]
+    assert "SELECT" not in opaque["error"]

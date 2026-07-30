@@ -32,6 +32,7 @@ class ToolDeadlineError(TimeoutError):
     """The caller stopped waiting after ``AGENT_TOOL_TIMEOUT_S`` elapsed."""
 
 
+# --8<-- [start:with-resilience]
 def with_resilience(func: Callable[..., dict[str, Any]]) -> Callable[..., Any]:
     """Wrap an idempotent read tool with a deadline and bounded retries.
 
@@ -106,3 +107,6 @@ def with_resilience(func: Callable[..., dict[str, Any]]) -> Callable[..., Any]:
             raise
 
     return wrapper
+
+
+# --8<-- [end:with-resilience]
