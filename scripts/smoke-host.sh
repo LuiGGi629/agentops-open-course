@@ -129,6 +129,25 @@ capture_gateway_logs() {
 	fi
 }
 
+dump_failure_logs() {
+	local artifact
+
+	for artifact in \
+		fake-model.log \
+		mcp.log \
+		gateway-start.log \
+		gateway.log \
+		loopback-relay.log \
+		a2a.log \
+		agent-card.json \
+		model-response.json \
+		a2a-response.json; do
+		[[ -f "${work_dir}/${artifact}" ]] || continue
+		echo "==> ${artifact} <==" >&2
+		tail -n 80 "${work_dir}/${artifact}" >&2 || true
+	done
+}
+
 stop_processes() {
 	local pid
 	local running
@@ -178,6 +197,7 @@ cleanup_on_exit() {
 		rm -rf -- "${work_dir}"
 	else
 		echo "Host smoke failed; logs are preserved at ${work_dir}" >&2
+		dump_failure_logs
 	fi
 	exit "${result}"
 }
@@ -362,9 +382,11 @@ curl --fail --silent --show-error \
 	"http://localhost:${gateway_a2a_port}/.well-known/agent-card.json" \
 	>"${work_dir}/agent-card.json"
 agent_name="$(jq -r '.name' "${work_dir}/agent-card.json")"
-agent_url="$(jq -r '.url' "${work_dir}/agent-card.json")"
+agent_url="$(jq -r '.supportedInterfaces[0].url' "${work_dir}/agent-card.json")"
+agent_protocol="$(jq -r '.supportedInterfaces[0].protocolBinding' "${work_dir}/agent-card.json")"
 [[ "${agent_name}" == "AgentOps Agent" ]]
-[[ "${agent_url}" == "http://localhost:${gateway_a2a_port}" ]]
+[[ "${agent_url}" == "http://localhost:${gateway_a2a_port}/" ]]
+[[ "${agent_protocol}" == "JSONRPC" ]]
 
 curl --fail --silent --show-error \
 	-H "Content-Type: application/json" \

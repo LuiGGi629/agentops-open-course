@@ -44,6 +44,7 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Removed the redundant standalone Kustomize binary, rendered overlays through pinned kubectl, and made the tool lock and GKE scripts independent of user-level mise and ShellCheck configuration.
 - Kept the maintainer installer scoped to repository tools instead of letting a bare `mise install` resolve every tool from the user's global configuration.
 - Aligned the agent's `uv-build` backend range with the pinned uv 0.12 tool, removing a warning from wheel and container builds.
+- Updated the host smoke and gateway lesson to validate the canonical A2A 1.x `supportedInterfaces` URL after agentgateway rewrites it, and print preserved diagnostics when the smoke fails.
 - Made the platform doctor and cluster startup reject cgroup v1 before pinned Kubernetes 1.35 can leave a partial k3d cluster.
 
 ## [0.2.0] - 2026-07-30
