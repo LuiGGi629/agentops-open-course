@@ -44,6 +44,8 @@ flowchart TD
 
 **Diagram in words:** Run the platform doctor, start k3d and its local registry, install kagent, then let Skaffold build and push the images. That build creates the BYO Agent, read-only MCP server, and agentgateway/NetworkPolicy path. A temporary port-forward to agentgateway `:3001` is the host entry point.
 
+The loop runs the other way too: `k3d cluster stop local` between sessions returns the memory without destroying anything, and `mise run cluster:start` resumes the same cluster ([6.2. Platform Install](./6.2.%20Platform%20Install.md#how-do-you-stop-the-cluster-between-sessions) owns both).
+
 ## Which page owns which platform manifest?
 
 Every platform concern has one owning manifest, so a broken rollout has one place to look.
@@ -108,13 +110,14 @@ The same handful of failures recur across this chapter and the next. Every one i
 
 Each row below is a symptom you can observe, the misconfiguration that usually causes it, and the page that owns the fix:
 
-| Symptom                                               | Likely cause                                                                                                        | Where to look                                                                                                     |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely  | [7.1. Tracing](../7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector)                |
-| Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL | [6.3. Platform Agents](./6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds) |
-| Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                          | [6.2. Platform Install](./6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads)               |
-| Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                               | [6.2. Platform Install](./6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads)               |
-| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees    | [7.0. Reproducibility](../7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination)      |
+| Symptom                                               | Likely cause                                                                                                                              | Where to look                                                                                                     |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing](../7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector)                |
+| Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL                       | [6.3. Platform Agents](./6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds) |
+| Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                                                | [6.2. Platform Install](./6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads)               |
+| Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                                                     | [6.2. Platform Install](./6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads)               |
+| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees                          | [7.0. Reproducibility](../7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination)      |
+| Pods stay `Pending`, or a container dies with `137`   | The machine is out of memory: host Compose and the in-cluster stack are running together, or the model plus k3s exceeds what the host has | [6.2. Platform Install](./6.2. Platform Install.md#what-do-you-do-when-the-machine-runs-out-of-memory)            |
 
 ## What proves this chapter worked?
 
@@ -138,5 +141,7 @@ The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platfor
 - `mise run check:infra` exits 0, having rendered and validated both the `local` and the `gke` overlay.
 - You can name, for any of the eight sub-pages, the manifest it owns.
 - You can say why no cluster exists yet, and which page creates one.
+- You finished the required drill in [6.0. Platform](./6.0.%20Platform.md#your-turn-how-do-you-prove-a-manifest-change-reaches-the-render): your base edit showed up in both renders, your overlay edit in one, `mise run check:infra` refused the pinned model value, and `git restore infra/k8s` put the tree and the gate back.
+- Without reopening Chapter 5, you can name the three protocols agentgateway fronts and say why no cluster Service publishes any of them.
 
 Continue to [6.0. Platform](./6.0.%20Platform.md) when `mise run check:infra` passes without a cluster, a GCP project, or a model.

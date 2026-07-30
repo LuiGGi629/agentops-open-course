@@ -73,7 +73,9 @@ The chapter checkpoint tests fail-closed MCP, A2A discovery, local model transla
 **You are done when:**
 
 - You can name the page that owns the MCP, A2A, and model boundaries, and the two pages that cut across all three.
+- The chapter's required drill is done: the `## Your turn` in [5.2. MCP Gateway](./5.2.%20MCP%20Gateway.md#your-turn-how-do-you-take-one-tool-off-the-allowlist) took one tool away from every caller by editing one CEL rule, with nothing under `agents/python/` touched.
 - You know where to find the listener map and the gateway-versus-ADK responsibility boundary.
+- Without reopening Chapter 4: you can name the callback that hardens a tool result before the model reads it, and say why the gateway's prompt guard does not replace it.
 
 [Chapter 6](../6. Platform/) moves the same listener contract to **k3d**, a Kubernetes cluster that runs on your own machine, and to optional GKE overlays.
 

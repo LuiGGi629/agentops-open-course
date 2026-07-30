@@ -107,24 +107,13 @@ The first turn on CPU can take tens of seconds while the model loads; later turn
 
 That is the first complete loop. [1. Setup](./docs/1.%20Setup/index.md) stages later prerequisites only when the corresponding chapter needs them.
 
-## Run the full local stack (Chapters 5-6)
+## Run and tear down the full local stack
 
-The heavier platform is intentionally not part of first-run setup.
+The gateway, Kubernetes, and observability tiers stay out of first-run setup. `mise run install:platform` adds that toolchain; the optional GKE path adds `mise run install:gcp`.
 
-```bash
-mise run install:platform
-mise run doctor:gateway
-mise run smoke:host
+Their exact start order, verification, and every teardown belong to the chapters that own them: [5. Gateway](./docs/5.%20Gateway/index.md) for the host agentgateway process order and its smoke check, [6. Platform](./docs/6.%20Platform/index.md) for the Ollama bridge, the k3d deployment, backup, and the guarded cluster and cloud teardowns.
 
-mise run doctor:platform
-mise run cluster:start
-mise run platform:install
-mise run platform:dev
-```
-
-`smoke:host` is an isolated fake-model composition check with automatic teardown. Chapter 5 owns the real host gateway process order; Chapter 6 owns the Ollama bridge bind, Kubernetes deployment, verification, backup, and teardown. Follow those pages rather than copying a second infrastructure runbook from this README.
-
-The optional GKE path additionally uses `mise run install:gcp`. It installs the pinned Google Cloud CLI and its required kubectl authentication plugin before `mise run doctor:gcp`.
+Follow those pages instead of a second infrastructure runbook here. Teardown deletes PersistentVolumeClaims and their data, and a duplicated copy of a destructive command is the copy that goes stale.
 
 ## Which learning path should you choose?
 
@@ -135,7 +124,7 @@ The optional GKE path additionally uses `mise run install:gcp`. It installs the 
 | Optional provider   | Gemini               | Host process       | Comparing ADK's native provider integration after the local path works |
 | Optional cloud lab  | Gemini on Vertex AI  | Zonal GKE Standard | Workload Identity, GCS artifacts, and production-shaped cloud delivery |
 
-The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available. At the prices checked on 29 July 2026, the fixed always-on estimate is about USD 28 per month with the GKE free-tier credit, or USD 101 without it. Network, GCS, and Vertex usage remain variable. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
+The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available, and it bills real money — [7.3. Costs](./docs/7.%20Observability/7.3.%20Costs.md) owns the current estimate and the date it was checked. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
 
 ## Course map
 
@@ -178,7 +167,7 @@ Each skill is tool-agnostic guidance that points back to the exact reference fil
 
 ```bash
 mise run install    # core pinned tools, docs/agent environments, and hooks
-mise run serve      # documentation at http://127.0.0.1:8000
+mise run serve      # documentation at http://127.0.0.1:8003
 mise run doctor     # base docs/Python entry prerequisites
 mise run format:core # dprint + Ruff + shfmt
 mise run check:core # static gate without Docker or infrastructure execution
@@ -190,19 +179,7 @@ mise run check              # core plus both infrastructure overlays
 mise run scan               # gitleaks history + Trivy scans
 ```
 
-For local stack troubleshooting, start with `kubectl get pods -A`, `kubectl -n agentops get events --sort-by=.lastTimestamp`, and `docker compose -f infra/observability/compose.yaml logs`. To reset only the agent's local writable state, run `cd agents/python && mise run data:reset`.
-
-## Stop and clean up
-
-For the host quickstart, stop the MCP server, A2A server, and foreground gateway with `Ctrl-C`; use `mise run gateway:host:stop` for the detached wrapper. Stop Ollama only if you started it manually. `Ctrl-C` on `platform:dev` leaves Kubernetes resources and PVCs in place by design. To remove them, first confirm the context, then delete only this course's workloads from `infra/`:
-
-```bash
-test "$(kubectl config current-context)" = k3d-local
-cd infra
-skaffold delete -p local
-```
-
-This deletes the course PVCs and their data, but leaves the shared `local` cluster and kagent control plane available to other projects. If you ran `mise run observability:up`, `mise run observability:down` preserves its volumes. A manual Compose `down -v`, `helmfile destroy`, cluster deletion, and GKE teardown are separate destructive operations; Chapter 6 scopes and guards each one.
+To reset only the agent's local writable state, run `cd agents/python && mise run data:reset`; it never touches the seed. For anything that will not start, the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html) is the owning page.
 
 ## Contributing and reuse
 

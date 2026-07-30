@@ -141,7 +141,9 @@ Model-backed behavior remains separate because a green offline suite proves wiri
 **You are done when:**
 
 - `mise run test` passes in `agents/python`, with no model server and no network running.
+- The chapter's required drill is done: the `## Your turn` in [3.1. Tools](./3.1.%20Tools.md#your-turn-how-do-you-ship-a-get_oncall_schedule-read-tool) ships a `get_oncall_schedule` read tool, and `uv run pytest tests/test_tools.py tests/test_data.py` covers both a valid lookup and a rejected invalid input.
 - You can name the sub-page that owns each capability, and the module behind it.
 - You can point at the one branch in `composition.py` that decides whether reads run locally or over MCP.
+- Without reopening Chapter 2: you can say why the model can only ever _ask_ for a state change, and name the two tools it has to ask for.
 
 Continue to [3.0. Packaging](./3.0.%20Packaging.md) when the `tools=` line of `root_agent` reads as a map of this chapter rather than a list of unfamiliar names.

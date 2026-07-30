@@ -2,13 +2,17 @@
 
 Grafana k6 scenarios that stress the **platform** paths of the AgentOps Agent stack and sample the **model** path. The walkthrough lives in the course page [7.2. Monitoring](../docs/7.%20Observability/7.2.%20Monitoring.md).
 
-k6 is open source under AGPL-3.0, consistent with the rest of the stack. Run a pinned binary without installing anything permanent:
+Run them through the repository tasks, from the repository root. Each scenario reads its knobs from the environment, so overrides go in front of the task:
 
 ```bash
-mise x k6@2.1.0 -- k6 run load/health.js
+mise run load:health
+DURATION=15s RATE=12 mise run load:mcp
+ITERATIONS=1 mise run load:a2a
 ```
 
-or use the pinned container image (host networking so `localhost` targets resolve):
+k6 is open source under AGPL-3.0, consistent with the rest of the stack, and is deliberately absent from `[tools]` in `mise.toml`: each task fetches a pinned ephemeral binary instead of installing one permanently. That is all a task is — `load:health` runs `mise x k6@<pinned version> -- k6 run load/health.js`, and the version lives in the `load:*` tasks in `mise.toml`. Use the raw form only to pass a k6 flag the task does not forward.
+
+The pinned container image is the alternative when you would rather not fetch a binary (host networking so `localhost` targets resolve); keep its tag equal to the version those tasks pin:
 
 ```bash
 docker run --rm --network host -v "$PWD/load:/scripts:ro" grafana/k6:2.1.0 run /scripts/health.js

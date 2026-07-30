@@ -26,7 +26,7 @@ The early checkpoints need no model, account, or bill. Some static checks and su
 - **[4.5. Guardrails](./4.5. Guardrails.md)** _(hands-on · offline, except the last checkpoint step)_: Boundary redaction, stable errors, confirmation, transactions, and audit evidence.
 - **[4.6. Security](./4.6. Security.md)** _(hands-on · model-free; scans may use network)_: Threat modeling, offline adversarial regressions, identity, and supply-chain scanning.
 
-Two pages end in a hands-on build step, so expect to write code, not just read. [4.4. Evaluations](./4.4. Evaluations.md) has you add an eval case, and [4.5. Guardrails](./4.5. Guardrails.md) has you turn a guardrail into a test that fails if it ever weakens.
+Expect to write code, not just read. [4.5. Guardrails](./4.5. Guardrails.md) carries the chapter's required `## Your turn` drill — turn a guardrail into a test that fails if it ever weakens — and [4.4. Evaluations](./4.4. Evaluations.md) has you add an eval case on top of it.
 
 ## Where is gate versus evidence explained?
 
@@ -48,7 +48,9 @@ Neither needs a model, a provider key, or a network.
 
 - `mise run test` passes, including the enforced 95% branch-coverage floor.
 - `mise run redteam` passes every adversarial case in `tests/test_security.py`.
+- The chapter's required drill is done: the `## Your turn` in [4.5. Guardrails](./4.5.%20Guardrails.md#your-turn-how-do-you-turn-a-guardrail-into-a-regression) added a regression you watched fail against a deliberately weakened guard, then restored.
 - You can use the page markers above to say which checkpoints need a configured model and which run offline.
 - You can point to [4.4. Evaluations](./4.4.%20Evaluations.md#which-evaluation-task-should-you-run-and-when) for the chapter's gate-versus-evidence policy.
+- Without reopening Chapter 3: you can name which of the six memory stores a value belongs in when it must survive the next turn but not the next session.
 
 Continue to [4.0. Typing](./4.0.%20Typing.md) when you know the first three pages need no model or provider account.

@@ -33,7 +33,7 @@ The six pages and the stage that owns each one:
 
 - **[1.0. System](./1.0. System.md)** _(hands-on)_: supported systems, hardware, network needs, and the pinned mise toolchain.
 - **[1.1. Python](./1.1. Python.md)** _(hands-on)_: the pinned Python and uv environment, runtime dependencies, and the model-free quality checkpoint.
-- **[1.2. Containers](./1.2. Containers.md)** _(hands-on)_: the Docker-compatible runtime the Chapter 5 gateway wrapper needs, and the later agent-image boundary — skip until Chapter 5.
+- **[1.2. Containers](./1.2. Containers.md)** _(hands-on)_: the Docker-compatible runtime the Chapter 5 gateway wrapper needs, and the five engine capabilities it depends on — skip until Chapter 5.
 - **[1.3. Kubernetes](./1.3. Kubernetes.md)** _(reference)_: the Chapter 6 platform tools, validated without creating a cluster yet — skip until Chapter 6.
 - **[1.4. Providers](./1.4. Providers.md)** _(hands-on)_: local Qwen3 through Ollama by default, or optional native Gemini, configured without leaking credentials.
 - **[1.5. Workspace](./1.5. Workspace.md)** _(hands-on)_: the repository, editor-neutral workflow, `AGENTS.md` guidance, git hooks, and your first full validation gate.
@@ -75,7 +75,7 @@ mise run doctor:model   # Ollama serves qwen3:4b-instruct
 mise run format:core    # early source formatting
 mise run check:core     # model/container/cluster/cloud-free validation
 mise run test           # the Python agent's offline suite
-mise run build          # the static site renders from docs/
+mise run build:docs     # the static site renders from docs/
 ```
 
 When they are green, [2.1. First Agent](../2.%20Agents/2.1.%20First%20Agent.md) runs the AgentOps Agent on local Qwen3.
@@ -84,7 +84,8 @@ When they are green, [2.1. First Agent](../2.%20Agents/2.1.%20First%20Agent.md) 
 
 - `mise run doctor` prints `base       ready`, followed by an `env` line; both `.env available to explicit live/config tasks` and `optional .env is absent` are passes.
 - `mise run doctor:model` confirms `qwen3:4b-instruct` is served locally.
-- `mise run format:core`, `mise run check:core`, `mise run test`, and `mise run build` each finish without reporting an error.
+- `mise run format:core`, `mise run check:core`, `mise run test`, and `mise run build:docs` each finish without reporting an error.
 - You can say which pages you skipped and what brings you back: 1.2. Containers at Chapter 5, 1.3. Kubernetes at Chapter 6.
+- Without reopening Chapter 0: you can name the model path you chose in [0.4. Providers](../0.%20Overview/0.4.%20Providers.md) and say why it needs no account, and you can name the one variable to raise when a local turn is slower than the agent's 60-second model deadline.
 
 Continue to [1.0. System](./1.0.%20System.md) when you are ready to install the learner toolchain.

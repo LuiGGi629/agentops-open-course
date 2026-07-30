@@ -56,7 +56,7 @@ Treat an executable snippet as a public API. Before changing it:
 1. Read the source file it mirrors.
 1. Run the exact command from the documented working directory.
 1. Include the expected observable result and a cleanup command where the exercise creates state.
-1. Rebuild the site with `mise run build` and follow the rendered links around the changed page.
+1. Rebuild the site with `mise run build:docs` and follow the rendered links around the changed page.
 
 ## How should I submit a pull request?
 

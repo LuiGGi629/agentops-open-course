@@ -35,7 +35,8 @@ Native Gemini remains an optional provider path with `AGENT_MODEL_PROVIDER=gemin
 
 ## Runtime contracts
 
-- The lazy `src/agent` package exposes one `root_agent` discovery boundary without initializing ADK on a plain import.
+- The lazy `src/agent` package exposes `app` and `root_agent` as its discovery boundary without initializing ADK on a plain import. ADK prefers the `App`, and only the `App` carries the policy plugin.
+- Cross-cutting policy is attached once: `AgentOpsPolicyPlugin` (`governance.py`) is registered on that `App`, so its hooks fire for every agent, sub-agent, and workflow node instead of being copied into per-agent callback lists.
 - `AGENT_ENTRYPOINT=agent|workflow|coordinator` selects the composition; the typed configuration rejects every other value.
 - The default instruction asks the model to plan and verify. Dedicated cases score proactive recall, skill loading, and log-before-fix behavior; post-action re-reading remains advisory and is pinned only by a prompt-presence test.
 - `src/agent/structured_report` exposes the schema-validated report agent used by `eval:report`.
@@ -46,7 +47,7 @@ Native Gemini remains an optional provider path with `AGENT_MODEL_PROVIDER=gemin
 - `AGENT_DATA_DIR` points to immutable seed data; `AGENT_STATE_DIR` holds its writable runtime copy.
 - `AGENT_MODEL_PROVIDER=openai-compatible` is the account-free default; `OPENAI_BASE_URL` chooses direct Ollama or agentgateway.
 - `AGENT_MODEL_PROVIDER=gemini` selects the optional native Gemini/Vertex integration.
-- `AGENT_MCP_URL` routes the six read/runbook tools over streamable HTTP; without it, the composition registers their local in-process implementations. `mise run mcp` starts the standalone server.
+- `AGENT_MCP_URL` routes the six read/runbook tools over streamable HTTP, pinned by `tool_filter=MCP_READ_TOOL_NAMES` so a server cannot widen the surface; without it, the composition registers their local in-process implementations. `mise run mcp` starts the standalone server.
 - HTTP MCP keeps DNS-rebinding protection enabled; `MCP_ALLOWED_HOSTS` can narrow its explicit authority allowlist.
 - message content capture in telemetry is disabled by default.
 
@@ -78,6 +79,7 @@ src/
     workflow.py     Bounded planning and evidence-review workflow
     delegation.py   Least-privilege specialist delegation
     guardrails.py   Input and action policy
+    governance.py   The App-level policy plugin that applies it to every agent
     actions.py      Approved writes and append-only audit
     pii.py          PII/credential request, response, and tool-output callbacks
     telemetry.py    Privacy-preserving OpenTelemetry setup
@@ -112,7 +114,7 @@ All three tasks call the same working `adk run src/agent` command. The two alter
 | `mise run run`            | Model                              | Run the ADK terminal UI.                                                   |
 | `mise run workflow`       | Model                              | Run the bounded read-only planning workflow.                               |
 | `mise run coordinator`    | Model                              | Run the least-privilege specialist coordinator.                            |
-| `mise run web`            | Model                              | Run the ADK developer UI.                                                  |
+| `mise run web`            | Model                              | Run the ADK developer UI at `127.0.0.1:8002`.                              |
 | `mise run mcp`            | None                               | Serve MCP over stdio.                                                      |
 | `mise run mcp:http`       | None                               | Serve MCP over HTTP at `127.0.0.1:8000`.                                   |
 | `mise run a2a`            | Depends on requests                | Serve persistent A2A on port `8080`.                                       |

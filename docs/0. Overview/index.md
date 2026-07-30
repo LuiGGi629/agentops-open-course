@@ -12,21 +12,23 @@ description: "Orient before you build: decide when an agent is justified, map th
 
 !!! tip "Keep the glossary open"
 
-    Every course term has a one-line definition in [0.7. Glossary](./0.7. Glossary.md), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below.
+    Every term the course teaches as a concept has a one-line definition in [0.7. Glossary](./0.7. Glossary.md), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below.
 
 ## What will you learn in this chapter?
 
 This chapter is orientation, not installation. It settles the decisions the rest of the course assumes you have already made.
 
-Read 0.0 to 0.4 in order. Bookmark 0.5, 0.6, and 0.7, and come back to them when you need them.
+Read 0.0, 0.1, 0.2 and 0.4 in order. Bookmark 0.3, 0.5, 0.6 and 0.7, and come back to them when you need them.
+
+Four pages, about 63 minutes. 0.3 is a reference map of ownership boundaries across nine technologies you have not seen run yet; it reads far better after Chapter 2 than before Chapter 1.
 
 This chapter covers:
 
 - **[0.0. Course](./0.0. Course.md)** _(orientation · ~20 min)_: outcome, audience, prerequisites, time, cost, and learning paths.
 - **[0.1. Agents](./0.1. Agents.md)** _(concept · ~16 min)_: what an AI agent is, the agentic loop, common patterns, and when a workflow or plain code is the better choice.
 - **[0.2. AgentOps](./0.2. AgentOps.md)** _(concept · ~12 min)_: the AgentOps lifecycle and how MLOps, LLMOps, and AgentOps relate.
-- **[0.3. Ecosystem](./0.3. Ecosystem.md)** _(reference · ~18 min)_: ownership boundaries across ADK, agentgateway, kagent, MLflow, OTel, MCP, A2A, AAIF, and CNCF.
-- **[0.4. Providers](./0.4. Providers.md)** _(concept · ~20 min)_: local Qwen3 by default, then optional Gemini or Vertex AI compared explicitly.
+- **[0.3. Ecosystem](./0.3. Ecosystem.md)** _(lookup · bookmark)_: ownership boundaries across ADK, agentgateway, kagent, MLflow, OTel, MCP, A2A, AAIF, and CNCF — the page you return to when you need to know who owns a boundary.
+- **[0.4. Providers](./0.4. Providers.md)** _(concept · ~15 min)_: local Qwen3 by default, then optional Gemini or Vertex AI compared explicitly.
 - **[0.5. Resources](./0.5. Resources.md)** _(lookup · bookmark)_: primary documentation, open-source development tools, and community routes.
 - **[0.6. Troubleshooting](./0.6. Troubleshooting.md)** _(lookup · bookmark)_: symptom-first fixes for the most common setup and runtime failures.
 - **[0.7. Glossary](./0.7. Glossary.md)** _(lookup · bookmark)_: one-line definitions for the course's terms, each linked to the page that owns it.
@@ -38,8 +40,8 @@ Five questions, in order, each answered by one sub-page. Settle them before you 
 ```mermaid
 flowchart TD
     Q1["Is an agent justified,<br/>or is a workflow enough?<br/>0.1 Agents"] --> Q2["What is AgentOps,<br/>and what is its lifecycle?<br/>0.2 AgentOps"]
-    Q2 --> Q3["Who owns which boundary<br/>across the stack?<br/>0.3 Ecosystem"]
-    Q3 --> Q4["Required OSS path or<br/>optional hosted service?<br/>0.3 Ecosystem"]
+    Q2 --> Q3["Who owns which boundary<br/>across the stack?<br/>0.3 Ecosystem · look up"]
+    Q3 --> Q4["Required OSS path or<br/>optional hosted service?<br/>0.3 Ecosystem · look up"]
     Q4 --> Q5["Which model provider,<br/>and how do you authenticate?<br/>0.4 Providers"]
     Q5 --> Ready(["Ready for<br/>1. Setup"])
 ```
@@ -64,8 +66,8 @@ There is nothing to run here. The chapter has worked when you can answer its fiv
 
 - You can say why this course builds an agent for incident work, and when a workflow or plain code would have been the better answer.
 - You can name the six lifecycle phases — Build, Capabilities, Quality, Gateway, Platform, Observe — and the chapter that owns each one.
-- You can name which tool owns the agent runtime, which one owns the traffic in front of it, and which ones record what happened.
+- You can find, in [0.3. Ecosystem](./0.3. Ecosystem.md) and inside a minute, which tool owns the agent runtime, which owns the traffic in front of it, and which ones record what happened — by lookup, not from memory.
 - You have picked a model path, and you know the default one needs no account and no fee.
-- You know which five pages you will read now and which three lookup pages you have bookmarked.
+- You know which four pages you will read now (0.0, 0.1, 0.2, 0.4) and which four lookup pages you have bookmarked (0.3, 0.5, 0.6, 0.7).
 
 Continue to [0.0. Course](./0.0.%20Course.md) when you are ready to pick a learning path.

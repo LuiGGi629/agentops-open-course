@@ -12,7 +12,7 @@ description: Complete the capstone, then use the optional maintenance references
 
 ## What should you do after Chapter 7?
 
-Go directly to [8.7. Capstone](./8.7.%20Capstone.md). It turns the completed reference into an agent for a domain you understand, then asks another person to reproduce the result.
+Go directly to [8.7. Capstone](./8.7.%20Capstone.md). It turns the completed reference into an agent for a domain you understand, then proves the result reproduces from a clean clone — handed to a reviewer, or run by you on a machine that carries nothing over.
 
 [Chapter 7](../7.%20Observability/) left you with the evidence needed to make that change responsibly: tests, trajectories, gateway policy, deployment checks, traces, metrics, and audit records. The capstone is where those pieces become one learner-owned platform.
 
@@ -49,5 +49,7 @@ There is no new runtime or gate on this orientation page. The capstone begins by
 - You have chosen a bounded domain and user outcome for the capstone.
 - You know that the required course path continues directly to 8.7.
 - You have bookmarked only the optional maintenance pages relevant to how you plan to share the result.
+- You finished the required drill in [8.7. Capstone](./8.7.%20Capstone.md#your-turn-how-do-you-prove-the-domain-coupling-before-milestone-1): one seed identifier changed, the suite red on the tests that name it, and everything green again after `git restore` and a rebuild.
+- Without reopening Chapter 3, you can name the four boundaries one new read capability crosses — data, tool, gateway policy, evidence — and the file that owns each.
 
 Continue to [8.7. Capstone](./8.7.%20Capstone.md) when you can name the domain boundary you will replace.

@@ -382,6 +382,7 @@ async def _run(turns: list[str], eval_id: str, evaluation_agent: BaseAgent | Non
             evidence_parts: list[str] = []
             turn_provider_errors: list[dict[str, str]] = []
             confirmation_pause: str | None = None
+            # --8<-- [start:event-stream]
             async for event in runner.run_async(user_id=user_id, session_id=session.id, new_message=message):
                 usage = getattr(event, "usage_metadata", None)
                 if usage is not None:
@@ -407,6 +408,7 @@ async def _run(turns: list[str], eval_id: str, evaluation_agent: BaseAgent | Non
                 )
                 if event.is_final_response() and event.content:
                     answer_parts.extend(part.text for part in event.content.parts or [] if part.text)
+            # --8<-- [end:event-stream]
             response = "".join(answer_parts)
             responses.append(response if response.strip() else confirmation_pause or "")
             trajectories.append(tool_calls)

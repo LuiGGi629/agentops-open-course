@@ -24,8 +24,9 @@ The course teaches the complete lifecycle of one **AgentOps Agent** with Google 
 - **Docs mirror source.** Critical Python excerpts use checked `pymdownx.snippets` regions from `agents/python`; commands/manifests match `infra`. Prefer a short exact excerpt plus a source link over a second pseudo-implementation.
 - **Every course page is an FAQ.** It starts with YAML `description` front matter, contains at least one H2, and every H2 ends in `?`. `scripts/check_conventions.py` enforces this and the page frame below.
 - **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/python/.state`; Kubernetes agent/MCP processes share `agentops-agent-state` so reads remain coherent with approved writes. Only the A2A startup and direct write boundary may prepare or migrate runtime state; probes and read tools stay read-only.
-- **Reads and writes have different authority.** Six read/runbook tools can be direct locally or MCP through `AGENT_MCP_URL`. `restart_service` and `resolve_incident` remain in-process, require ADK confirmation, validate targets, and append audit evidence in the same transaction. Replays with the same invocation, action, and target return the original audit row without mutating state again.
-- **Skills and retrieved data have different trust.** The exact `load_skill` result is reviewed repository instruction, so it bypasses injection neutralization and spotlighting while retaining recursive PII/credential redaction. Every other tool result stays data-hardened by default.
+- **Reads and writes have different authority.** Six read/runbook tools can be direct locally or MCP through `AGENT_MCP_URL`. The MCP toolset passes `tool_filter=MCP_READ_TOOL_NAMES` (`mcp_client.py`), so a server cannot widen the surface by advertising more tools. `restart_service` and `resolve_incident` remain in-process, require ADK confirmation, validate targets, and append audit evidence in the same transaction. Replays with the same invocation, action, and target return the original audit row without mutating state again.
+- **Policy is attached once, at the app boundary.** `src/agent/governance.py` holds `AgentOpsPolicyPlugin`, an ADK `BasePlugin` registered on the `App` that `composition.py` exports as `app` (also re-exported by `src/agent/__init__.py`, which ADK discovery prefers over a bare `root_agent`). Its hooks fire for every agent, sub-agent, and workflow node, so adding an agent cannot lose the policy. Two properties are load-bearing: the before-model order is budget → compaction → redaction, and the first non-`None` return short-circuits the rest. Never reintroduce a per-agent callback list — that is what let nine copies of the same six callbacks accumulate.
+- **Skills and retrieved data have different trust.** The carve-out is keyed on the ADK `LoadSkillTool` **type**, which only the locally built `skill_toolset()` constructs — not on the tool's name, which any MCP server could claim. That result is reviewed repository instruction, so it bypasses injection neutralization and spotlighting while retaining recursive PII/credential redaction. Every other tool result stays data-hardened by default.
 - **Audit is append-only, not immutable.** Every row carries its audit schema version. SQLite triggers block row update/delete through the schema; administrators can still alter the file/schema. Do not overclaim.
 - **Telemetry content stays private by default.** Both ADK/GenAI content-capture variables default to literal `false`. PII callbacks cover outbound model requests, inbound model responses, and tool output, but raw session ingestion occurs earlier.
 - **No LiteLLM or garak contract.** Runtime/evaluation uses ADK's OpenAI-compatible client for Ollama/agentgateway or native Gemini when selected explicitly. `mise run redteam` is deterministic offline adversarial regression, not live-model penetration testing.
@@ -40,18 +41,18 @@ Local Qwen3/Ollama is the default model path from the first Chapter 2 interactio
 
 ## Pinned contracts
 
-Version 1.0 freezes the repository-owned configuration, runtime, state, protocol, image, and deployment surfaces below. `SUPPORT.md` defines compatibility, deprecation, supported platforms, upgrade, rollback, and explicit non-goals.
+`SUPPORT.md` defines which surfaces are stable, plus compatibility, deprecation, supported platforms, upgrade, rollback, and explicit non-goals. Course prose is deliberately not frozen; the software contracts are.
 
-Use the repository files/locks as version authority. Current coordinated pins include:
+Use the repository files and locks as version authority — never a number copied into prose. The authoritative pin for each component lives in:
 
-- Google ADK Python compatible range starts at `2.4.0`; `uv.lock` is exact.
-- agentgateway binary/image `1.3.1`, with the image digest pinned in Kubernetes.
-- stable kagent Helm charts `0.9.11`; API resources are `v1alpha2`.
-- MLflow `3.14.0` in the locked server/evaluation environments.
-- OpenTelemetry Collector contrib `0.156.0` by image digest.
-- Python `3.13`; Zensical is exactly pinned in the root project.
+- Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution. The MLflow server image has its own `infra/mlflow/pyproject.toml`.
+- Zensical and the documentation toolchain: root `pyproject.toml` and `uv.lock`.
+- CLI tools (agentgateway, k3d, kubectl, helm, helmfile, skaffold, k6, gcloud, …): `mise.toml` `[tools]`, with checksums and provenance in `mise.lock`.
+- kagent Helm charts: `infra/helmfile.yaml`. API resources are `v1alpha2`.
+- Container images (agentgateway, OpenTelemetry Collector, Loki, Prometheus, …): digest-pinned at their use site under `infra/k8s/` and `infra/observability/`.
+- Python interpreter: `.python-version`.
 
-The stable network contract is MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, MLflow `:5000`, OTLP `:4317/:4318`, Prometheus `:9090`, and host Grafana `:3002`.
+This file owns the stable network contract, because nothing else does: MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, ADK web UI `:8002`, documentation preview `:8003`, MLflow `:5000`, OTLP `:4317/:4318`, Prometheus `:9090`, and host Grafana `:3002`.
 
 ## Development commands
 
@@ -73,6 +74,7 @@ mise run check
 mise run test
 mise run scan
 mise run build
+mise run build:docs
 mise run serve
 mise run gateway:host
 mise run gateway:host:start
@@ -90,6 +92,8 @@ mise run promote
 ```
 
 `mise run install` bootstraps the learner-facing core tools and environments. The platform and maintainer tiers are explicit so a first checkout does not install Kubernetes, cloud, and security tooling it does not yet need.
+
+Aggregate tasks run their children: `install`, `format`, `check`, and `build` each fan out, so `mise run build` builds the site **and** both container images and therefore needs Docker. Use `mise run build:docs` for the container-free documentation build. `install:core`, `doctor:base`, `watch`, and `scan` are aliases of `install`, `doctor`, `serve`, and `secure`; `install:tools:*` are hidden implementation details.
 
 Agent tasks from `agents/python/`:
 
@@ -121,7 +125,7 @@ SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev -p local
 
 Do not start host Compose observability while the in-cluster stack is forwarded on the same ports. No profile creates an Ingress, LoadBalancer, or public application endpoint; clients use temporary port-forwards through agentgateway.
 
-The GKE path stops at `tofu plan` unless the user explicitly approves deployment. The required `project_id` variable selects the project; the rendered GKE bundle derives its Workload Identity accounts, GCS bucket, DNS service IP, and Vertex project from OpenTofu outputs. The single zonal Spot-node design is production-shaped but interruptible and non-HA. The July 2026 fixed estimate is about USD 28/month with the GKE free-tier credit or USD 101 without it; refresh variable prices before apply. `skaffold delete`, PVC deletion, `k3d cluster delete`, `tofu apply`, and `tofu destroy` require careful context/review; cloud apply/destroy requires explicit approval.
+The GKE path stops at `tofu plan` unless the user explicitly approves deployment. The required `project_id` variable selects the project; the rendered GKE bundle derives its Workload Identity accounts, GCS bucket, DNS service IP, and Vertex project from OpenTofu outputs. The single zonal Spot-node design is production-shaped but interruptible and non-HA. It bills real money: `docs/7. Observability/7.3. Costs.md` owns the estimate and the date it was checked. Do not copy that figure anywhere else, and refresh variable prices before apply. `skaffold delete`, PVC deletion, `k3d cluster delete`, `tofu apply`, and `tofu destroy` require careful context/review; cloud apply/destroy requires explicit approval.
 
 ## Documentation workflow
 

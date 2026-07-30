@@ -5,7 +5,7 @@ title: "docs: freshness audit for <release/date>"
 labels: documentation
 ---
 
-Time-sensitive claims rot silently. Walk this checklist before each release: open the source file, confirm the claim still matches reality (installed version, current price, current model name, re-run benchmark), and check the box or open a fix. Update this template when a claim moves, is added, or is retired.
+Time-sensitive claims rot silently. Walk this checklist before each release: open the source file, confirm the claim still matches reality (installed version, current price, current model name, re-run benchmark, current foundation status), and check the box or open a fix. Update this template when a claim moves, is added, or is retired.
 
 ## Model & provider names
 
@@ -22,13 +22,23 @@ Time-sensitive claims rot silently. Walk this checklist before each release: ope
 
 ## Pinned versions
 
-- [ ] agentgateway `v1.3.1` and its `202`-on-`DELETE` session-termination quirk — `docs/5. Gateway/5.2. MCP Gateway.md`, `docs/6. Platform/6.5. Platform Gateway.md`.
-- [ ] kagent charts `0.9.11` and API `kagent.dev/v1alpha2` — `docs/6. Platform/6.2. Platform Install.md`, `docs/6. Platform/6.3. Platform Agents.md`, `infra/helmfile.yaml`.
+- [ ] agentgateway `v1.4.1` and its `202`-on-`DELETE` session-termination quirk — `docs/5. Gateway/5.2. MCP Gateway.md`, `docs/6. Platform/6.5. Platform Gateway.md`.
+- [ ] kagent charts `0.9.12` and API `kagent.dev/v1alpha2` — `docs/6. Platform/6.2. Platform Install.md`, `docs/6. Platform/6.3. Platform Agents.md`, `infra/helmfile.yaml`.
 - [ ] Wolfi apk exact pins (`python-3.13=...`, `libstdc++=...`) still resolve; refresh if dropped from the rolling repo — `agents/python/Dockerfile`, `docs/6. Platform/6.1. Containers.md`.
 - [ ] Container base-image digests, `uv`, and `trivy-action` pins current (Dependabot) — `agents/python/Dockerfile`.
 - [ ] The pinned `curlimages/curl` smoke image still resolves for every supported host architecture — `scripts/smoke-host.sh`.
 - [ ] Ollama evaluation release asset and SHA-256 still match the pinned version — `.github/workflows/eval.yml`.
 - [ ] GitHub Actions SHA pins current (Dependabot) — `.github/workflows/*.yml`.
+
+## Governance & foundation status
+
+`docs/8. Community/8.6. AAIF.md` is the most volatile page in the course: it dates a donation, names project owners, and prints maturity tiers, none of which the repository can pin.
+
+- [ ] AAIF still hosts MCP, agentgateway, and the AGENTS.md convention, and nothing donated since is missing — `docs/8. Community/8.6. AAIF.md`.
+- [ ] A2A still sits under the Linux Foundation directly rather than a sub-foundation — `docs/8. Community/8.6. AAIF.md`.
+- [ ] CNCF tiers still correct: Kubernetes, Prometheus, and OpenTelemetry Graduated; kagent still Sandbox — `docs/8. Community/8.6. AAIF.md`.
+- [ ] MLflow still under LF AI & Data, and every remaining steward/licence pairing in the map still holds (Grafana Labs CLA, Ollama, Qwen3, Google ADK) — `docs/8. Community/8.6. AAIF.md`.
+- [ ] The upstream issue-routing destinations still resolve to the tracker that owns each boundary — `docs/8. Community/8.6. AAIF.md`.
 
 ## Benchmarks & measured checkpoints
 

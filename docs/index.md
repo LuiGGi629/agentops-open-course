@@ -16,6 +16,7 @@ Learn from one completed **AgentOps Agent**, from its first local model call to 
 
 Choose the entry point that matches your current experience:
 
+- **Want to see it work before you read anything?** Take the six commands below. They end in a real agent turn on your own hardware, in about the time the model takes to download.
 - **New to agents or AgentOps?** Begin with [0.0. Course](./0.%20Overview/0.0.%20Course.md). Chapter 0 is read-only and helps you decide whether an agent fits your problem.
 - **Ready to prepare your machine?** Go to [1.0. System](./1.%20Setup/1.0.%20System.md). Chapter 1 owns installation, local checks, and model setup.
 - **Already have the repository and local model ready?** Start the first conversation at [2.1. First Agent](./2.%20Agents/2.1.%20First%20Agent.md).
@@ -23,6 +24,25 @@ Choose the entry point that matches your current experience:
 This separation is intentional. You make the architecture and provider decisions before downloading tools, prove the code offline before adding a model, then run the agent where the course can explain what happened.
 
 Keep [0.7. Glossary](./0.%20Overview/0.7.%20Glossary.md) open when a term is unfamiliar. Use [0.6. Troubleshooting](./0.%20Overview/0.6.%20Troubleshooting.md) only when a command later fails.
+
+## What are the six commands that reach the first agent turn?
+
+You need [mise](https://mise.jdx.dev/) and [Ollama](https://ollama.com/download) on a Unix-like shell. No account, no API key, no `.env`:
+
+```bash
+git clone https://github.com/MLOps-Courses/agentops-open-course.git
+cd agentops-open-course
+mise run install
+ollama pull qwen3:4b-instruct
+cd agents/python
+mise run run
+```
+
+Ask `List the open incidents`. A correct run answers with exactly **INC-002, INC-005, and INC-010** — three ids from the committed seed dataset, not three it invented. That is the whole local loop in one turn: a model that reads real data through typed tools and refuses to make one up.
+
+The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.6. Troubleshooting](./0.%20Overview/0.6.%20Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu) names the one variable to raise, and how to tell a slow turn from an unreachable model.
+
+`mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent](./2.%20Agents/2.1.%20First%20Agent.md) repeats this run under `mise run web` so you can watch the `list_incidents` call that produced those three ids, and Chapter 2 explains how it is wired.
 
 ## What will you be able to do?
 
@@ -100,4 +120,4 @@ Google ADK, agentgateway, kagent, MLflow, OpenTelemetry, Prometheus, Grafana, Ol
 
 Start reading at [0.0. Course](./0.%20Overview/0.0.%20Course.md), or enter at the later stage that matches your current setup. Every chapter ends with a checkpoint; Chapters 5-7 also include explicit verification and teardown steps. Finish by adapting the reference through [8.7. Capstone](./8.%20Community/8.7.%20Capstone.md).
 
-The source repository is public at [MLOps-Courses/agentops-open-course](https://github.com/MLOps-Courses/agentops-open-course). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8000`.
+The source repository is public at [MLOps-Courses/agentops-open-course](https://github.com/MLOps-Courses/agentops-open-course). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.
