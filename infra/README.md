@@ -36,7 +36,7 @@ It adds demo JWT/API-key/TLS controls while preserving loopback-only publication
 
 ## Local Kubernetes
 
-Prerequisites are Docker, k3d, kubectl, Helm, Helmfile, Skaffold, Kustomize, and Ollama. Kubernetes begins in Chapter 6. From the repository root:
+Prerequisites are Docker, k3d, kubectl, Helm, Helmfile, Skaffold, and Ollama. The pinned kubectl provides the Kustomize renderer. Kubernetes begins in Chapter 6. From the repository root:
 
 ```bash
 mise run doctor:platform

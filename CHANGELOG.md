@@ -4,6 +4,10 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+### Fixed
+
+- Removed the redundant standalone Kustomize binary and render overlays through the pinned kubectl, avoiding an executable-format failure on GitHub's Ubuntu runner.
+
 ## [0.2.0] - 2026-07-30
 
 ### Added

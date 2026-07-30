@@ -14,7 +14,6 @@ kubectl = "1.36.3"
 helm = "4.2.3"
 helmfile = "1.7.1"
 skaffold = "2.24.0"
-kustomize = "5.8.1"
 kubeconform = "0.8.0"
 kube-linter = "0.8.3"
 opentofu = "1.12.5"
@@ -71,7 +70,7 @@ run = [
 
 [tasks."install:tools:platform"]
 description = "Install tools used by the local platform and optional GKE plan"
-run = "mise install uv k3d kubectl helm helmfile skaffold kustomize kubeconform kube-linter opentofu tflint sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
+run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
 
 [tasks."install:maintainer"]
 description = "Install every dependency used by the complete maintainer validation"

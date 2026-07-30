@@ -5,7 +5,7 @@ lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${lib_dir}/lib.sh"
 
 require_cmd yq gateway
-require_cmd kustomize platform
+require_cmd kubectl platform
 require_cmd kubeconform platform
 require_cmd kube-linter platform
 require_cmd helmfile platform
@@ -36,7 +36,7 @@ for overlay in local gke; do
 			GKE_CLUSTER_DNS_IP=10.30.0.10 \
 			infra/scripts/render-gke.sh >"${rendered}"
 	else
-		kustomize build "infra/k8s/overlays/${overlay}" >"${rendered}"
+		kubectl kustomize "infra/k8s/overlays/${overlay}" >"${rendered}"
 	fi
 	kubeconform -strict -ignore-missing-schemas -summary "${rendered}"
 	kube-linter lint --fail-if-no-objects-found --with-color=false "${rendered}"

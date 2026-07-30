@@ -13,7 +13,7 @@ lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${lib_dir}/lib.sh"
 
-require_cmd kustomize platform
+require_cmd kubectl platform
 require_cmd skaffold platform
 
 overlay=local
@@ -70,7 +70,7 @@ fi
 
 # 3. Prove the target overlay still renders before anyone promotes it.
 printf '\n[3/3] Rendering the %q overlay...\n' "${overlay}"
-kustomize build "infra/k8s/overlays/${overlay}" >/dev/null
+kubectl kustomize "infra/k8s/overlays/${overlay}" >/dev/null
 printf 'The %q overlay renders cleanly.\n' "${overlay}"
 
 if ((!with_model)); then

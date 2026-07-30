@@ -124,7 +124,7 @@ One command renders and validates both overlays offline: no live cluster, no GCP
 mise run check:infra
 ```
 
-It runs `scripts/check-infra.sh`. That script builds each overlay with `kustomize`, then validates every object with `kubeconform` and `kube-linter` — a schema checker and a best-practice linter. It also diagnoses both Skaffold profiles, lints the helmfile, and runs `tofu validate` against the GKE plan.
+It runs `scripts/check-infra.sh`. That script builds each overlay with `kubectl kustomize`, then validates every object with `kubeconform` and `kube-linter` — a schema checker and a best-practice linter. It also diagnoses both Skaffold profiles, lints the helmfile, and runs `tofu validate` against the GKE plan.
 
 The script also runs `tflint` on that plan, so it needs the `opentofu` and `tflint` binaries pinned in `mise.toml`. `mise run doctor:platform` checks for neither, so this gate can fail on a machine whose doctor is green.
 

@@ -6,7 +6,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
-require_cmd kustomize platform
+require_cmd kubectl platform
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 template="${1:-}"
@@ -35,7 +35,7 @@ rendered_file="${tmp_dir}/rendered.yaml"
 
 case ${template} in
 "")
-	kustomize build infra/k8s/overlays/gke >"${template_file}"
+	kubectl kustomize infra/k8s/overlays/gke >"${template_file}"
 	;;
 -)
 	cat >"${template_file}"

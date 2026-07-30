@@ -13,7 +13,7 @@ for overlay in local gke; do
 			GKE_CLUSTER_DNS_IP=10.30.0.10 \
 			"${infra_dir}/scripts/render-gke.sh" >"${manifest}"
 	else
-		kustomize build "${infra_dir}/k8s/overlays/${overlay}" >"${manifest}"
+		kubectl kustomize "${infra_dir}/k8s/overlays/${overlay}" >"${manifest}"
 	fi
 
 	agent_claim="$(

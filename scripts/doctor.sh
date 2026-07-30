@@ -28,7 +28,6 @@ platform)
 		helm
 		helmfile
 		skaffold
-		kustomize
 		kubeconform
 		kube-linter
 		agentgateway
@@ -49,7 +48,6 @@ gcp)
 		helm
 		helmfile
 		skaffold
-		kustomize
 		kubeconform
 		kube-linter
 		agentgateway
