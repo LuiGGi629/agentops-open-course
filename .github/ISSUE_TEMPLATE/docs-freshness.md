@@ -5,7 +5,7 @@ title: "docs: freshness audit for <release/date>"
 labels: documentation
 ---
 
-Time-sensitive claims rot silently. Walk this checklist before each release: open the source file, confirm the claim still matches reality (installed version, current price, current model name, re-run benchmark, current foundation status), and check the box or open a fix. Update this template when a claim moves, is added, or is retired.
+Time-sensitive claims rot silently. Walk this checklist before each release: open the source file, confirm the claim still matches reality (installed version, current price, current model name, re-run benchmark, current foundation status), and check the box or open a fix. Keep this audit open until every box is checked; the release gate rejects an empty or incomplete checklist. Update this template when a claim moves, is added, or is retired.
 
 ## Automated snapshot
 
@@ -16,7 +16,7 @@ The quarterly `.github/workflows/freshness.yml` workflow appends a read-only rep
 
 ## Model & provider names
 
-- [ ] `gemini-3.6-flash` is still the latest stable optional Gemini/Vertex model id — `docs/0. Overview/0.4. Providers.md`, `docs/2. Agents/2.2. Models.md`, `docs/6. Platform/6.3. Platform Agents.md`, and the GKE gateway/agent manifests.
+- [ ] `gemini-3.6-flash` is still the current GA optional Gemini/Vertex model id, with its short-term lifecycle stated honestly — `docs/0. Overview/0.4. Providers.md`, `docs/2. Agents/2.2. Models.md`, `docs/6. Platform/6.3. Platform Agents.md`, and the GKE gateway/agent manifests.
 - [ ] `qwen3:4b-instruct` is still the default local Ollama model and its weights remain Apache-2.0 licensed — `agents/python/src/agent/config.py`, `docs/0. Overview/0.4. Providers.md`, `docs/6. Platform/6.6. Platform Delivery.md`, and the local manifests.
 - [ ] `nomic-embed-text` is still the embedding model — `agents/python/src/agent/config.py`, `docs/3. Capabilities/3.4. Memory.md`.
 
@@ -54,6 +54,6 @@ The quarterly `.github/workflows/freshness.yml` workflow appends a read-only rep
 
 ## Wrap-up
 
-- [ ] Every unchecked item above has a linked follow-up issue or PR.
+- [ ] Every finding above was corrected or documented accurately before its box was checked.
 - [ ] The release handoff records the reviewer and review date, or links an explicit waiver with an owner and expiry.
 - [ ] This template updated for any claim that moved, was added, or was retired.

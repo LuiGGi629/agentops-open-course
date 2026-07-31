@@ -1364,6 +1364,37 @@ def check_capacity_course_contracts(
     return problems
 
 
+def check_project_neutral_provider_contracts(
+    pages: dict[pathlib.Path, str],
+    *,
+    root: pathlib.Path = ROOT,
+) -> list[Problem]:
+    """Learner provider examples never target the maintainer-owned GCP project."""
+    env_relative = ".env.example"
+    provider_page = "docs/1. Setup/1.4. Providers.md"
+    env = (root / env_relative).read_text(encoding="utf-8")
+    page = contract_page(pages, root, provider_page)
+    problems = require_contract_tokens(
+        env_relative,
+        env,
+        ("GOOGLE_CLOUD_PROJECT=your-gcp-project-id",),
+    )
+    problems += require_contract_tokens(
+        provider_page,
+        page,
+        (
+            "GOOGLE_CLOUD_PROJECT=your-gcp-project-id",
+            "GCP_PROJECT_ID=your-gcp-project-id mise run doctor:gcp",
+            "does not load `GOOGLE_CLOUD_PROJECT` from `.env`",
+        ),
+    )
+    assignment = re.compile(r"(?m)^\s*#?\s*(?:GOOGLE_CLOUD_PROJECT|GCP_PROJECT_ID)\s*=\s*agentops-open-course\s*$")
+    for relative, text in ((env_relative, env), (provider_page, page)):
+        if assignment.search(text):
+            problems.append((relative, "learner GCP example targets the maintainer-owned project"))
+    return problems
+
+
 def check_release_freshness_course_contracts(
     pages: dict[pathlib.Path, str],
     *,
@@ -1380,6 +1411,9 @@ def check_release_freshness_course_contracts(
         (
             "freshness_evidence:",
             "issues: read",
+            "application/vnd.github.full+json",
+            "gh api --method POST markdown --input -",
+            "--checklist-template-html freshness-template.html",
             "scripts/release_freshness.py",
             "freshness: $freshness",
         ),
@@ -1391,6 +1425,7 @@ def check_release_freshness_course_contracts(
             "issue:<number>",
             "waiver:<reviewed reason>",
             "120 days",
+            "every checklist box checked",
             "reject tag updates and deletion",
             "do not restrict tag creation",
             "break-glass bypass",
@@ -1449,6 +1484,7 @@ def check_course_source_contracts(
         check_domain_course_contracts,
         check_outcome_evidence_contracts,
         check_capacity_course_contracts,
+        check_project_neutral_provider_contracts,
         check_release_freshness_course_contracts,
         check_actions_artifact_retention_contracts,
     ):
@@ -1601,6 +1637,45 @@ def check_gcp_runbook(*, root: pathlib.Path = ROOT) -> list[Problem]:
         )
         for line_number, line in enumerate(lines, start=1)
         if re.search(r"\btofu\s+", line) and "-chdir=infra/gcp" not in line
+    ]
+
+
+def check_skaffold_runbooks(*, root: pathlib.Path = ROOT) -> list[Problem]:
+    """Reject root-relative configs and working-directory-dependent profile shorthand."""
+    paths = sorted(path for base in (root / "docs", root / "infra") if base.exists() for path in base.rglob("*.md"))
+    return [
+        (
+            path.relative_to(root).as_posix(),
+            f"line {line_number}: run from `infra/` with `--filename skaffold.yaml`",
+        )
+        for path in paths
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if "--filename infra/skaffold.yaml" in line
+        or re.search(r"\bskaffold\s+(?:run|delete)\s+-p\s+(?:local|gke)\b", line)
+    ]
+
+
+def check_eval_runtime_baseline(*, root: pathlib.Path = ROOT) -> list[Problem]:
+    """Keep the measured cost baseline bound to the scheduled Ollama runtime."""
+    workflow_path = root / ".github/workflows/eval.yml"
+    baseline_path = root / "agents/python/evals/cost_baseline.json"
+    try:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [(baseline_path.relative_to(root).as_posix(), f"could not read eval runtime evidence: {error}")]
+    release = re.search(r"/ollama/ollama/releases/download/(v\d+\.\d+\.\d+)/ollama-", workflow)
+    if release is None:
+        return [(workflow_path.relative_to(root).as_posix(), "could not identify the pinned Ollama release")]
+    expected = f"ollama version is {release.group(1).removeprefix('v')}"
+    actual = baseline.get("ollama_version") if isinstance(baseline, dict) else None
+    if actual == expected:
+        return []
+    return [
+        (
+            baseline_path.relative_to(root).as_posix(),
+            f"reviewed Ollama runtime is {actual!r}; scheduled Eval pins {expected!r}",
+        )
     ]
 
 
@@ -1772,6 +1847,8 @@ def check_docs() -> list[Problem]:
     problems += check_cost_owner(pages)
     problems += check_quickstarts(pages)
     problems += check_gcp_runbook()
+    problems += check_skaffold_runbooks()
+    problems += check_eval_runtime_baseline()
     problems += check_routes(pages)
     return problems
 

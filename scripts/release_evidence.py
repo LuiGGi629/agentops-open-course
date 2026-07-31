@@ -79,25 +79,30 @@ def validate_release_evidence(
     repository: str,
     sha: str,
     run_id: int,
+    run_attempt: int,
 ) -> dict[str, Any]:
     """Return a whitelisted release asset or reject inconsistent/raw evidence."""
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("release evidence SHA must be a full lowercase commit")
-    if run_id < 1:
+    if type(run_id) is not int or run_id < 1:
         raise ValueError("release evidence run ID must be positive")
+    if type(run_attempt) is not int or run_attempt < 1:
+        raise ValueError("release evidence run attempt must be positive")
 
     model = _object(model_path)
     if set(model) != _MODEL_KEYS:
         raise ValueError("qualifying Eval model lineage contains unexpected fields")
     if model.get("model") != "qwen3:4b-instruct":
         raise ValueError("qualifying Eval must use qwen3:4b-instruct")
-    if not re.fullmatch(r"[0-9a-f]{64}", str(model.get("digest", ""))):
+    digest = model.get("digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("qualifying Eval model digest is not an immutable SHA-256")
-    if model.get("context_length") != 8192:
+    if type(model.get("context_length")) is not int or model["context_length"] != 8192:
         raise ValueError("qualifying Eval must use the 8192-token serving window")
-    if model.get("temperature") != 0:
+    if type(model.get("temperature")) is not int or model["temperature"] != 0:
         raise ValueError("qualifying Eval must use temperature 0")
-    if not str(model.get("ollama_version", "")).strip():
+    ollama_version = model.get("ollama_version")
+    if not isinstance(ollama_version, str) or not ollama_version.strip():
         raise ValueError("qualifying Eval did not record the Ollama version")
 
     verdict = _object(verdict_path)
@@ -113,14 +118,16 @@ def validate_release_evidence(
     run = verdict.get("run")
     expected_url = f"https://github.com/{repository}/actions/runs/{run_id}"
     if (
-        verdict.get("schema_version") != 1
+        type(verdict.get("schema_version")) is not int
+        or verdict["schema_version"] != 1
         or verdict.get("repository") != repository
         or verdict.get("sha") != sha
         or not isinstance(run, dict)
         or set(run) != {"id", "attempt", "url"}
+        or type(run.get("id")) is not int
         or run.get("id") != run_id
-        or not isinstance(run.get("attempt"), int)
-        or run["attempt"] < 1
+        or type(run.get("attempt")) is not int
+        or run.get("attempt") != run_attempt
         or run.get("url") != expected_url
     ):
         raise ValueError("qualifying Eval verdict does not identify the exact run and source")
@@ -157,6 +164,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--run-id", type=int, required=True)
+    parser.add_argument("--run-attempt", type=int, required=True)
     arguments = parser.parse_args(argv)
     try:
         evidence = validate_release_evidence(
@@ -166,6 +174,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             repository=arguments.repository,
             sha=arguments.sha,
             run_id=arguments.run_id,
+            run_attempt=arguments.run_attempt,
         )
     except (OSError, ValueError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
         raise SystemExit(f"error: {error}") from error

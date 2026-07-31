@@ -10,6 +10,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from typing import cast
 
 from scripts import release_evidence  # ty: ignore[unresolved-import]
 
@@ -75,6 +76,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
         lock: str | None = None,
         sha: str = _SHA,
         run_id: int = _RUN_ID,
+        run_attempt: int = 1,
     ) -> dict:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -91,6 +93,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
                 repository=_REPOSITORY,
                 sha=sha,
                 run_id=run_id,
+                run_attempt=run_attempt,
             )
 
     def test_success_returns_only_the_sanitized_release_shape(self) -> None:
@@ -114,6 +117,12 @@ class ReleaseEvidenceTests(unittest.TestCase):
             self._validate(sha="short")
         with self.assertRaisesRegex(ValueError, "exact run and source"):
             self._validate(run_id=_RUN_ID + 1)
+        with self.assertRaisesRegex(ValueError, "exact run and source"):
+            self._validate(run_attempt=2)
+        boolean_attempt = _verdict()
+        boolean_attempt["run"]["attempt"] = True
+        with self.assertRaisesRegex(ValueError, "exact run and source"):
+            self._validate(verdict=boolean_attempt)
         verdict = _verdict()
         verdict["sha"] = "c" * 40
         with self.assertRaisesRegex(ValueError, "exact run and source"):
@@ -159,6 +168,36 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "scorer versions are incomplete"):
             self._validate(lock=_lock(omit="rouge-score"))
+
+    def test_json_scalar_types_fail_closed(self) -> None:
+        malformed_models = []
+        for key, value in (
+            ("digest", int("1" * 64)),
+            ("context_length", 8192.0),
+            ("temperature", False),
+            ("ollama_version", ["ollama version 0.32.5"]),
+        ):
+            model = _model()
+            model[key] = value
+            malformed_models.append(model)
+        for model in malformed_models:
+            with self.subTest(model=model), self.assertRaises(ValueError):
+                self._validate(model=model)
+
+        for path, value in (("schema_version", True), ("run.id", float(_RUN_ID)), ("run.attempt", 1.0)):
+            verdict = _verdict()
+            if path == "schema_version":
+                verdict[path] = value
+            else:
+                verdict["run"][path.removeprefix("run.")] = value
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self._validate(verdict=verdict)
+
+        for run_id, run_attempt in ((True, 1), (_RUN_ID, True), (_RUN_ID, 1.0)):
+            with self.subTest(run_id=run_id, run_attempt=run_attempt), self.assertRaises(ValueError):
+                # Cross the typed test helper deliberately to prove the runtime
+                # boundary rejects malformed values loaded outside Python.
+                self._validate(run_id=cast("int", run_id), run_attempt=cast("int", run_attempt))
 
 
 if __name__ == "__main__":
