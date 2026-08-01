@@ -4,6 +4,8 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-01
+
 ### Added
 
 - Added an on-demand, exact-SHA macOS arm64 core qualification that records sanitized runner capacity and the separate `install`, `doctor`, `check:core`, and `test` outcomes without broadening the support contract before a green run.
@@ -192,7 +194,8 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 - Untrusted tool-output sanitization is enabled by default.
 - Release publishing now pushes and signs the exact local image that passed the pre-push scan instead of rebuilding it.
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.5.0...HEAD
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.6.0
 [0.5.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.5.0
 [0.3.5]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.3.5
 [0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
