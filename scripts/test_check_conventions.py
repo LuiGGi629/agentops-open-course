@@ -362,15 +362,26 @@ class SourceContractTests(unittest.TestCase):
     def test_release_reconcile_recovers_without_the_promotion_artifact(self) -> None:
         workflow = check_conventions.ROOT.joinpath(".github/workflows/release.yml").read_text(encoding="utf-8")
         promote = workflow.split("\n  promote:\n", 1)[1].split("\n  seal:\n", 1)[0]
+        verify = workflow.split("\n  verify:\n", 1)[1].split("\n  reconcile:\n", 1)[0]
         reconcile = workflow.split("\n  reconcile:\n", 1)[1].split("\n  release:\n", 1)[0]
         assert "--method DELETE" not in promote
+        assert "--validate-index-only" in promote
+        assert "--source-image" in promote
+        assert "--validate-index-only" in verify
+        assert "--source-image" in verify
         assert "needs: [publish, promote, seal, verify, release]" in reconcile
         assert "needs.publish.result == 'success'" in reconcile
         assert "needs.promote.result != 'success'" in reconcile
         assert 'pattern: "*-source-supply-chain"' in reconcile
         assert "scripts/release_reconcile.py" in reconcile
+        assert "--source-image" in reconcile
         assert "--registry-absent" in reconcile
         assert "name: release-promotion" not in reconcile
+
+    def test_release_pins_buildx_for_every_registry_job(self) -> None:
+        workflow = check_conventions.ROOT.joinpath(".github/workflows/release.yml").read_text(encoding="utf-8")
+        assert workflow.count("name: Set up Docker Buildx") == 5
+        assert workflow.count("version: v0.36.0") == 5
 
     def test_release_reconcile_requires_the_exact_buildx_absence_error(self) -> None:
         workflow = check_conventions.ROOT.joinpath(".github/workflows/release.yml").read_text(encoding="utf-8")

@@ -51,6 +51,7 @@ Use the repository files and locks as version authority — never a number copie
 - Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution. The MLflow server image has its own `infra/mlflow/pyproject.toml`.
 - Zensical and the documentation toolchain: root `pyproject.toml` and `uv.lock`.
 - CLI tools (agentgateway, k3d, kubectl, helm, helmfile, skaffold, k6, gcloud, …): `mise.toml` `[tools]`, with checksums and provenance in `mise.lock`.
+- Workflow-only Docker Buildx: the explicit `version` inputs in `.github/workflows/release.yml`.
 - kagent Helm charts: `infra/helmfile.yaml`. API resources are `v1alpha2`.
 - Container images (agentgateway, OpenTelemetry Collector, Loki, Prometheus, …): digest-pinned at their use site under `infra/k8s/` and `infra/observability/`.
 - Python interpreter: `.python-version`.

@@ -36,6 +36,7 @@ The quarterly `.github/workflows/freshness.yml` workflow appends a read-only rep
 - [ ] Container base-image digests, `uv`, and `trivy-action` pins current (Dependabot) — `agents/python/Dockerfile`.
 - [ ] The pinned `curlimages/curl` smoke image still resolves for every supported host architecture — `scripts/smoke-host.sh`.
 - [ ] Ollama evaluation release asset and SHA-256 still match the pinned version — `.github/workflows/eval.yml`.
+- [ ] Docker Buildx remains pinned to the current stable release, and its Docker/OCI index behavior still matches the release validator — `.github/workflows/release.yml`, `scripts/release_reconcile.py`.
 - [ ] GitHub Actions SHA pins current (Dependabot) — `.github/workflows/*.yml`.
 
 ## Governance & foundation status

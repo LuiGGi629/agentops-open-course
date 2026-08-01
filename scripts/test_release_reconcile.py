@@ -27,14 +27,27 @@ def _package_version(*, digest: str = _INDEX_DIGEST, tags: list[str] | None = No
     }
 
 
-def _index() -> dict:
-    return {
-        "mediaType": "application/vnd.oci.image.index.v1+json",
+def _index(*, media_type: str = "application/vnd.oci.image.index.v1+json") -> dict:
+    index = {
+        "mediaType": media_type,
         "manifests": [{"digest": _SOURCE_DIGEST}],
-        "annotations": {
+    }
+    if media_type == "application/vnd.oci.image.index.v1+json":
+        index["annotations"] = {
             "org.opencontainers.image.revision": _SHA,
             "org.opencontainers.image.version": _VERSION,
-        },
+        }
+    return index
+
+
+def _source_image() -> dict:
+    return {
+        "config": {
+            "Labels": {
+                "org.opencontainers.image.revision": _SHA,
+                "org.opencontainers.image.version": _VERSION,
+            }
+        }
     }
 
 
@@ -44,15 +57,19 @@ class ReleaseReconcileTests(unittest.TestCase):
         package_versions: list[dict] | None = None,
         *,
         index: dict | None = None,
+        source_image: dict | None = None,
         resolved_digest: str | None = None,
         registry_absent: bool = False,
     ) -> dict[str, str | int]:
+        if source_image is None and index is not None:
+            source_image = _source_image()
         return release_reconcile.validate_reconcile_target(
             package_versions if package_versions is not None else [_package_version()],
             version=_VERSION,
             sha=_SHA,
             source_digest=_SOURCE_DIGEST,
             index=index,
+            source_image=source_image,
             resolved_digest=resolved_digest,
             registry_absent=registry_absent,
         )
@@ -75,6 +92,14 @@ class ReleaseReconcileTests(unittest.TestCase):
             "digest": _INDEX_DIGEST,
         }
 
+    def test_docker_manifest_list_uses_the_qualified_child_as_authority(self) -> None:
+        docker_index = _index(media_type="application/vnd.docker.distribution.manifest.list.v2+json")
+        assert self._validate(index=docker_index, resolved_digest=_INDEX_DIGEST) == {
+            "state": "owned",
+            "version_id": 12345,
+            "digest": _INDEX_DIGEST,
+        }
+
     def test_package_tag_ownership_must_be_unique_and_exclusive(self) -> None:
         with self.assertRaisesRegex(ValueError, "more than one"):
             self._validate([_package_version(), _package_version(digest="sha256:" + "d" * 64)])
@@ -88,7 +113,7 @@ class ReleaseReconcileTests(unittest.TestCase):
     def test_registry_and_package_digests_must_match(self) -> None:
         with self.assertRaisesRegex(ValueError, "disagree"):
             self._validate(index=_index(), resolved_digest="sha256:" + "d" * 64)
-        with self.assertRaisesRegex(ValueError, "readable registry index"):
+        with self.assertRaisesRegex(ValueError, "complete registry evidence"):
             self._validate()
 
     def test_index_must_contain_only_the_qualified_source(self) -> None:
@@ -105,8 +130,32 @@ class ReleaseReconcileTests(unittest.TestCase):
     def test_index_annotations_must_match_the_release_authority(self) -> None:
         index = copy.deepcopy(_index())
         index["annotations"]["org.opencontainers.image.revision"] = "d" * 40
-        with self.assertRaisesRegex(ValueError, "annotations"):
+        with self.assertRaisesRegex(ValueError, "OCI release index annotations"):
             self._validate(index=index, resolved_digest=_INDEX_DIGEST)
+
+        index.pop("annotations")
+        with self.assertRaisesRegex(ValueError, "OCI release index annotations"):
+            self._validate(index=index, resolved_digest=_INDEX_DIGEST)
+
+    def test_docker_manifest_list_rejects_unsupported_annotations(self) -> None:
+        index = _index(media_type="application/vnd.docker.distribution.manifest.list.v2+json")
+        index["annotations"] = {"org.opencontainers.image.revision": _SHA}
+        with self.assertRaisesRegex(ValueError, "Docker release index contains unsupported annotations"):
+            self._validate(index=index, resolved_digest=_INDEX_DIGEST)
+
+    def test_source_image_labels_must_match_the_release_authority(self) -> None:
+        source_image = _source_image()
+        source_image["config"]["Labels"]["org.opencontainers.image.revision"] = "d" * 40
+        with self.assertRaisesRegex(ValueError, "source image labels"):
+            self._validate(index=_index(), source_image=source_image, resolved_digest=_INDEX_DIGEST)
+
+        source_image = _source_image()
+        source_image["config"]["Labels"]["org.opencontainers.image.version"] = "v9.9.9"
+        with self.assertRaisesRegex(ValueError, "source image labels"):
+            self._validate(index=_index(), source_image=source_image, resolved_digest=_INDEX_DIGEST)
+
+        with self.assertRaisesRegex(ValueError, "source image labels"):
+            self._validate(index=_index(), source_image={}, resolved_digest=_INDEX_DIGEST)
 
 
 if __name__ == "__main__":
