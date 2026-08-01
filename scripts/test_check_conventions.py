@@ -650,6 +650,25 @@ class RouteContractTests(unittest.TestCase):
 
 
 class RenderedContractTests(unittest.TestCase):
+    def test_local_links_must_remain_inside_the_published_site(self) -> None:
+        document = """<!doctype html><html lang="en"><body><main><h1>Page</h1>
+<a href="../../docs/assets/font.txt">Font license</a>
+<a href="../assets/missing.txt">Missing asset</a>
+</main></body></html>"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            site = root / "site"
+            page = site / "chapter/page.html"
+            source_asset = root / "docs/assets/font.txt"
+            page.parent.mkdir(parents=True)
+            source_asset.parent.mkdir(parents=True)
+            source_asset.write_text("source-tree file", encoding="utf-8")
+            page.write_text(document, encoding="utf-8")
+            problems = check_conventions.check_rendered(site)
+        messages = "\n".join(message for _, message in problems)
+        assert "rendered link escapes the published site" in messages
+        assert "rendered link target is missing from the published site" in messages
+
     def test_homepage_missing_metadata_and_404_recovery_fails(self) -> None:
         document = """<!doctype html><html lang="en"><head><meta name="description" content="x"></head>
 <body><main><h1>Page</h1></main></body></html>"""
@@ -660,6 +679,7 @@ class RenderedContractTests(unittest.TestCase):
             problems = check_conventions.check_rendered(site)
         messages = "\n".join(message for _, message in problems)
         assert "og:title" in messages
+        assert "anonymous per-page source link" in messages
         assert "route back home" in messages
 
 

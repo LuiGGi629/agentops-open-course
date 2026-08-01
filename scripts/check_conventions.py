@@ -27,7 +27,7 @@ import tomllib
 from collections.abc import Iterator
 from html.parser import HTMLParser
 from typing import Final
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 ROOT: Final = pathlib.Path(__file__).resolve().parent.parent
 
@@ -1954,6 +1954,25 @@ def check_web_client() -> list[Problem]:
     return problems
 
 
+def check_rendered_link(site_dir: pathlib.Path, page: pathlib.Path, href: str) -> str | None:
+    """Reject local links that cannot be served from the generated site alone."""
+    parsed = urlsplit(href)
+    if not href or parsed.scheme or parsed.netloc or not parsed.path:
+        return None
+
+    decoded = unquote(parsed.path)
+    target = site_dir / decoded.lstrip("/") if decoded.startswith("/") else page.parent / decoded
+    site_root = site_dir.resolve()
+    target = target.resolve()
+    if not target.is_relative_to(site_root):
+        return f"rendered link escapes the published site: {href!r}"
+    if target.is_dir():
+        target /= "index.html"
+    if not target.is_file():
+        return f"rendered link target is missing from the published site: {href!r}"
+    return None
+
+
 def check_rendered(site_dir: pathlib.Path) -> list[Problem]:
     """Check rendered semantics, recovery, and discoverability without a browser."""
     if not site_dir.is_dir():
@@ -1974,6 +1993,11 @@ def check_rendered(site_dir: pathlib.Path) -> list[Problem]:
         unnamed = [href for href, text in parsed.links if href and not text and not href.startswith("#")]
         if unnamed:
             problems.append((relative, f"rendered page has {len(unnamed)} links without accessible text"))
+        problems.extend(
+            (relative, message)
+            for href, _ in parsed.links
+            if (message := check_rendered_link(site_dir, page, href)) is not None
+        )
 
     homepage_path = site_dir / "index.html"
     if homepage_path.is_file():
@@ -1993,6 +2017,9 @@ def check_rendered(site_dir: pathlib.Path) -> list[Problem]:
         )
         if homepage.json_ld != 1:
             problems.append(("index.html", "homepage needs exactly one Course JSON-LD record"))
+        expected_source = "https://github.com/MLOps-Courses/agentops-open-course/raw/main/docs/index.md"
+        if not any(href == expected_source for href, _ in homepage.links):
+            problems.append(("index.html", "homepage is missing its anonymous per-page source link"))
     else:
         problems.append(("index.html", "rendered homepage is missing"))
 

@@ -28,6 +28,8 @@ theme:
     scheme: default
     primary: indigo
   features:
+    - content.action.edit
+    - content.action.view
     - content.code.copy
     - navigation.footer
     - navigation.indexes
