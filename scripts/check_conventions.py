@@ -1998,6 +1998,13 @@ def check_rendered(site_dir: pathlib.Path) -> list[Problem]:
             for href, _ in parsed.links
             if (message := check_rendered_link(site_dir, page, href)) is not None
         )
+        source_relative = pathlib.PurePosixPath(relative).with_suffix(".md")
+        if ROOT.joinpath("docs", source_relative).is_file():
+            expected_source = (
+                f"https://github.com/MLOps-Courses/agentops-open-course/raw/main/docs/{source_relative.as_posix()}"
+            )
+            if not any(href == expected_source for href, _ in parsed.links):
+                problems.append((relative, "rendered page is missing its anonymous source action"))
 
     homepage_path = site_dir / "index.html"
     if homepage_path.is_file():
@@ -2017,9 +2024,6 @@ def check_rendered(site_dir: pathlib.Path) -> list[Problem]:
         )
         if homepage.json_ld != 1:
             problems.append(("index.html", "homepage needs exactly one Course JSON-LD record"))
-        expected_source = "https://github.com/MLOps-Courses/agentops-open-course/raw/main/docs/index.md"
-        if not any(href == expected_source for href, _ in homepage.links):
-            problems.append(("index.html", "homepage is missing its anonymous per-page source link"))
     else:
         problems.append(("index.html", "rendered homepage is missing"))
 

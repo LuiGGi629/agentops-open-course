@@ -679,7 +679,7 @@ class RenderedContractTests(unittest.TestCase):
             problems = check_conventions.check_rendered(site)
         messages = "\n".join(message for _, message in problems)
         assert "og:title" in messages
-        assert "anonymous per-page source link" in messages
+        assert "anonymous source action" in messages
         assert "route back home" in messages
 
 
