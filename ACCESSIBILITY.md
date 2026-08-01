@@ -19,9 +19,11 @@ The AgentOps Open Course should be usable without a mouse, without color percept
 - The homepage must expose its existing description through Open Graph, Twitter, canonical URL, and Course structured metadata; the custom 404 must provide a named recovery route.
 - The dependency-free client must retain native labels, one main landmark and H1, polite status announcements, visible focus, narrow-layout reflow, forced-colors behavior, and a reduced-motion fallback.
 
-`mise run check:accessibility` adds the representative browser acceptance used by the Docs workflow. After the one-time `mise run install:accessibility`, it builds the site and uses the Chromium release paired with the exactly pinned Playwright dependency to verify keyboard skip navigation and visible focus, document-level reflow at 320 CSS pixels, reduced-motion media behavior, and computed AA contrast. The smoke covers both the landing and technical course templates plus `clients/web/index.html`.
+`mise run check:accessibility` adds the representative browser acceptance used by the Docs workflow. After the one-time `mise run install:accessibility`, it builds the site and uses the Chromium release paired with the exactly pinned Playwright dependency.
 
-The browser smoke samples load-bearing surfaces; it does not exhaustively test every page, keyboard sequence, color pair, browser, or assistive technology. The deterministic source and rendered-HTML checks remain the whole-course structural floor.
+The browser acceptance covers the homepage, a dense diagram page, A2A, security, capstone, custom 404 recovery, search recovery, and `clients/web/index.html`. It verifies keyboard skip navigation and visible focus, named search and code-copy controls, search combobox semantics, document-level reflow at 320 CSS pixels, reduced-motion and forced-colors media behavior, representative computed AA contrast, table headers, and one main landmark plus a named H1 in each sampled accessibility tree. The web-client path also exercises polite status announcements, cancellation, and the required approval-rationale controls against deterministic browser-local A2A responses.
+
+The browser acceptance samples load-bearing surfaces; it does not exhaustively test every page, keyboard sequence, color pair, browser, zoom implementation, or assistive technology. The deterministic source and rendered-HTML checks remain the whole-course structural floor.
 
 ## What was audited, and when?
 

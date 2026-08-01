@@ -14,7 +14,9 @@ import argparse
 import contextlib
 import functools
 import http.server
+import json
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -22,12 +24,20 @@ from collections.abc import Iterator, Sequence
 from typing import Any
 from urllib.parse import quote, urlparse
 
-from playwright.sync_api import BrowserContext, Page, sync_playwright  # ty: ignore[unresolved-import]
+from playwright.sync_api import BrowserContext, Page, Route, sync_playwright  # ty: ignore[unresolved-import]
 from playwright.sync_api import Error as PlaywrightError  # ty: ignore[unresolved-import]
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 CLIENT = ROOT / "clients/web"
+DOCUMENT_SURFACES = (
+    ("index.html", "homepage"),
+    ("0. Overview/0.3. Ecosystem.html", "dense diagram page"),
+    ("3. Capabilities/3.6. A2A.html", "A2A page"),
+    ("4. Quality/4.6. Security.html", "security page"),
+    ("8. Community/8.7. Capstone.html", "capstone page"),
+    ("404.html", "404 recovery page"),
+)
 CONTRAST_COLORS = """
 selector => {
   const element = document.querySelector(selector);
@@ -143,6 +153,189 @@ def keyboard_smoke(page: Page, url: str, skip_selector: str, next_selector: str)
     require(page.evaluate("document.activeElement.matches(':focus-visible')"), f"{url}: keyboard focus must be visible")
 
 
+def accessibility_tree_smoke(context: BrowserContext, page: Page, url: str, label: str) -> None:
+    """Inspect one Chromium accessibility tree for landmarks and named controls."""
+    open_page(page, url)
+    heading = page.locator("h1").inner_text().strip()
+    session = context.new_cdp_session(page)
+    try:
+        tree = session.send("Accessibility.getFullAXTree")
+    finally:
+        session.detach()
+    nodes = [node for node in tree["nodes"] if not node.get("ignored")]
+    roles = [node.get("role", {}).get("value") for node in nodes]
+    require(roles.count("main") == 1, f"{label}: accessibility tree needs exactly one main landmark")
+    require(
+        any(
+            node.get("role", {}).get("value") == "heading" and node.get("name", {}).get("value", "").strip() == heading
+            for node in nodes
+        ),
+        f"{label}: accessibility tree does not expose the H1 {heading!r}",
+    )
+    interactive_roles = {"button", "checkbox", "combobox", "radio", "searchbox", "textbox"}
+    unnamed = [
+        node.get("role", {}).get("value")
+        for node in nodes
+        if node.get("role", {}).get("value") in interactive_roles and not node.get("name", {}).get("value", "").strip()
+    ]
+    require(not unnamed, f"{label}: accessibility tree has unnamed interactive controls: {unnamed}")
+
+
+def search_smoke(page: Page, url: str) -> None:
+    """Exercise the hydrated Zensical search semantics and recovery results."""
+    open_page(page, url)
+    search_button = page.get_by_role("button", name=re.compile(r"^Search"))
+    require(search_button.count() >= 1, f"{url}: search trigger is missing")
+    search_button.first.click()
+    search_input = page.get_by_role("combobox", name="Search")
+    search_input.wait_for(state="visible")
+    require(search_input.get_attribute("aria-autocomplete") == "list", f"{url}: search must autocomplete a list")
+    controls = search_input.get_attribute("aria-controls")
+    require(bool(controls), f"{url}: search must identify its result list")
+    require(
+        search_input.evaluate("(element, id) => Boolean(element.getRootNode().getElementById(id))", controls),
+        f"{url}: search result list {controls!r} is missing",
+    )
+    button_labels = search_input.evaluate(
+        "element => [...element.getRootNode().querySelectorAll('button')]"
+        ".map(button => button.getAttribute('aria-label'))"
+    )
+    require(
+        button_labels == ["Close search", "Filter search results"],
+        f"{url}: search buttons need stable accessible names, got {button_labels}",
+    )
+    search_input.fill("A2A")
+    handle = search_input.element_handle()
+    require(handle is not None, f"{url}: search input disappeared")
+    page.wait_for_function("element => element.getAttribute('aria-expanded') === 'true'", arg=handle)
+    require(
+        search_input.evaluate("element => element.getRootNode().querySelectorAll('ol a').length") > 0,
+        f"{url}: search did not return a recovery route for A2A",
+    )
+
+
+def content_controls_smoke(page: Page, url: str) -> None:
+    """Exercise a dense diagram inventory, table semantics, and a keyboard copy control."""
+    open_page(page, url)
+    diagrams = page.locator("article pre > code").evaluate_all(
+        "nodes => nodes.filter(node => /^(flowchart|sequenceDiagram|graph)\\b/.test(node.textContent.trim())).length"
+    )
+    require(diagrams >= 3, f"{url}: representative page no longer exercises a dense diagram surface")
+    require(page.get_by_role("columnheader").count() > 0, f"{url}: representative table has no column headers")
+    copy_button = page.get_by_role("button", name="Copy to clipboard").first
+    copy_button.focus()
+    require(
+        copy_button.evaluate("element => element === document.activeElement && element.matches(':focus-visible')"),
+        f"{url}: code-copy control is not keyboard focused",
+    )
+    page.keyboard.press("Enter")
+
+
+def client_rpc(route: Route) -> None:
+    """Return deterministic A2A task snapshots for browser-only client interaction checks."""
+    request = json.loads(route.request.post_data or "{}")
+    method = request.get("method")
+    if method == "tasks/cancel":
+        require(request.get("params") == {"id": "task-cancel"}, "web client sent the wrong cancellation target")
+        state, task_id = "canceled", "task-cancel"
+    elif method == "message/send":
+        parts = request.get("params", {}).get("message", {}).get("parts", [])
+        require(
+            parts
+            and parts[0].get("data", {}).get("response", {}).get("confirmed") is False
+            and parts[0].get("metadata", {}).get("adk_type") == "function_response",
+            "web client sent the wrong denial response",
+        )
+        state, task_id = "completed", "task-approval"
+    else:
+        raise AcceptanceError(f"web client sent unexpected RPC method {method!r}")
+    body = {
+        "jsonrpc": "2.0",
+        "id": request.get("id"),
+        "result": {
+            "kind": "task",
+            "id": task_id,
+            "contextId": "browser-acceptance",
+            "status": {"state": state},
+            "artifacts": [],
+        },
+    }
+    route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+
+def web_client_interaction_smoke(page: Page, url: str) -> None:
+    """Exercise live status, cancellation, and approval controls without an agent."""
+    open_page(page, url)
+    require(page.locator("#log[aria-live='polite']").count() == 1, f"{url}: task log must announce updates")
+    page.route(urlparse(url)._replace(path="/").geturl(), client_rpc)
+    page.evaluate(
+        """() => {
+          state.baseUrl = location.origin;
+          handleResult({
+            kind: "status-update",
+            contextId: "browser-acceptance",
+            taskId: "task-cancel",
+            status: { state: "working", message: { parts: [{ kind: "text", text: "Working" }] } },
+          });
+        }"""
+    )
+    cancel = page.get_by_role("button", name="Cancel the active task")
+    require(cancel.is_enabled(), f"{url}: active task must enable cancellation")
+    cancel.click()
+    page.wait_for_selector(".state-canceled")
+    require(cancel.is_disabled(), f"{url}: canceled task must disable cancellation")
+
+    page.evaluate(
+        """() => handleResult({
+          kind: "status-update",
+          contextId: "browser-acceptance",
+          taskId: "task-approval",
+          status: {
+            state: "input-required",
+            message: { parts: [{
+              kind: "data",
+              data: {
+                id: "approval-call",
+                name: "adk_request_confirmation",
+                args: {
+                  originalFunctionCall: { name: "restart_service", args: { service: "api" } },
+                  toolConfirmation: { hint: "Review the restart evidence." },
+                },
+              },
+              metadata: { adk_type: "function_call" },
+            }] },
+          },
+        })"""
+    )
+    rationale = page.get_by_label("Approval rationale")
+    require(
+        rationale.evaluate("element => element === document.activeElement && element.required"),
+        f"{url}: approval rationale must be required and receive focus",
+    )
+    require(page.get_by_role("button", name="Approve").count() == 1, f"{url}: approval action is missing")
+    deny = page.get_by_role("button", name="Deny")
+    require(deny.count() == 1, f"{url}: denial action is missing")
+    deny.click()
+    page.wait_for_selector(".state-completed")
+
+
+def forced_colors_smoke(page: Page, url: str) -> None:
+    """Exercise the web client's forced-colors fallback in an emulated browser context."""
+    open_page(page, url)
+    require(page.evaluate("matchMedia('(forced-colors: active)').matches"), f"{url}: forced colors is not active")
+    border = page.evaluate(
+        """() => {
+          const badge = document.createElement("span");
+          badge.className = "state state-working";
+          badge.textContent = "working";
+          document.body.append(badge);
+          const style = getComputedStyle(badge);
+          return { style: style.borderStyle, width: style.borderTopWidth };
+        }"""
+    )
+    require(border == {"style": "solid", "width": "2px"}, f"{url}: forced-colors border fallback is missing")
+
+
 def reflow_smoke(page: Page, url: str) -> None:
     """Reject document-level horizontal overflow at the WCAG reflow width."""
     page.set_viewport_size({"width": 320, "height": 800})
@@ -231,16 +424,25 @@ def run_acceptance() -> None:
             context = browser.new_context(viewport={"width": 1280, "height": 900}, color_scheme="light")
             block_external_requests(context)
             page = context.new_page()
-            keyboard_smoke(page, f"{docs}/index.html", ".md-skip", ".md-header__button.md-logo")
-            reflow_smoke(page, f"{docs}/index.html")
+            homepage = f"{docs}/index.html"
+            keyboard_smoke(page, homepage, ".md-skip", ".md-header__button.md-logo")
+            search_smoke(page, homepage)
+            for path, label in DOCUMENT_SURFACES:
+                accessibility_tree_smoke(context, page, f"{docs}/{quote(path)}", label)
+            dense_page = f"{docs}/{quote('0. Overview/0.3. Ecosystem.html')}"
+            content_controls_smoke(page, dense_page)
+            reflow_smoke(page, homepage)
             reflow_smoke(page, f"{docs}/{quote('4. Quality/4.6. Security.html')}")
-            open_page(page, f"{docs}/index.html")
+            open_page(page, homepage)
             contrast_smoke(page, ".md-content__inner > p", "documentation body text")
             contrast_smoke(page, ".md-content__inner p a", "documentation content link")
 
-            keyboard_smoke(page, f"{client}/index.html", ".skip-link", "#base-url")
-            reflow_smoke(page, f"{client}/index.html")
-            open_page(page, f"{client}/index.html")
+            web_client = f"{client}/index.html"
+            keyboard_smoke(page, web_client, ".skip-link", "#base-url")
+            accessibility_tree_smoke(context, page, web_client, "web client")
+            web_client_interaction_smoke(page, web_client)
+            reflow_smoke(page, web_client)
+            open_page(page, web_client)
             contrast_smoke(page, "header h1", "web client heading")
             page.evaluate(
                 """() => ["working", "input-required", "completed"].forEach(state => {
@@ -261,6 +463,12 @@ def run_acceptance() -> None:
             reduced_motion_smoke(reduced_page, f"{docs}/index.html", stops_animation=False)
             reduced_motion_smoke(reduced_page, f"{client}/index.html", stops_animation=True)
             reduced.close()
+
+            forced = browser.new_context(forced_colors="active", color_scheme="light")
+            block_external_requests(forced)
+            forced_page = forced.new_page()
+            forced_colors_smoke(forced_page, web_client)
+            forced.close()
 
     require(abs(contrast_ratio((0, 0, 0), (255, 255, 255)) - 21) < 0.001, "contrast calculation self-test failed")
     sys.stdout.write("browser accessibility: documentation and web client passed\n")

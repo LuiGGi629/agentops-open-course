@@ -4,6 +4,14 @@ All notable changes to the AgentOps Open Course are documented here. The format 
 
 ## [Unreleased]
 
+### Added
+
+- Added an on-demand, exact-SHA macOS arm64 core qualification that records sanitized runner capacity and the separate `install`, `doctor`, `check:core`, and `test` outcomes without broadening the support contract before a green run.
+
+### Fixed
+
+- Made the Zensical search accessibility shim wait for shadow-DOM hydration, then expanded the Chromium gate across the v1 audit surfaces, accessibility trees, search recovery, keyboard code-copy controls, forced colors, and web-client approval and cancellation.
+
 ## [0.5.0] - 2026-08-01
 
 ### Added

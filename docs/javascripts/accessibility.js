@@ -2,29 +2,39 @@
 // root. Pin this reviewed compatibility boundary so a renderer bump must
 // revalidate the shim before it can ship.
 const SEARCH_SHIM_ZENSICAL = "0.0.52";
+const observedSearchRoots = new WeakSet();
 
 function repairSearchAccessibility(root) {
     const input = root.querySelector('input[role="combobox"]');
-    if (!input || input.dataset.accessibilityReady) return;
-
     const buttons = root.querySelectorAll("button");
     const results = root.querySelector("ol");
-    if (buttons[0]) buttons[0].setAttribute("aria-label", "Close search");
-    if (buttons[1]) buttons[1].setAttribute("aria-label", "Filter search results");
-
-    if (results) {
-        results.id ||= "zensical-search-results";
-        input.setAttribute("aria-controls", results.id);
+    if (!input || buttons.length < 2 || !results) {
+        if (!observedSearchRoots.has(root)) {
+            observedSearchRoots.add(root);
+            // Zensical hydrates its open shadow root after the host reaches the DOM.
+            new MutationObserver(() => repairSearchAccessibility(root)).observe(root, {
+                childList: true,
+                subtree: true,
+            });
+        }
+        return;
     }
+    if (input.dataset.accessibilityReady) return;
+
+    buttons[0].setAttribute("aria-label", "Close search");
+    buttons[1].setAttribute("aria-label", "Filter search results");
+
+    results.id ||= "zensical-search-results";
+    input.setAttribute("aria-controls", results.id);
     input.setAttribute("aria-expanded", "false");
     input.setAttribute("aria-autocomplete", "list");
     input.dataset.accessibilityReady = "true";
 
     const syncExpanded = () => {
-        input.setAttribute("aria-expanded", String(Boolean(results?.querySelector("a"))));
+        input.setAttribute("aria-expanded", String(Boolean(results.querySelector("a"))));
     };
     input.addEventListener("input", () => requestAnimationFrame(syncExpanded));
-    if (results) new MutationObserver(syncExpanded).observe(results, { childList: true, subtree: true });
+    new MutationObserver(syncExpanded).observe(results, { childList: true, subtree: true });
 }
 
 function repairAccessibility() {
