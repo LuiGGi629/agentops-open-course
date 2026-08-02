@@ -100,6 +100,11 @@ def test_credentials_inside_a_url_are_still_removed() -> None:
     assert "sk-secret-value" not in redacted
 
 
+def test_every_configured_boundary_entity_has_a_loaded_recognizer() -> None:
+    supported = set(pii._analyzer().registry.get_supported_entities(["en"]))  # noqa: SLF001
+    assert set(pii._BOUNDARY_PII_ENTITIES) <= supported  # noqa: SLF001
+
+
 def test_keeps_service_and_runbook_identifiers() -> None:
     text = f"Search the {_INVENTORY} logs and open {_SERVICE_DOWN_RUNBOOK} for {_CHECKOUT_INCIDENT}."
     assert pii.redact_pii(text) == text

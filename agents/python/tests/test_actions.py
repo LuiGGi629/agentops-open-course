@@ -15,7 +15,7 @@ from google.adk.tools.tool_context import ToolContext
 from agent import actions, data, guardrails, tools
 from agent.circuit import CircuitOpenError
 from agent.models import CURRENT_AUDIT_SCHEMA_VERSION, MAX_AUDIT_RATIONALE_LENGTH
-from agent.resilience import ToolDeadlineError
+from agent.resilience import ToolDeadlineError, ToolRetriesExhaustedError
 from tests.domain import REFERENCE_DOMAIN
 
 # The guardrail only reads tool.name and never touches the context, so a cast None is enough.
@@ -314,6 +314,25 @@ def test_guardrail_blocks_bad_incident_id() -> None:
     assert "error" in blocked
 
 
+def test_kill_switch_refuses_before_confirmation(monkeypatch) -> None:
+    requested: list[str] = []
+    context = cast(
+        "ToolContext",
+        SimpleNamespace(
+            tool_confirmation=None,
+            actions=SimpleNamespace(skip_summarization=False),
+            request_confirmation=lambda hint: requested.append(hint),
+        ),
+    )
+    monkeypatch.setattr(guardrails.settings, "writes_disabled", True)
+
+    blocked = guardrails.validate_actions(_ACTIONS_BY_NAME["restart_service"], {"name": _INVENTORY}, context)
+
+    assert blocked is not None
+    assert "AGENT_WRITES_DISABLED" in blocked["error"]
+    assert requested == []
+
+
 def test_guardrail_allows_valid_incident_id() -> None:
     tool = _ACTIONS_BY_NAME["resolve_incident"]
     args = {"incident_id": f" {_INVENTORY_INCIDENT.lower()} "}
@@ -433,6 +452,7 @@ def test_first_party_tool_errors_reach_the_caller_verbatim() -> None:
     for error in (
         CircuitOpenError("Tool 'get_incident' circuit is open after repeated failures; retrying in at most 30s."),
         ToolDeadlineError("Tool 'get_incident' exceeded its 30s deadline (AGENT_TOOL_TIMEOUT_S)."),
+        ToolRetriesExhaustedError("Tool 'get_incident' failed after 3 attempts (AGENT_MAX_RETRIES)."),
         data.DataAccessError("Cannot open the incident database at /srv/state/runtime.db"),
     ):
         result = guardrails.handle_tool_error(tool, {}, _NO_CONTEXT, error)

@@ -33,7 +33,9 @@ OUTPUT_TOKENS_KEY = "budget:output_tokens"
 
 # ADK exposes the logical session identity on CallbackContext. Reference
 # counting keeps one process-local lock alive while callbacks are using or
-# waiting for it, then removes the registry entry after the last waiter.
+# waiting for it, then removes the registry entry after the last waiter. This
+# threading lock protects synchronous callbacks; server._SessionSerializingRunner
+# uses a separate asyncio lock around whole A2A invocations.
 type _SessionKey = tuple[str, str, str]
 _SESSION_LOCKS_GUARD = Lock()
 _SESSION_LOCKS: dict[_SessionKey, Lock] = {}

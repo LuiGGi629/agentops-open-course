@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from agent import actions, resilience
-from agent.resilience import ToolDeadlineError, with_resilience
+from agent.resilience import ToolDeadlineError, ToolRetriesExhaustedError, with_resilience
 
 
 def test_wrapper_preserves_tool_schema_inputs() -> None:
@@ -44,7 +44,7 @@ def test_permanent_failure_surfaces_with_context(monkeypatch) -> None:
     def broken() -> dict[str, Any]:
         raise ConnectionError("gateway is down")
 
-    with pytest.raises(RuntimeError, match="failed after 2 attempts") as excinfo:
+    with pytest.raises(ToolRetriesExhaustedError, match="failed after 2 attempts") as excinfo:
         asyncio.run(with_resilience(broken)())
     assert isinstance(excinfo.value.__cause__, ConnectionError)
 
@@ -62,7 +62,7 @@ def test_backoff_grows_exponentially(monkeypatch) -> None:
     def broken() -> dict[str, Any]:
         raise ConnectionError("still down")
 
-    with pytest.raises(RuntimeError, match="failed after 3 attempts"):
+    with pytest.raises(ToolRetriesExhaustedError, match="failed after 3 attempts"):
         asyncio.run(with_resilience(broken)())
     assert delays == [0.5, 1.0]
 

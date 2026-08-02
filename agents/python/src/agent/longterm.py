@@ -35,6 +35,7 @@ from . import data
 from .config import settings
 from .models import normalize_incident_id
 from .pii import redact_persisted_text
+from .resilience import with_resilience
 
 # Identity for programmatic calls outside an ADK session (scripts, tests).
 _ANONYMOUS = "direct-call"
@@ -182,7 +183,8 @@ def forget_user_memory(user_id: str) -> dict[str, Any]:
 # Long-term memory stays local to the agent (per-user store) even when the read
 # tools are served through the governed MCP route. Erasure is not here on purpose:
 # ``forget_user_memory`` is an operator action, not something the model can call.
-MEMORY_TOOLS = [recall_incident_context, save_incident_note]
+RECALL_INCIDENT_CONTEXT_TOOL = with_resilience(recall_incident_context)
+MEMORY_TOOLS = [RECALL_INCIDENT_CONTEXT_TOOL, save_incident_note]
 
 
 def main() -> None:

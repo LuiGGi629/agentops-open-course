@@ -76,11 +76,11 @@ def compact_history(callback_context: CallbackContext, llm_request: LlmRequest) 
     if len(contents) <= keep:
         return None
     cut = len(contents) - keep
-    # Never open the retained window on a tool result whose matching tool call was
-    # dropped: advance past any leading ``function_response`` messages so the window
-    # starts on a message the model can interpret on its own. The current user turn
-    # is last and is never a tool result, so this always stops in range.
-    while cut < len(contents) and _has_function_response(contents[cut]):
+    # Prefer a standalone message boundary, but a request can end mid-tool-loop
+    # with only function responses in the retained tail. Keep at least the newest
+    # result in that case; replacing the entire request with a marker would discard
+    # the evidence the model just requested.
+    while cut < len(contents) - 1 and _has_function_response(contents[cut]):
         cut += 1
     llm_request.contents[:] = [_marker(contents[:cut]), *contents[cut:]]
     return None

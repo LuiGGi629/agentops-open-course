@@ -19,7 +19,7 @@ import sqlite3
 import stat
 import tempfile
 import uuid
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing, contextmanager, suppress
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -817,26 +817,11 @@ def recover_interrupted_restore(state_dir: Path) -> None:
         _recover_restore_locked(state_dir)
 
 
-def _restore_quarantine(quarantine: Path, state_dir: Path, installed: Iterable[Path]) -> None:
-    """Compatibility helper for reporting multiple immediate rollback errors."""
-    rollback_errors: list[str] = []
-    for path in installed:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as error:
-            rollback_errors.append(f"remove {path.name}: {error}")
-    for path in sorted(quarantine.iterdir(), key=lambda item: item.name):
-        try:
-            path.replace(state_dir / path.name)
-        except OSError as error:
-            rollback_errors.append(f"restore {path.name}: {error}")
-    if rollback_errors:
-        raise StateSnapshotError("Restore failed and rollback was incomplete: " + "; ".join(rollback_errors))
-
-
 def restore_state(
     snapshot: Path,
     state_dir: Path,
+    *,
+    before_publish: Callable[[int], None] | None = None,
 ) -> list[Path]:
     """Restore one generation with durable crash recovery across every file."""
     inventory = _validate_inventory(snapshot)
@@ -881,12 +866,12 @@ def restore_state(
                 _fsync_directory(quarantine)
                 _fsync_directory(state_dir)
 
-            fail_after_raw = os.getenv("STATE_RESTORE_FAIL_AFTER", "")
-            fail_after = int(fail_after_raw) if fail_after_raw else None
             installed: list[Path] = []
             for staged in sorted(staging.glob("*.db"), key=lambda path: path.name):
-                if fail_after is not None and len(installed) >= fail_after:
-                    raise OSError(f"injected restore publication failure after {fail_after} database(s)")
+                # Tests inject failures at this seam; production behavior never
+                # depends on ambient environment variables during a restore.
+                if before_publish is not None:
+                    before_publish(len(installed))
                 target = state_dir / staged.name
                 staged.replace(target)
                 installed.append(target)
@@ -922,7 +907,7 @@ def _parser() -> argparse.ArgumentParser:
     backup = subcommands.add_parser("backup", help="publish a versioned SQLite snapshot")
     backup.add_argument("--state-dir", type=Path, default=settings.state_dir)
     backup.add_argument("--backup-root", type=Path, default=Path(".state-backups"))
-    backup.add_argument("--keep", type=int, default=int(os.getenv("STATE_BACKUP_KEEP", "7")))
+    backup.add_argument("--keep", type=int)
     restore = subcommands.add_parser("restore", help="restore one complete snapshot")
     restore.add_argument("snapshot", type=Path)
     restore.add_argument("--state-dir", type=Path, default=settings.state_dir)
@@ -935,10 +920,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     arguments = _parser().parse_args(argv)
     try:
         if arguments.command == "backup":
+            keep = arguments.keep
+            if keep is None:
+                raw_keep = os.getenv("STATE_BACKUP_KEEP", "7")
+                try:
+                    keep = int(raw_keep)
+                except ValueError as error:
+                    raise ValueError(f"STATE_BACKUP_KEEP must be an integer, got {raw_keep!r}") from error
             backup_state(
                 arguments.state_dir,
                 arguments.backup_root,
-                keep=arguments.keep,
+                keep=keep,
             )
         else:
             restore_state(arguments.snapshot, arguments.state_dir)

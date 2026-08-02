@@ -62,7 +62,7 @@ def test_compacts_and_preserves_recent_messages(monkeypatch) -> None:
 def test_marker_lists_elided_tool_names(monkeypatch) -> None:
     monkeypatch.setattr(compaction.settings, "max_history_messages", 2)
     history = [
-        _text("user", "diagnose INC-001"),
+        _text("user", "diagnose case-1"),
         _call("get_incident"),
         _result("get_incident"),
         _call("search_service_logs"),
@@ -97,3 +97,21 @@ def test_window_never_opens_on_orphan_tool_result(monkeypatch) -> None:
     assert request.contents[0].parts is not None
     assert request.contents[0].parts[0].text is not None
     assert request.contents[0].parts[0].text.startswith("[history compacted: 4 earlier message(s)")
+
+
+def test_trailing_function_responses_never_collapse_to_marker_only(monkeypatch) -> None:
+    monkeypatch.setattr(compaction.settings, "max_history_messages", 2)
+    history = [
+        _text("user", "diagnose INC-001"),
+        _call("get_incident"),
+        _result("get_incident"),
+        _result("search_service_logs"),
+        _result("get_runbook"),
+    ]
+
+    request = _compact(history)
+
+    assert len(request.contents) == 2
+    assert request.contents[-1] == history[-1]
+    assert request.contents[-1].parts is not None
+    assert request.contents[-1].parts[0].function_response is not None

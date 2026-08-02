@@ -331,6 +331,41 @@ def test_prepare_runtime_database_is_idempotent_on_current_schema() -> None:
     assert named_indexes == (1,)
 
 
+def test_probe_rejects_trigger_stripped_runtime_without_repairing_it() -> None:
+    path = data.prepare_runtime_database()
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER audit_log_no_update")
+        connection.execute("DROP TRIGGER audit_log_no_delete")
+        connection.commit()
+
+    with pytest.raises(data.DataAccessError, match="append-only triggers"):
+        data.probe_runtime_database()
+
+    with closing(sqlite3.connect(path)) as connection:
+        triggers = connection.execute(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' AND name LIKE 'audit_log_no_%'"
+        ).fetchone()
+    assert triggers == (0,)
+
+
+def test_prepare_recreates_missing_append_only_triggers() -> None:
+    path = data.prepare_runtime_database()
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("DROP TRIGGER audit_log_no_update")
+        connection.execute("DROP TRIGGER audit_log_no_delete")
+        connection.commit()
+
+    assert data.prepare_runtime_database() == path
+    with closing(sqlite3.connect(path)) as connection:
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'trigger' AND name LIKE 'audit_log_no_%'"
+            )
+        }
+    assert triggers == {"audit_log_no_update", "audit_log_no_delete"}
+
+
 def test_prepare_runtime_database_rejects_a_partial_named_index() -> None:
     path = data.db_path()
     with closing(sqlite3.connect(path)) as connection:

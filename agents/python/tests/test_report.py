@@ -8,7 +8,9 @@ import pytest
 from pydantic import ValidationError
 
 from agent import report
+from agent.governance import AgentOpsPolicyPlugin
 from agent.models import TriageReport
+from agent.structured_report.agent import app as report_eval_app
 from agent.structured_report.agent import root_agent as report_eval_agent
 
 _VALID = {
@@ -20,6 +22,12 @@ _VALID = {
     "recommended_runbook": "service-down",
     "proposed_actions": ["restart_service inventory (needs approval)"],
 }
+
+
+def test_structured_report_discovery_exports_a_governed_app() -> None:
+    assert report_eval_app.root_agent is report_eval_agent
+    assert len(report_eval_app.plugins) == 1
+    assert isinstance(report_eval_app.plugins[0], AgentOpsPolicyPlugin)
 
 
 def test_valid_report_parses() -> None:

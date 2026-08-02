@@ -62,10 +62,7 @@ _PERSISTED_PII_ENTITIES = [
 #   credential tripwires that run before Presidio.
 _BOUNDARY_PII_ENTITIES = [
     *_PERSISTED_PII_ENTITIES,
-    "AGE",
     "DATE_TIME",
-    "EMAIL",
-    "ID",
     "MAC_ADDRESS",
     "NRP",
     "UK_NHS",

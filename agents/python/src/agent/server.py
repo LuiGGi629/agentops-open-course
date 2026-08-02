@@ -9,7 +9,7 @@ import sqlite3
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import aclosing, asynccontextmanager, closing
 from dataclasses import dataclass
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast, override
 
@@ -34,7 +34,6 @@ from google.adk.events import Event
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService, Session
 from google.genai import types
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -118,6 +117,8 @@ class _SessionSerializingRunner(Runner):
     final append cannot prevent two overlapping invocations from loading the
     same token total and losing one update, so acquire this process-local gate
     before ADK loads the session. Different sessions still run concurrently.
+    This asyncio boundary is the invocation-level sibling of budget.py's
+    synchronous callback lock; their execution contexts cannot share one lock.
     """
 
     def __init__(
@@ -219,10 +220,12 @@ class VerifiedIdentityMiddleware:
             await self.app(scope, receive, send)
             return
         wanted = header_name.lower().encode()
-        subject = next(
-            (value.decode().strip() for key, value in scope.get("headers", []) if key.lower() == wanted and value),
-            None,
-        )
+        values = [value for key, value in scope.get("headers", []) if key.lower() == wanted]
+        if len(values) > 1:
+            response = JSONResponse({"error": "duplicate trusted identity header"}, status_code=400)
+            await response(scope, receive, send)
+            return
+        subject = values[0].decode().strip() if values and values[0] else None
         token = _VERIFIED_SUBJECT.set(subject or None)
         try:
             await self.app(scope, receive, send)
@@ -247,6 +250,14 @@ class Runtime:
             await self.session_service.close()
 
 
+def _application_version() -> str:
+    """Return package metadata when installed, with a source-checkout fallback."""
+    try:
+        return version("agentops-agent")
+    except PackageNotFoundError:
+        return "uninstalled"
+
+
 agent_card = AgentCard(
     name="AgentOps Agent",
     description="Runbook-grounded incident triage and guarded remediation for the AgentOps Open Course.",
@@ -258,7 +269,7 @@ agent_card = AgentCard(
             protocol_binding="JSONRPC",
         )
     ],
-    version=version("agentops-agent"),
+    version=_application_version(),
     capabilities=AgentCapabilities(streaming=True),
     default_input_modes=["text/plain"],
     default_output_modes=["text/plain"],
@@ -366,52 +377,29 @@ def _error_code_interceptor() -> ExecuteInterceptor:
     return ExecuteInterceptor(before_agent=clear, after_event=remember, after_agent=restore)
 
 
-async def _probe_runtime_store(task_engine: AsyncEngine) -> None:
-    """Read and validate the bounded ADK session and A2A task schema."""
-    async with task_engine.connect() as connection:
-        integrity = (await connection.execute(text("PRAGMA quick_check(1)"))).scalar_one_or_none()
-        if integrity != "ok":
-            raise RuntimeError(f"runtime.db integrity check failed: {integrity or 'no result'}")
-        tables = set(
-            (
-                await connection.execute(
-                    text(
-                        """
-                        SELECT name
-                        FROM sqlite_schema
-                        WHERE type = 'table'
-                        """
-                    )
-                )
-            ).scalars()
-        )
+def _probe_runtime_store(path: Path) -> None:
+    """Validate session/task state through a dedicated read-only connection."""
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=5)) as connection:
+        connection.execute("PRAGMA query_only = ON")
+        integrity = connection.execute("PRAGMA quick_check(1)").fetchone()
+        if integrity is None or integrity[0] != "ok":
+            result = integrity[0] if integrity else "no result"
+            raise RuntimeError(f"runtime.db integrity check failed: {result}")
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")}
         missing_tables = _RUNTIME_REQUIRED_COLUMNS.keys() - tables
         if missing_tables:
             raise RuntimeError(f"runtime.db is missing tables: {', '.join(sorted(missing_tables))}")
-        schema_version = (
-            await connection.execute(
-                text(
-                    """
-                    SELECT value
-                    FROM adk_internal_metadata
-                    WHERE "key" = 'schema_version'
-                    """
-                )
-            )
-        ).scalar_one_or_none()
+        row = connection.execute(
+            'SELECT value FROM adk_internal_metadata WHERE "key" = ?',
+            ("schema_version",),
+        ).fetchone()
+        schema_version = row[0] if row else None
         if schema_version != CURRENT_RUNTIME_SCHEMA_VERSION:
             raise RuntimeError(
                 f"runtime.db has ADK schema {schema_version!r}; expected {CURRENT_RUNTIME_SCHEMA_VERSION!r}"
             )
         for table, required_columns in _RUNTIME_REQUIRED_COLUMNS.items():
-            columns = set(
-                (
-                    await connection.execute(
-                        text("SELECT name FROM pragma_table_info(:table)"),
-                        {"table": table},
-                    )
-                ).scalars()
-            )
+            columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table!r})")}
             missing_columns = required_columns - columns
             if missing_columns:
                 raise RuntimeError(
@@ -486,7 +474,7 @@ def _preflight_existing_runtime_store(path: Path) -> None:
         raise RuntimeError("runtime.db could not be inspected read-only before startup") from error
 
 
-def _health_routes(runtime: Runtime) -> tuple[Callable[[Request], Awaitable[JSONResponse]], ...]:
+def _health_routes() -> tuple[Callable[[Request], Awaitable[JSONResponse]], ...]:
     """Build the readiness and liveness handlers over one runtime's resources."""
 
     async def healthz(request: Request) -> JSONResponse:
@@ -501,7 +489,7 @@ def _health_routes(runtime: Runtime) -> tuple[Callable[[Request], Awaitable[JSON
             problems.append(f"state directory is not writable: {settings.state_dir}")
         try:
             async with asyncio.timeout(5):
-                await _probe_runtime_store(runtime.task_engine)
+                await asyncio.to_thread(_probe_runtime_store, settings.state_dir / "runtime.db")
         except Exception as error:  # readiness reports invalid, corrupt, slow, and unreachable state
             problems.append(f"session/task store invalid: {type(error).__name__}")
         if problems:
@@ -594,7 +582,7 @@ def create_app(agent: BaseAgent | None = None) -> Starlette:
     app.add_middleware(VerifiedIdentityMiddleware)
     # Kubernetes-facing health endpoints (Ch. 6): registered before startup so
     # they coexist with the A2A routes the lifespan adds.
-    healthz, livez = _health_routes(runtime)
+    healthz, livez = _health_routes()
     app.add_route("/healthz", healthz, methods=["GET"])
     app.add_route("/livez", livez, methods=["GET"])
     return app

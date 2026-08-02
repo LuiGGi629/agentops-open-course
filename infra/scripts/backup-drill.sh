@@ -87,8 +87,19 @@ mkdir "${rollback_target}"
 cp "${state_dir}"/*.db "${rollback_target}/"
 sql "${rollback_target}/obsolete.db" "CREATE TABLE stale (value TEXT); INSERT INTO stale VALUES ('keep-on-failure');"
 rollback_before="$(sha256sum "${rollback_target}"/*.db)"
-if STATE_RESTORE_FAIL_AFTER=1 \
-	"${scripts_dir}/restore-state.sh" "${snapshot}" "${rollback_target}" \
+if uv run --project "${repo_dir}/agents/python" --frozen \
+	python -c '
+import sys
+from pathlib import Path
+
+from agent.state import restore_state
+
+def fail_after_first_publication(installed_count: int) -> None:
+    if installed_count >= 1:
+        raise OSError("injected second-file publication failure")
+
+restore_state(Path(sys.argv[1]), Path(sys.argv[2]), before_publish=fail_after_first_publication)
+' "${snapshot}" "${rollback_target}" \
 	>"${drill_dir}/expected-publication-failure.log" 2>&1; then
 	fail "drill failed: injected second-file publication failure was ignored"
 fi

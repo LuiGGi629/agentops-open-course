@@ -56,8 +56,9 @@ def test_mcp_import_does_not_initialize_adk_or_emit_warnings() -> None:
             "loaded = asyncio.run(get_root_agent('src/agent')); assert loaded.name == 'agentops_agent'"
         ),
         (
-            "import os; from agent.structured_report.agent import root_agent; "
-            "assert root_agent.name == 'triage_report_agent'; "
+            "import os; from agent.structured_report.agent import app, root_agent; "
+            "assert root_agent.name == 'triage_report_agent'; assert app.root_agent is root_agent; "
+            "assert len(app.plugins) == 1; "
             "assert os.environ['ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS'] == 'false'; "
             "assert os.environ['OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT'] == 'false'"
         ),

@@ -30,12 +30,16 @@ from .config import settings
 from .data import DataAccessError
 from .models import normalize_incident_id, normalize_slug
 from .pii import redact_tool_output_pii
-from .resilience import ToolDeadlineError
+from .resilience import ToolDeadlineError, ToolRetriesExhaustedError
 
 logger = logging.getLogger(__name__)
 
 # Tools that change state — the ones worth validating strictly before they run.
 _ACTION_TOOLS = frozenset({"restart_service", "resolve_incident"})
+_WRITES_DISABLED_ERROR = (
+    "Writes are frozen by the AGENT_WRITES_DISABLED kill-switch; reads still work. "
+    "Clear the flag once the incident is contained to resume approvals."
+)
 
 
 def _is_trusted_instruction_tool(tool: BaseTool) -> bool:
@@ -179,6 +183,10 @@ def validate_actions(tool: BaseTool, args: dict[str, Any], tool_context: ToolCon
     del tool_context  # part of the ADK callback signature; unused here
     if tool.name not in _ACTION_TOOLS:
         return None
+    # Refuse before FunctionTool builds a confirmation request. The action body
+    # repeats this check because direct calls must fail closed too.
+    if settings.writes_disabled:
+        return {"error": _WRITES_DISABLED_ERROR}
     if tool.name == "resolve_incident":
         incident_id = str(args.get("incident_id", ""))
         normalized = normalize_incident_id(incident_id)
@@ -199,7 +207,7 @@ def handle_tool_error(
 ) -> dict[str, Any]:
     """Log a tool failure and return an error the caller can act on — or a safe opaque one.
 
-    Error hygiene is classification, not silence. This repository authors three failure types
+    Error hygiene is classification, not silence. This repository authors four failure types
     whose messages are first-party, carry no untrusted content, and name the setting to change
     ("circuit is open, retrying in at most 30s (AGENT_CIRCUIT_RESET_TIMEOUT_S)"). Collapsing
     those into "inspect the service logs" told an on-call engineer nothing the process already
@@ -208,7 +216,7 @@ def handle_tool_error(
     """
     del args, tool_context
     logger.error("Tool %s failed", tool.name, exc_info=(type(error), error, error.__traceback__))
-    if isinstance(error, CircuitOpenError | ToolDeadlineError | DataAccessError):
+    if isinstance(error, CircuitOpenError | ToolDeadlineError | ToolRetriesExhaustedError | DataAccessError):
         return {"error": str(error)}
     return {"error": f"Tool {tool.name!r} failed safely; inspect the service logs for the root cause."}
 

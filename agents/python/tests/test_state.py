@@ -605,10 +605,13 @@ def test_restore_rolls_back_the_complete_generation_after_second_publish_failure
         connection.execute("CREATE TABLE obsolete (value TEXT)")
         connection.commit()
     before = _fingerprints(settings.state_dir)
-    monkeypatch.setenv("STATE_RESTORE_FAIL_AFTER", "1")
+
+    def fail_after_first_publish(installed_count: int) -> None:
+        if installed_count >= 1:
+            raise OSError("injected restore publication failure after 1 database")
 
     with pytest.raises(OSError, match="injected restore publication failure"):
-        state.restore_state(snapshot, settings.state_dir)
+        state.restore_state(snapshot, settings.state_dir, before_publish=fail_after_first_publish)
 
     assert _fingerprints(settings.state_dir) == before
     assert not list(settings.state_dir.glob(".restore-*"))
@@ -825,10 +828,16 @@ def crash_after_phase_temporary_fsync(source, target):
             os._exit(exit_code)
     return original_replace(source, target)
 
-if fail_after is not None:
-    os.environ["STATE_RESTORE_FAIL_AFTER"] = fail_after
+def fail_publication(installed_count):
+    if fail_after is not None and installed_count >= int(fail_after):
+        raise OSError(f"injected restore publication failure after {{fail_after}} database(s)")
+
 Path.replace = crash_after_phase_temporary_fsync
-state.restore_state(snapshot, state_dir)
+state.restore_state(
+    snapshot,
+    state_dir,
+    before_publish=fail_publication if fail_after is not None else None,
+)
 """,
         snapshot,
         settings.state_dir,
@@ -999,37 +1008,6 @@ def test_restore_detects_snapshot_change_during_staging_and_preserves_live_state
 
     assert _fingerprints(settings.state_dir) == before
     assert not list(settings.state_dir.glob(".restore-*"))
-
-
-def test_restore_reports_every_incomplete_rollback_operation(monkeypatch, tmp_path) -> None:
-    state_dir = tmp_path / "state"
-    quarantine = tmp_path / "quarantine"
-    state_dir.mkdir()
-    quarantine.mkdir()
-    installed = state_dir / "new.db"
-    installed.write_bytes(b"new")
-    previous = quarantine / "previous.db"
-    previous.write_bytes(b"previous")
-    original_unlink = Path.unlink
-    original_replace = Path.replace
-
-    def fail_installed_removal(path: Path, *, missing_ok: bool = False) -> None:
-        if path == installed:
-            raise OSError("read-only filesystem")
-        original_unlink(path, missing_ok=missing_ok)
-
-    def fail_previous_restore(path: Path, target: Path) -> Path:
-        if path == previous:
-            raise OSError("device unavailable")
-        return original_replace(path, target)
-
-    monkeypatch.setattr(Path, "unlink", fail_installed_removal)
-    monkeypatch.setattr(Path, "replace", fail_previous_restore)
-    with pytest.raises(state.StateSnapshotError, match=r"remove new\.db.*restore previous\.db"):
-        state._restore_quarantine(quarantine, state_dir, [installed])  # noqa: SLF001
-
-    assert installed.read_bytes() == b"new"
-    assert previous.read_bytes() == b"previous"
 
 
 def test_backup_rejects_future_audit_schema_without_mutating_input(tmp_path) -> None:
@@ -1244,3 +1222,10 @@ def test_state_cli_routes_backup_restore_and_errors(monkeypatch, tmp_path) -> No
                 "0",
             ]
         )
+
+
+def test_state_cli_reports_an_invalid_backup_retention_environment(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("STATE_BACKUP_KEEP", "many")
+
+    with pytest.raises(SystemExit, match="error: STATE_BACKUP_KEEP must be an integer"):
+        state.main(["backup", "--state-dir", str(tmp_path / "state")])

@@ -7,7 +7,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -20,7 +20,6 @@ from google.adk.agents import Agent, RunConfig
 from google.adk.apps import App
 from google.adk.models import BaseLlm, LlmRequest, LlmResponse
 from google.genai import types
-from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.testclient import TestClient
 
 from agent import actions, data, server
@@ -107,13 +106,6 @@ class _BlockingLlm(BaseLlm):
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="too late")]))
 
 
-class _UnreachableEngine:
-    """Fail before opening a worker thread; readiness only needs the boundary."""
-
-    def connect(self):
-        raise OSError("session store unavailable")
-
-
 def _stream_rpc_results(client: TestClient, payload: dict[str, Any]) -> list[dict[str, Any]]:
     with client.stream("POST", "/", json=payload) as response:
         assert response.status_code == 200
@@ -157,6 +149,14 @@ def test_agent_card_is_public_and_does_not_expose_instruction() -> None:
     assert server.agent_card.version == version("agentops-agent")
     assert "Operating rules" not in server.agent_card.description
     assert {skill.id for skill in server.agent_card.skills} == {"incident-triage", "remediation"}
+
+
+def test_application_version_falls_back_for_an_uninstalled_source_checkout(monkeypatch) -> None:
+    def missing_distribution(distribution_name: str) -> str:
+        raise PackageNotFoundError(distribution_name)
+
+    monkeypatch.setattr(server, "version", missing_distribution)
+    assert server._application_version() == "uninstalled"  # noqa: SLF001 - metadata fallback contract
 
 
 def test_app_factory_owns_closes_and_prepares_persistent_runtime(monkeypatch) -> None:
@@ -594,18 +594,20 @@ def test_startup_rejects_a_corrupt_runtime_database_without_replacing_it() -> No
     assert destination.read_bytes() == before
 
 
-def test_readiness_fails_when_the_session_store_is_unreachable() -> None:
+def test_readiness_does_not_borrow_the_traffic_connection_pool() -> None:
     app = server.create_app()
+
+    async def acquire_connection():
+        return await app.state.runtime.task_engine.connect()
+
     with TestClient(app) as client:
-        runtime = app.state.runtime
-        healthy_engine = runtime.task_engine
-        runtime.task_engine = cast("AsyncEngine", _UnreachableEngine())
+        connection = asyncio.run(acquire_connection())
         try:
             response = client.get("/healthz")
         finally:
-            runtime.task_engine = healthy_engine
-        assert response.status_code == 503
-        assert any("session/task store invalid" in problem for problem in response.json()["problems"])
+            asyncio.run(connection.close())
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready"}
 
 
 def test_readiness_rejects_a_connectable_runtime_database_with_missing_tables() -> None:
@@ -906,3 +908,44 @@ def test_middleware_binds_the_trusted_header_when_configured() -> None:
 def test_middleware_ignores_the_header_when_not_configured() -> None:
     subject = _run_middleware(None, [(b"x-verified-subject", b"attacker@evil.example")])
     assert subject is None  # an un-configured header is never trusted
+
+
+def test_middleware_rejects_duplicate_trusted_identity_headers() -> None:
+    called = False
+    messages: list[dict[str, Any]] = []
+
+    async def downstream(scope, receive, send) -> None:
+        nonlocal called
+        del scope, receive, send
+        called = True
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: dict[str, Any]) -> None:
+        messages.append(message)
+
+    middleware = server.VerifiedIdentityMiddleware(downstream)
+    previous = settings.trusted_identity_header
+    settings.trusted_identity_header = "x-verified-subject"
+    try:
+        asyncio.run(
+            middleware(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/",
+                    "headers": [
+                        (b"x-verified-subject", b"alice@example.com"),
+                        (b"X-Verified-Subject", b"mallory@example.com"),
+                    ],
+                },
+                receive,
+                send,
+            )
+        )
+    finally:
+        settings.trusted_identity_header = previous
+
+    assert not called
+    assert messages[0]["status"] == 400

@@ -32,6 +32,10 @@ class ToolDeadlineError(TimeoutError):
     """The caller stopped waiting after ``AGENT_TOOL_TIMEOUT_S`` elapsed."""
 
 
+class ToolRetriesExhaustedError(RuntimeError):
+    """Every attempt allowed by ``AGENT_MAX_RETRIES`` failed."""
+
+
 # --8<-- [start:with-resilience]
 def with_resilience(func: Callable[..., dict[str, Any]]) -> Callable[..., Any]:
     """Wrap an idempotent read tool with a deadline and bounded retries.
@@ -98,7 +102,7 @@ def with_resilience(func: Callable[..., dict[str, Any]]) -> Callable[..., Any]:
             # Exhausted retries: count one breaker failure, then surface the root cause.
             if breaker is not None and permit is not None:
                 breaker.record_failure(permit)
-            raise RuntimeError(
+            raise ToolRetriesExhaustedError(
                 f"Tool {tool_name!r} failed after {settings.max_retries + 1} attempts (AGENT_MAX_RETRIES)."
             ) from last_error
         except asyncio.CancelledError:

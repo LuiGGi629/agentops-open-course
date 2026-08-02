@@ -30,6 +30,22 @@ _AUDIT_IDEMPOTENCY_KEY_ROWS = (
     (1, "action", 0, "BINARY"),
     (2, "target", 0, "BINARY"),
 )
+_AUDIT_TRIGGER_SQL = {
+    "audit_log_no_update": """
+        CREATE TRIGGER audit_log_no_update
+        BEFORE UPDATE ON audit_log
+        BEGIN
+            SELECT RAISE(ABORT, 'audit_log is append-only');
+        END
+    """,
+    "audit_log_no_delete": """
+        CREATE TRIGGER audit_log_no_delete
+        BEFORE DELETE ON audit_log
+        BEGIN
+            SELECT RAISE(ABORT, 'audit_log is append-only');
+        END
+    """,
+}
 _FUTURE_AUDIT_SCHEMA_GUIDANCE = (
     "The runtime database contains audit rows with an unsupported application schema. "
     "Upgrade the application or select a compatible snapshot before reading or changing this state"
@@ -93,6 +109,41 @@ def _audit_idempotency_index_is_current(connection: sqlite3.Connection) -> bool:
         )
     )
     return key_rows == _AUDIT_IDEMPOTENCY_KEY_ROWS
+
+
+def _normalized_schema_sql(sql: str) -> str:
+    """Normalize SQLite-owned whitespace without weakening the schema contract."""
+    return " ".join(sql.split()).casefold()
+
+
+def _audit_triggers_are_current(connection: sqlite3.Connection) -> bool:
+    """Return whether both append-only triggers have their exact reviewed bodies."""
+    rows = {
+        row[0]: row[1]
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' AND name LIKE 'audit_log_no_%'"
+        )
+    }
+    return set(rows) == set(_AUDIT_TRIGGER_SQL) and all(
+        isinstance(rows[name], str) and _normalized_schema_sql(rows[name]) == _normalized_schema_sql(expected)
+        for name, expected in _AUDIT_TRIGGER_SQL.items()
+    )
+
+
+def _prepare_audit_triggers(connection: sqlite3.Connection) -> None:
+    """Create missing append-only triggers and reject conflicting definitions."""
+    for name, expected in _AUDIT_TRIGGER_SQL.items():
+        row = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?",
+            (name,),
+        ).fetchone()
+        if row is None:
+            connection.execute(expected)
+        elif not isinstance(row[0], str) or _normalized_schema_sql(row[0]) != _normalized_schema_sql(expected):
+            raise DataAccessError(
+                f"Runtime trigger {name!r} has an unexpected definition; "
+                "inspect the runtime database before retrying the migration"
+            )
 
 
 def db_path() -> Path:
@@ -164,6 +215,7 @@ def probe_runtime_database() -> Path:
                 """
             ).fetchone()
             idempotency_index_is_current = _audit_idempotency_index_is_current(connection)
+            audit_triggers_are_current = _audit_triggers_are_current(connection)
             _reject_future_audit_schema(connection)
         finally:
             connection.close()
@@ -180,10 +232,11 @@ def probe_runtime_database() -> Path:
         or version_column[1] != 1
         or version_column[2] != str(CURRENT_AUDIT_SCHEMA_VERSION)
         or not idempotency_index_is_current
+        or not audit_triggers_are_current
     ):
         raise DataAccessError(
             "Runtime database audit schema is not prepared: expected the current schema_version "
-            f"and exact ascending BINARY unique index {_AUDIT_IDEMPOTENCY_INDEX!r}"
+            f"and exact ascending BINARY unique index {_AUDIT_IDEMPOTENCY_INDEX!r} plus append-only triggers"
         )
     return path
 
@@ -308,6 +361,8 @@ def prepare_runtime_database() -> Path:
                 "Runtime audit schema_version has an unexpected definition; "
                 "inspect the runtime database before retrying the migration"
             )
+
+        _prepare_audit_triggers(connection)
 
         index_exists = (
             connection.execute(
@@ -506,6 +561,7 @@ def append_audit(
             target=target,
         )
         if existing is not None:
+            connection.rollback()
             return existing
         entry = _append_audit(
             connection,
@@ -580,12 +636,15 @@ def restart_service_with_audit(
             target=name,
         )
         if existing is not None:
+            connection.rollback()
             return existing
         context_summary = _restart_context(connection, name)
         if context_summary is None:
+            connection.rollback()
             return None
         cursor = connection.execute("UPDATE services SET status = 'operational' WHERE name = ?", (name,))
         if cursor.rowcount == 0:
+            connection.rollback()
             return None
         entry = _append_audit(
             connection,
@@ -622,15 +681,18 @@ def resolve_incident_with_audit(
             target=incident_id,
         )
         if existing is not None:
+            connection.rollback()
             return existing
         context_summary = _resolution_context(connection, incident_id)
         if context_summary is None:
+            connection.rollback()
             return None
         cursor = connection.execute(
             "UPDATE incidents SET status = 'resolved', resolved_at = ? WHERE id = ? AND status != 'resolved'",
             (_utcnow(), incident_id),
         )
         if cursor.rowcount == 0:
+            connection.rollback()
             return None
         entry = _append_audit(
             connection,

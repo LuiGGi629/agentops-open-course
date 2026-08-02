@@ -1,5 +1,6 @@
 """Unit tests for the persistent long-term memory tools (Ch. 3.4)."""
 
+import inspect
 from types import SimpleNamespace
 from typing import cast
 
@@ -11,6 +12,12 @@ from tests.domain import REFERENCE_DOMAIN
 _CHECKOUT_INCIDENT = REFERENCE_DOMAIN.incidents.checkout_latency
 _INVENTORY = REFERENCE_DOMAIN.services.inventory
 _INVENTORY_INCIDENT = REFERENCE_DOMAIN.incidents.inventory_down
+
+
+def test_recall_tool_uses_the_shared_read_resilience_boundary() -> None:
+    assert longterm.MEMORY_TOOLS[0] is longterm.RECALL_INCIDENT_CONTEXT_TOOL
+    assert inspect.iscoroutinefunction(longterm.RECALL_INCIDENT_CONTEXT_TOOL)
+    assert inspect.unwrap(longterm.RECALL_INCIDENT_CONTEXT_TOOL) is longterm.recall_incident_context
 
 
 def _context(user_id: str, session_id: str) -> ToolContext:
