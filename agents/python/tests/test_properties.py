@@ -7,6 +7,7 @@ far beyond hand-picked examples. The Hypothesis profile is deterministic
 """
 
 import re
+import unicodedata
 
 from hypothesis import given
 from hypothesis import settings as hypothesis_settings
@@ -76,6 +77,9 @@ def test_redaction_is_stable_across_calls(prefix: str, pii: str) -> None:
 @given(st.text(max_size=300))
 def test_injection_neutralization_never_raises_and_reports_hits(value: str) -> None:
     neutralized, hits = neutralize_injections(value)
-    assert hits >= 0
+    assert isinstance(neutralized, str)
+    assert isinstance(hits, int)
     if hits:
         assert "[neutralized-injection]" in neutralized
+    else:
+        assert neutralized == unicodedata.normalize("NFKC", value)

@@ -11,6 +11,9 @@ from threading import Barrier, Lock
 from typing import Any
 
 import pytest
+from hypothesis import settings as hypothesis_settings
+from hypothesis import strategies as st
+from hypothesis.stateful import RuleBasedStateMachine, invariant, precondition, rule
 
 from agent import circuit, resilience
 from agent.circuit import CircuitBreaker, CircuitOpenError, CircuitPermit, CircuitState, get_breaker, reset_breakers
@@ -25,6 +28,71 @@ class _FakeClock:
 
     def __call__(self) -> float:
         return self.now
+
+
+class CircuitProtocolMachine(RuleBasedStateMachine):
+    """Exercise arbitrary permit outcomes across breaker generations."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.clock = _FakeClock()
+        self.breaker = CircuitBreaker(name="stateful", failure_threshold=2, reset_timeout_s=5.0, clock=self.clock)
+        self.permits: list[CircuitPermit] = []
+
+    @rule()
+    def request_permit(self) -> None:
+        before = self.breaker.state
+        permit = self.breaker.allow()
+        if before is CircuitState.HALF_OPEN or (
+            before is CircuitState.OPEN and self.clock.now - self.breaker.opened_at < 5.0
+        ):
+            assert permit is None
+        if permit is not None:
+            self.permits.append(permit)
+
+    @rule(seconds=st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False))
+    def advance_clock(self, seconds: float) -> None:
+        self.clock.now += seconds
+
+    @precondition(lambda self: bool(self.permits))
+    @rule(index=st.integers(min_value=0, max_value=1000))
+    def record_success(self, index: int) -> None:
+        permit = self.permits[index % len(self.permits)]
+        stale = permit.generation != self.breaker._generation or self.breaker.state is CircuitState.OPEN  # noqa: SLF001
+        before = (self.breaker.state, self.breaker.failures, self.breaker.opened_at)
+        self.breaker.record_success(permit)
+        if stale:
+            assert (self.breaker.state, self.breaker.failures, self.breaker.opened_at) == before
+
+    @precondition(lambda self: bool(self.permits))
+    @rule(index=st.integers(min_value=0, max_value=1000))
+    def record_failure(self, index: int) -> None:
+        permit = self.permits[index % len(self.permits)]
+        stale = self.breaker.state is CircuitState.OPEN or permit.generation != self.breaker._generation  # noqa: SLF001
+        before = (self.breaker.state, self.breaker.failures, self.breaker.opened_at)
+        self.breaker.record_failure(permit)
+        if stale:
+            assert (self.breaker.state, self.breaker.failures, self.breaker.opened_at) == before
+
+    @precondition(lambda self: bool(self.permits))
+    @rule(index=st.integers(min_value=0, max_value=1000))
+    def abandon(self, index: int) -> None:
+        self.breaker.record_abandoned(self.permits[index % len(self.permits)])
+
+    @invariant()
+    def permits_never_come_from_a_future_generation(self) -> None:
+        assert all(permit.generation <= self.breaker._generation for permit in self.permits)  # noqa: SLF001
+        assert self.breaker.failures >= 0
+
+
+TestCircuitProtocol = CircuitProtocolMachine.TestCase
+TestCircuitProtocol.settings = hypothesis_settings(
+    database=None,
+    deadline=None,
+    derandomize=True,
+    max_examples=50,
+    stateful_step_count=30,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -199,6 +267,8 @@ def test_stale_failure_cannot_reopen_a_recovered_breaker_generation() -> None:
     assert breaker.failures == 0
 
 
+# These scheduler-driven tests can expose lost updates and duplicate construction,
+# but no finite thread interleaving proves the absence of every possible race.
 def test_concurrent_failures_are_not_lost() -> None:
     class _SlowInt(int):
         def __add__(self, other: int) -> "_SlowInt":

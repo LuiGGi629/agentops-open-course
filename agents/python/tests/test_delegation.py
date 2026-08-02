@@ -1,5 +1,9 @@
 """Unit tests for multi-agent delegation and per-agent least privilege (Ch. 3.6)."""
 
+import hashlib
+
+import pytest
+
 from agent.delegation import coordinator_agent, diagnosis_agent, remediation_agent
 
 _WRITE_TOOLS = {"restart_service", "resolve_incident"}
@@ -40,14 +44,24 @@ def test_remediation_actions_still_require_confirmation() -> None:
         assert getattr(tool, "_require_confirmation", None) is True  # the HITL contract
 
 
-def test_coordinator_requires_post_action_verification() -> None:
+@pytest.mark.parametrize(
+    ("agent", "expected"),
+    [
+        (coordinator_agent, "b560e1a88ad0db21d6d4c75844576f82f98b3725692be68fcfdbcd24a0b41ffb"),
+        (diagnosis_agent, "d60847d5b91668cffb2d307e684dc02a390120bdfed9622dea4f9cbea5eb6b29"),
+        (remediation_agent, "9e079bc4f25ba9d07426d48159e28f59afb1307abe3a15f5ea5243f2977d3cff"),
+    ],
+)
+def test_delegation_prompt_contracts(agent, expected: str) -> None:
+    digest = hashlib.sha256(str(agent.instruction).encode()).hexdigest()
+    assert digest == expected, "prompt changed — re-run `mise run eval` and update the hash after reviewing"
+
+
+def test_coordinator_eval_dependencies_remain_explicit() -> None:
     remediation_instruction = str(remediation_agent.instruction)
     coordinator_instruction = str(coordinator_agent.instruction)
     diagnosis_instruction = str(diagnosis_agent.instruction)
     assert "never claim service recovery from the action response" in remediation_instruction
     assert "ADK creates its confirmation request" in remediation_instruction
-    assert "coordinator handoff is not approval" in remediation_instruction
     assert "delegate back to diagnosis_agent" in coordinator_instruction
-    assert "re-read the incident and service" in coordinator_instruction
-    assert "never claim recovery from the action response alone" in coordinator_instruction
     assert "post-action verification" in diagnosis_instruction

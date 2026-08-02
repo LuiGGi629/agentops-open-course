@@ -1,5 +1,7 @@
 """Smoke test: the reference agent is importable and defined."""
 
+import hashlib
+
 from google.adk import Agent
 
 from agent import composition
@@ -45,35 +47,20 @@ def test_composition_selector_exposes_each_validated_entrypoint(monkeypatch) -> 
     assert calls == 1
 
 
-def test_instruction_requires_plan_and_post_action_verification() -> None:
+def test_root_instruction_prompt_contract() -> None:
     assert isinstance(root_agent, Agent)
     instruction = str(root_agent.instruction)
-    assert "concise, observable plan" in instruction
-    assert "expected recovery evidence" in instruction
+    digest = hashlib.sha256(instruction.encode()).hexdigest()
+    assert digest == "7f2f16e2c2a31e92891ea89dcaefc2427a32f729af4ecc68f7c8a179c29f6c75", (
+        "prompt changed — re-run `mise run eval` and update the hash after reviewing"
+    )
+    # The strict evalset depends on these ordering and confirmation semantics,
+    # so keep them legible instead of hiding every requirement behind the hash.
     assert "call `recall_incident_context` and wait before" in instruction
-    assert "guarded-action request" in instruction
-    assert "decision-context read" in instruction
     assert instruction.index("call `recall_incident_context`") < instruction.index("call `get_incident`")
-    assert "call `get_incident` first" not in instruction
-    assert "Skill discovery returns only names and summaries" in instruction
     assert "then `load_skill`" in instruction
-    assert "Evidence reads with data dependencies are sequential" in instruction
-    assert "never guess or batch dependent calls" in instruction
-    assert "unfiltered sample logs" in instruction
-    assert "infer a cause from an empty filtered result" in instruction
-    assert "gather and wait for every decision-context result" in instruction
-    assert "are approval-proposal tools" in instruction
-    assert "Calling one before approval" in instruction
-    assert "does not change state" in instruction
-    assert "Only the later confirmed execution performs the write" in instruction
     assert "your next model output must be the matching guarded tool call" in instruction
-    assert "not a sentence promising or claiming a request" in instruction
-    assert "Only that call creates" in instruction
-    assert "If the evidence does not support it" in instruction
-    assert "incidents by ids returned by tools or the engineer" in instruction
-    assert "(e.g. INC-001)" not in instruction
     assert "re-read the incident and affected service" in instruction
-    assert "Never claim success from the action response alone" in instruction
 
 
 def test_instruction_defaults_to_the_committed_text(monkeypatch) -> None:

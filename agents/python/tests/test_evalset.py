@@ -4,6 +4,7 @@ The evalsets reference dataset entities by id; when the seed data evolves,
 these checks catch dangling references before a model-backed eval ever runs.
 """
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -156,56 +157,59 @@ def test_behavioral_cases_require_the_evidence_and_memory_tools_they_claim() -> 
         eval_id: cases[eval_id]["conversation"][0]["user_content"]["parts"][0]["text"]
         for eval_id in ("restart-needs-approval", "resolve-needs-approval")
     }
-    assert "search_service_logs with only the service and no query" in prompts["restart-needs-approval"]
-    assert "guarded restart_service tool" in prompts["restart-needs-approval"]
-    assert "guarded resolve_incident tool" in prompts["resolve-needs-approval"]
-    assert all("built-in confirmation request" in prompt for prompt in prompts.values())
+    expected_hashes = {
+        "restart-needs-approval": "6814205eb5da615a54770a642271d274263a7da2fba95ed1b50ae4d8199294ef",
+        "resolve-needs-approval": "2f10c544acb06421811dfeaa7e4483fbadabfdacad16fa87c4667d032b9e3681",
+    }
+    for eval_id, prompt in prompts.items():
+        assert hashlib.sha256(prompt.encode()).hexdigest() == expected_hashes[eval_id], (
+            "prompt changed — re-run `mise run eval` and update the hash after reviewing"
+        )
+    # These phrases are evaluator dependencies, not copy-edit ratchets.
     assert all("Work sequentially" in prompt for prompt in prompts.values())
-    assert all("do not guess them or batch dependent calls" in prompt for prompt in prompts.values())
-    assert all("Wait for" in prompt and "read results" in prompt for prompt in prompts.values())
     assert "unless you emit the restart_service call" in prompts["restart-needs-approval"]
     assert "unless you emit the resolve_incident call" in prompts["resolve-needs-approval"]
 
 
 def test_structured_report_eval_exercises_a_valid_typed_response() -> None:
     evalset = json.loads(_REPORT_EVALSET.read_text(encoding="utf-8"))
-    assert len(evalset["eval_cases"]) == 1
-    turn = evalset["eval_cases"][0]["conversation"][0]
-    text = turn["final_response"]["parts"][0]["text"]
-    report = TriageReport.model_validate_json(text)
-    assert report.incident_id == "INC-002"
-    incident = data.get_incident(report.incident_id)
-    assert incident is not None
-    tool_uses = turn["intermediate_data"]["tool_uses"]
-    assert [use["name"] for use in tool_uses] == [
-        "get_incident",
-        "search_service_logs",
-        "get_runbook",
-    ]
-    assert tool_uses[1]["args"]["service"] == incident.service
-    assert tool_uses[2]["args"]["slug"] == incident.runbook
+    assert len(evalset["eval_cases"]) == 3
+    for case in evalset["eval_cases"]:
+        turn = case["conversation"][0]
+        text = turn["final_response"]["parts"][0]["text"]
+        report = TriageReport.model_validate_json(text)
+        incident = data.get_incident(report.incident_id)
+        assert incident is not None
+        tool_uses = turn["intermediate_data"]["tool_uses"]
+        assert [use["name"] for use in tool_uses] == [
+            "get_incident",
+            "search_service_logs",
+            "get_runbook",
+        ]
+        assert tool_uses[0]["args"]["incident_id"] == report.incident_id
+        assert tool_uses[1]["args"]["service"] == incident.service
+        assert tool_uses[2]["args"]["slug"] == incident.runbook
 
 
 def test_workflow_eval_exercises_plan_review_and_read_only_evidence() -> None:
     evalset = json.loads(_WORKFLOW_EVALSET.read_text(encoding="utf-8"))
-    assert len(evalset["eval_cases"]) == 1
-    case = evalset["eval_cases"][0]
-    assert case["session_input"]["app_name"] == "triage_workflow"
-    turn = case["conversation"][0]
-    assert "INC-001" in turn["user_content"]["parts"][0]["text"]
-    incident = data.get_incident("INC-001")
-    assert incident is not None
-    tool_uses = turn["intermediate_data"]["tool_uses"]
-    assert [use["name"] for use in tool_uses] == [
-        "get_incident",
-        "get_service_status",
-        "search_service_logs",
-        "get_runbook",
-    ]
-    assert tool_uses[1]["args"]["name"] == incident.service
-    assert tool_uses[2]["args"]["service"] == incident.service
-    assert tool_uses[3]["args"]["slug"] == incident.runbook
-    assert not {"restart_service", "resolve_incident", "save_incident_note"} & {use["name"] for use in tool_uses}
+    assert len(evalset["eval_cases"]) == 3
+    for case in evalset["eval_cases"]:
+        assert case["session_input"]["app_name"] == "triage_workflow"
+        turn = case["conversation"][0]
+        tool_uses = turn["intermediate_data"]["tool_uses"]
+        incident = data.get_incident(tool_uses[0]["args"]["incident_id"])
+        assert incident is not None
+        assert [use["name"] for use in tool_uses] == [
+            "get_incident",
+            "get_service_status",
+            "search_service_logs",
+            "get_runbook",
+        ]
+        assert tool_uses[1]["args"]["name"] == incident.service
+        assert tool_uses[2]["args"]["service"] == incident.service
+        assert tool_uses[3]["args"]["slug"] == incident.runbook
+        assert not {"restart_service", "resolve_incident", "save_incident_note"} & {use["name"] for use in tool_uses}
 
 
 @pytest.mark.parametrize(

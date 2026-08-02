@@ -6,6 +6,7 @@ from contextlib import closing
 from types import SimpleNamespace
 from typing import cast
 
+import httpx
 import pytest
 from mcp.server.transport_security import TransportSecurityMiddleware
 from starlette.requests import HTTPConnection, Request
@@ -104,6 +105,65 @@ def test_gateway_mcp_toolset_constructs() -> None:
     toolset = ops_mcp_toolset("http://localhost:3000/mcp")
     assert toolset is not None
     asyncio.run(toolset.close())
+
+
+def test_streamable_http_initialize_and_tool_call_round_trip(monkeypatch) -> None:
+    """Exercise the actual MCP protocol in process, without a port or external server."""
+
+    async def exercise() -> None:
+        # JSON responses keep this protocol test finite under an in-process ASGI
+        # transport; production clients may negotiate the equivalent SSE form.
+        monkeypatch.setattr(mcp.settings, "json_response", True)
+        monkeypatch.setattr(mcp, "_session_manager", None)
+        app = mcp.streamable_http_app()
+        transport = httpx.ASGITransport(app=app)
+        common_headers = {
+            "accept": "application/json, text/event-stream",
+            "content-type": "application/json",
+        }
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=transport) as client:
+            initialized = await client.post(
+                "http://localhost/mcp",
+                headers=common_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "offline-contract-test", "version": "1"},
+                    },
+                },
+            )
+            initialized.raise_for_status()
+            assert initialized.json()["result"]["serverInfo"]["name"] == "agentops-agent"
+            session_headers = {
+                **common_headers,
+                "mcp-protocol-version": initialized.json()["result"]["protocolVersion"],
+            }
+            ready = await client.post(
+                "http://localhost/mcp",
+                headers=session_headers,
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            )
+            assert ready.status_code == 202
+            result = await client.post(
+                "http://localhost/mcp",
+                headers=session_headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {"name": MCP_READ_TOOL_NAMES[0], "arguments": {}},
+                },
+            )
+            result.raise_for_status()
+            payload = result.json()["result"]
+            assert payload.get("isError") is not True
+            assert any(item.get("text") for item in payload["content"])
+
+    asyncio.run(exercise())
 
 
 def test_gateway_toolset_sends_bearer_token_when_configured(monkeypatch) -> None:

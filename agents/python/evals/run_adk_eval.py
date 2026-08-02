@@ -84,6 +84,17 @@ def pass_rate(value: str) -> float:
     return parsed
 
 
+def repeat_count(value: str) -> int:
+    """Parse a positive repeat count for multi-sample model evidence."""
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a positive integer") from error
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def eval_case_ids(eval_set: Path) -> list[str]:
     """Return validated case ids in their committed order."""
     try:
@@ -129,6 +140,12 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="eval id that must pass its strict case contract regardless of the aggregate floor (repeatable)",
     )
+    parser.add_argument(
+        "--repeat",
+        type=repeat_count,
+        default=1,
+        help="number of isolated samples per eval case (default: 1)",
+    )
     return parser.parse_args()
 
 
@@ -149,44 +166,53 @@ def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to
     # case per subprocess and preserve ADK's native evaluator/output unchanged.
     for eval_id in eval_ids:
         selector = f"{args.eval_set}:{eval_id}"
-        with tempfile.TemporaryDirectory(prefix="agentops-adk-eval-") as state_dir:
-            command = [
-                sys.executable,
-                "-m",
-                "evals.governed_adk_eval",
-                "eval",
-                str(args.agent),
-                selector,
-                "--config_file_path",
-                str(args.config),
-            ]
-            child_env = {**os.environ, "AGENT_STATE_DIR": state_dir}
-            process = subprocess.Popen(  # noqa: S603 - fixed executable and argv, never a shell
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                env=child_env,
-            )
-            if process.stdout is None:  # defensive: PIPE above guarantees a stream
-                raise RuntimeError("ADK evaluation process has no output stream.")
-            lines: list[str] = []
-            for line in process.stdout:
-                lines.append(line)
-                print(line, end="", flush=True)  # noqa: T201 - preserve the evaluator's live CLI output
-            process_returncode = process.wait()
-        if process_returncode:
-            returncode, message = verdict("".join(lines), process_returncode, args.min_pass_rate)
-            print(message, file=sys.stderr)  # noqa: T201 - preserve the truthful process verdict
-            raise SystemExit(returncode)
-        counts = summary_counts("".join(lines))
-        if counts is None:
-            print("ADK evaluation produced no run summary.", file=sys.stderr)  # noqa: T201
-            raise SystemExit(2)
-        total_passed += counts[0]
-        total_failed += counts[1]
-        if eval_id in required_cases and counts != (1, 0):
+        case_passed = case_failed = 0
+        for sample in range(1, args.repeat + 1):
+            print(f"ADK evaluation sample {sample}/{args.repeat}: {eval_id}")  # noqa: T201
+            with tempfile.TemporaryDirectory(prefix="agentops-adk-eval-") as state_dir:
+                command = [
+                    sys.executable,
+                    "-m",
+                    "evals.governed_adk_eval",
+                    "eval",
+                    str(args.agent),
+                    selector,
+                    "--config_file_path",
+                    str(args.config),
+                ]
+                child_env = {**os.environ, "AGENT_STATE_DIR": state_dir}
+                process = subprocess.Popen(  # noqa: S603 - fixed executable and argv, never a shell
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=child_env,
+                )
+                if process.stdout is None:  # defensive: PIPE above guarantees a stream
+                    raise RuntimeError("ADK evaluation process has no output stream.")
+                lines: list[str] = []
+                for line in process.stdout:
+                    lines.append(line)
+                    print(line, end="", flush=True)  # noqa: T201 - preserve the evaluator's live CLI output
+                process_returncode = process.wait()
+            if process_returncode:
+                returncode, message = verdict("".join(lines), process_returncode, args.min_pass_rate)
+                print(message, file=sys.stderr)  # noqa: T201 - preserve the truthful process verdict
+                raise SystemExit(returncode)
+            counts = summary_counts("".join(lines))
+            if counts is None:
+                print("ADK evaluation produced no run summary.", file=sys.stderr)  # noqa: T201
+                raise SystemExit(2)
+            case_passed += counts[0]
+            case_failed += counts[1]
+        total_passed += case_passed
+        total_failed += case_failed
+        variance = "mixed" if case_passed and case_failed else "stable"
+        print(  # noqa: T201 - multi-sample evidence belongs in the live log
+            f"ADK case samples: {eval_id} passed {case_passed}/{case_passed + case_failed}; variance={variance}."
+        )
+        if eval_id in required_cases and case_failed:
             failed_required_cases.append(eval_id)
 
     returncode, message = verdict_counts(total_passed, total_failed, args.min_pass_rate)

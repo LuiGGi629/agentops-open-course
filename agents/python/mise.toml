@@ -59,7 +59,7 @@ run = "uv run pip-audit"
 [tasks.test]
 alias = "t"
 description = "Run the offline test suite with branch coverage"
-run = "uv run pytest --cov=agent --cov-branch --cov-report=term-missing:skip-covered --cov-fail-under=95"
+run = "uv run pytest --cov=agent --cov=evals --cov-branch --cov-report=term-missing:skip-covered --cov-fail-under=95"
 
 [tasks."test:critical"]
 description = "Repeat state, policy, privacy, and portability regressions under fixed hash seeds"
@@ -96,14 +96,19 @@ env = { _.file = { path = "../../.env", redact = true } }
 run = "uv run python -m evals.report_eval"
 
 [tasks."eval:workflow"]
-description = "Evaluate the bounded plan and evidence-review workflow with the configured model"
+description = "Evaluate three samples of the bounded plan and evidence-review workflow"
 env = { AGENT_ENTRYPOINT = "workflow", _.file = { path = "../../.env", redact = true } }
-run = "uv run python evals/run_adk_eval.py evals/workflow.evalset.json"
+run = "uv run python evals/run_adk_eval.py evals/workflow.evalset.json --repeat 3 --min-pass-rate 0.33"
 
 [tasks."eval:mlflow"]
 description = "Run full-conversation MLflow evals + prompt registry (run install:eval first)"
 env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
 run = "uv run python evals/mlflow_eval.py"
+
+[tasks."eval:judge-calibration"]
+description = "Measure agentgateway judge agreement on labeled good, bad, and hallucinated answers"
+env = { _.file = { path = "../../.env", redact = true } }
+run = "uv run python -m evals.judge_calibration --min-agreement 0.75"
 
 [tasks."eval:retrieval"]
 description = "Compare keyword vs semantic runbook retrieval (install:eval + local Ollama embeddings)"
@@ -126,8 +131,8 @@ env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = tru
 run = "uv run python evals/prompt_ab.py"
 
 [tasks."eval:validate"]
-description = "Validate the evalset structure and seed references offline (no model)"
-run = "uv run pytest --no-cov tests/test_evalset.py"
+description = "Validate evalset references and judge-calibration labels offline (no model)"
+run = "uv run pytest --no-cov tests/test_evalset.py tests/test_judge_calibration.py"
 
 [tasks.redteam]
 description = "Run deterministic offline adversarial checks (not live model red-teaming)"

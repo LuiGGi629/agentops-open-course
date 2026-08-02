@@ -28,7 +28,7 @@ def main() -> None:
             AgentEvaluator.evaluate(
                 agent_module="agent.structured_report.agent",
                 eval_dataset_file_path_or_dir="evals/triage-report.evalset.json",
-                num_runs=1,
+                num_runs=3,
             )
         )
 

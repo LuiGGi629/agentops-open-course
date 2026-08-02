@@ -306,8 +306,8 @@ def test_domain_literals_cannot_spread_outside_the_ratcheted_contract() -> None:
     # until the learner reviews it.
     evalset_maximum_occurrences = {
         Path("evals/ops.evalset.json"): 88,
-        Path("evals/triage-report.evalset.json"): 10,
-        Path("evals/workflow.evalset.json"): 9,
+        Path("evals/triage-report.evalset.json"): 30,
+        Path("evals/workflow.evalset.json"): 28,
     }
     discovered_evalsets = {
         path.relative_to(python_root) for path in python_root.joinpath("evals").glob("*.evalset.json")

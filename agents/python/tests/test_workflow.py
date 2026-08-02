@@ -1,5 +1,9 @@
 """Unit tests for the bounded read-only incident workflow (Ch. 3.5)."""
 
+import hashlib
+
+import pytest
+
 from agent.workflow import evidence_review, investigate, plan, recommend, triage_workflow
 
 _STEPS = (plan, investigate, evidence_review, recommend)
@@ -55,23 +59,21 @@ def test_no_step_wires_its_own_policy_callbacks() -> None:
         assert step.on_tool_error_callback is None
 
 
-def test_instructions_bound_planning_review_and_recommendation() -> None:
-    assert "at most four bullets" in str(plan.instruction)
-    assert "Do not invent symptoms, causes, systems, time windows, hypotheses" in str(plan.instruction)
-    assert "exact runbook linked by the incident record" in str(plan.instruction)
+@pytest.mark.parametrize(
+    ("step", "expected"),
+    [
+        (plan, "290cfa7d7b04aa3321ec27f0089fc1771fc5ac739c98b32f3dc25f08cddf9129"),
+        (investigate, "05b2f9cfa2ba5882b819eb3eda715e28215e40cd36a5b821442d07e52c0bc27f"),
+        (evidence_review, "506d4bf2bc6a5ca7061e87f81132ad3b0186a8edb67519235c3683472ff4125c"),
+        (recommend, "60f917ec16911ac8a5cb48c57ffdf3ed6f8ca7ee85c9afbd30790ad2d7b9e2a1"),
+    ],
+)
+def test_workflow_prompt_contracts(step, expected: str) -> None:
+    digest = hashlib.sha256(str(step.instruction).encode()).hexdigest()
+    assert digest == expected, "prompt changed — re-run `mise run eval` and update the hash after reviewing"
+
+
+def test_workflow_eval_dependencies_remain_explicit() -> None:
     assert "plan controls which evidence to collect; it is not evidence" in str(investigate.instruction)
-    assert "filtering by the exact named service when present" in str(investigate.instruction)
-    assert "no query filter" in str(investigate.instruction)
-    assert "substitute fuzzy runbook search" in str(investigate.instruction)
-    assert "Preserve the exact incident id, service, and runbook slug in the handoff" in str(investigate.instruction)
-    assert "observed service status, unfiltered log evidence" in str(investigate.instruction)
-    assert "claims, not source truth" in str(evidence_review.instruction)
     assert "unfiltered service logs with search_service_logs" in str(evidence_review.instruction)
-    assert "missing or conflicting evidence" in str(evidence_review.instruction)
-    assert "exact incident id, service, runbook slug" in str(evidence_review.instruction)
-    assert "at most four key observations" in str(evidence_review.instruction)
-    assert "never return an opaque error" in str(evidence_review.instruction)
-    assert "at most three runbook-backed next steps" in str(recommend.instruction)
-    assert "preserving the exact incident and service" in str(recommend.instruction)
-    assert "never discover an alternative" in str(recommend.instruction)
     assert "never call either action" in str(recommend.instruction)

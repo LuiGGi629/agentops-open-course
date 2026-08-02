@@ -16,7 +16,15 @@ from google.adk.plugins.plugin_manager import PluginManager
 
 from agent.governance import AgentOpsPolicyPlugin
 from evals import governed_adk_eval, run_adk_eval
-from evals.run_adk_eval import eval_case_ids, eval_case_selectors, pass_rate, summary_counts, verdict, verdict_counts
+from evals.run_adk_eval import (
+    eval_case_ids,
+    eval_case_selectors,
+    pass_rate,
+    repeat_count,
+    summary_counts,
+    verdict,
+    verdict_counts,
+)
 
 
 class _FakeApp:
@@ -203,6 +211,12 @@ def test_pass_rate_rejects_a_disabled_or_invalid_floor(value: str) -> None:
         pass_rate(value)
 
 
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
+def test_repeat_count_requires_a_positive_integer(value: str) -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
+        repeat_count(value)
+
+
 def test_eval_case_selectors_preserve_order_and_force_serial_adk_runs(tmp_path) -> None:
     eval_set = tmp_path / "cases.evalset.json"
     eval_set.write_text(
@@ -253,6 +267,7 @@ def test_main_launches_one_process_per_case_and_aggregates_authoritative_summari
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.5,
+            repeat=1,
             required_case=["second"],
         ),
     )
@@ -296,6 +311,42 @@ def test_main_launches_one_process_per_case_and_aggregates_authoritative_summari
     assert all(not state_dir.exists() for state_dir in state_dirs)
 
 
+def test_main_reports_mixed_multi_sample_variance(monkeypatch, tmp_path, capsys) -> None:
+    eval_set = tmp_path / "cases.evalset.json"
+    eval_set.write_text(json.dumps({"eval_cases": [{"eval_id": "variable"}]}), encoding="utf-8")
+    monkeypatch.setattr(
+        run_adk_eval,
+        "parse_args",
+        lambda: SimpleNamespace(
+            agent=Path("src/agent"),
+            eval_set=eval_set,
+            config=Path("evals/test_config.json"),
+            min_pass_rate=0.5,
+            repeat=2,
+            required_case=[],
+        ),
+    )
+    results = [
+        ("Eval Run Summary\nset:\n  Tests passed: 1\n  Tests failed: 0\n", 0),
+        ("Eval Run Summary\nset:\n  Tests passed: 0\n  Tests failed: 1\n", 0),
+    ]
+
+    def popen(_command, **_kwargs):
+        output, returncode = results.pop(0)
+        return SimpleNamespace(stdout=io.StringIO(output), wait=lambda: returncode)
+
+    monkeypatch.setattr(run_adk_eval.subprocess, "Popen", popen)
+
+    with pytest.raises(SystemExit) as exit_info:
+        run_adk_eval.main()
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "passed 1/2; variance=mixed" in output
+    assert "1/2 (50%)" in output
+    assert not results
+
+
 def test_main_stops_on_the_first_nonzero_adk_process(monkeypatch, tmp_path) -> None:
     eval_set = tmp_path / "cases.evalset.json"
     eval_set.write_text(
@@ -310,6 +361,7 @@ def test_main_stops_on_the_first_nonzero_adk_process(monkeypatch, tmp_path) -> N
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.25,
+            repeat=1,
             required_case=[],
         ),
     )
@@ -354,6 +406,7 @@ def test_main_reports_every_required_case_miss_after_running_later_cases(
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.25,
+            repeat=1,
             required_case=["critical-first", "critical-last"],
         ),
     )
@@ -399,6 +452,7 @@ def test_main_rejects_an_unknown_required_case_before_model_work(monkeypatch, tm
             eval_set=eval_set,
             config=Path("evals/test_config.json"),
             min_pass_rate=0.25,
+            repeat=1,
             required_case=["missing"],
         ),
     )
