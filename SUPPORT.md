@@ -30,7 +30,7 @@ This table is the course's single capacity-planning authority. **Total RAM** is 
 
 The local-platform numbers are conservative planning values, not measured minima or performance guarantees. `doctor:*` can verify tools, services, credentials, cgroup mode, and some free-disk boundaries; portable measurement of “enough available RAM” is not reliable across supported systems, so it does not pretend to certify that property.
 
-macOS, Linux arm64, and WSL2 remain best-effort. Their lock entries keep tool installation reproducible, but they are not release-gated through the full container, loopback-relay, and k3d journey. [Issue #111](https://github.com/MLOps-Courses/agentops-open-course/issues/111) owns the evidence needed to expand that matrix. Report platform-specific defects, but do not infer full-platform support from a successful `mise run install`.
+macOS, Linux arm64, and WSL2 remain best-effort. Their lock entries keep tool installation reproducible, but they are not release-gated through the full container, loopback-relay, and k3d journey. Closed [issue #111](https://github.com/MLOps-Courses/agentops-open-course/issues/111) records the evidence that would be needed before expanding that matrix. Report platform-specific defects, but do not infer full-platform support from a successful `mise run install`.
 
 The admitted interpreter is CPython 3.13.x only: every Python project declares `>=3.13,<3.14`, ty checks 3.13, and CI plus both runtime images use that line. Python 3.14 is explicitly unsupported until the locked ADK/GenAI dependency chain imports warning-free and the full agent boundary suite passes on it. A newer interpreter existing upstream is not a support claim.
 
@@ -92,10 +92,10 @@ The course deliberately excludes a model-callable or public subject-data adminis
 ## What is outside the contract?
 
 - Live GCP deployment, Vertex calls, cloud cost acceptance, public TLS/auth, high availability, disaster recovery, and production operations.
-- Completing the capstone in a maintainer-chosen domain. The capstone is intentionally the learner's adaptation and is scored by its published rubric; [issue #110](https://github.com/MLOps-Courses/agentops-open-course/issues/110) owns independent learner validation.
+- Completing the capstone in a maintainer-chosen domain. The capstone is intentionally the learner's adaptation and is scored by its published rubric; independent learner validation remains external evidence.
 - Full-path release qualification on macOS, Linux arm64, or WSL2.
 - Formal WCAG conformance certification or an exhaustive assistive-technology matrix.
-- PDF and ebook publication. Repository Markdown is the accessible offline fallback; issue #110 records learner evidence before another format is added.
+- PDF and ebook publication. Repository Markdown is the accessible offline fallback; another format requires independent learner and accessibility evidence first.
 - Coordinated subject discovery, export, or erasure across long-term notes, ADK sessions, A2A tasks, and MLflow.
 - Compatibility for forks, local patches, mutable upstream tags, or unsupported dependency combinations.
 

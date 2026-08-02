@@ -52,7 +52,7 @@ Staging keeps the base learning path account-free and free of containers, cluste
 
 [1.0. System](./1.0.%20System.md) owns the exact profile-to-chapter map, independence rule, probes, and matching install tiers. Run the doctor named by the chapter you are entering; later pages repeat only the command they ask you to use.
 
-[1.5. Workspace](./1.5.%20Workspace.md) owns the learner-versus-maintainer gate boundary, including the advisory-network caveat. Chapter 1 uses `mise run check:core`; the closing checkpoint below is its canonical command list.
+[1.5. Workspace](./1.5.%20Workspace.md) owns the offline learner gate and the broader maintainer boundary. Chapter 1 uses `mise run check:core`; the closing checkpoint below is its canonical command list.
 
 ## What is deliberately not part of this chapter?
 

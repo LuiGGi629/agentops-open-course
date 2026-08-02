@@ -48,9 +48,9 @@ Concretely, each field of `root_agent` traces to one owner:
 | [2.4. Sessions](./2.4. Sessions.md)         | Persistent sessions and A2A task state         | `server.py` `DatabaseSessionService`, `config.py` `state_dir` |
 | [2.5. Dev Loop](./2.5. Dev Loop.md)         | The offline gates and interactive run modes    | `mise.toml` tasks                                             |
 
-Tools and callbacks are named here, not taught here. Owned by [Chapter 3](../3. Capabilities/) and [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
+Tools and policy hooks are named here, not taught here. Owned by [Chapter 3](../3. Capabilities/) and [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
 
-??? note "Deeper: the same map as a diagram, and who owns tools and callbacks"
+??? note "Deeper: the same map as a diagram, and who owns tools and policy"
 
     This diagram maps the anatomy to its owners:
 
@@ -60,7 +60,7 @@ Tools and callbacks are named here, not taught here. Owned by [Chapter 3](../3. 
         subgraph agent["root_agent — assembled in composition.py · 2.1"]
             model["model = build_model() · 2.2"]
             instr["instruction = _instruction() · 2.3"]
-            tools["tools = [reads, actions, memory, skills]<br/>+ policy callbacks · Ch. 3 / 4.5"]
+            tools["tools = [reads, actions, memory, skills]<br/>policy plugin on App · Ch. 3 / 4.5"]
         end
         runtime["Persistent runtime · 2.4<br/>DatabaseSessionService · A2A tasks · server.py"]
         loop["Dev loop · 2.5<br/>mise run test · run · web · a2a"]
@@ -69,7 +69,9 @@ Tools and callbacks are named here, not taught here. Owned by [Chapter 3](../3. 
         loop -. iterates .-> agent
     ```
 
-    The `tools=` list and the `before_*`/`after_*` callbacks belong to later chapters: 2.1 shows you the wiring, but [Chapter 3](../3. Capabilities/) owns each tool and [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md) owns the callback policy. This page only names the seams.
+    **Diagram in words:** Runtime concepts lead to one agent assembled from a model, instruction, tools, and an app-level policy plugin; persistent runtime and the dev loop surround it.
+
+    The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3](../3. Capabilities/) owns each tool, and [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md) owns policy. This page only names the seams.
 
 ## What proves this chapter worked?
 
@@ -80,7 +82,7 @@ cd agents/python
 mise run test
 ```
 
-That is the offline test suite. The second is the required drill in [2.3. Instructions](./2.3.%20Instructions.md#your-turn-which-eval-case-catches-a-rule-you-delete), which does use your local model: you delete one instruction rule and find out what notices. Do the command first — a red suite makes the drill unreadable. It constructs the agent, resolves its configuration, and exercises model and session wiring without a running model or network.
+That is the offline test suite. The required drill in [2.3. Instructions](./2.3.%20Instructions.md#your-turn-which-eval-case-catches-a-rule-you-delete) is deterministic too: delete one instruction rule, watch the focused contract fail, then restore it. A live-model comparison remains optional evidence.
 
 The whole run can take several minutes depending on the machine and cache state. It ends with a coverage total checked against the enforced 95% threshold, then a pytest `passed` line. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
 

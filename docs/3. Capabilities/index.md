@@ -33,7 +33,7 @@ Everything assembles in that composition root. `composition.py` builds `root_age
 --8<-- "agents/python/src/agent/composition.py:root-agent"
 ```
 
-Read only the `tools=` line for now. The six callback slots under it are policy, owned by [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
+Read only the `tools=` line for now. Cross-cutting policy is attached separately by `AgentOpsPolicyPlugin` on the `App`, owned by [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
 
 That one assignment is the map for the whole chapter. One branch, `_read_tools()`, decides whether reads run locally or over the governed MCP toolset. **MCP** is the Model Context Protocol: one contract for serving a tool to any agent that speaks it ([0.7. Glossary](../0.%20Overview/0.7.%20Glossary.md#mcp)).
 

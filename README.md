@@ -15,7 +15,7 @@ Nine chapters follow the AgentOps lifecycle, from a first local model call to an
 - **One completed reference:** every chapter inspects and runs the same AgentOps Agent, then the capstone guides you through replacing its fictional domain with your own platform.
 - **OSS-first and account-free:** run the Apache-2.0 open-weight [Qwen3](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) model through Ollama with no account, no mandatory SaaS, and no usage fee.
 - **Real operational boundaries:** tools, Agent Skills, MCP, A2A, human approval, PII redaction, append-only audit records, and persistent sessions are implemented in the reference agent.
-- **Bounded reasoning:** the fast agent is instructed to plan multi-step work and verify approved actions; a runnable plan → investigate → evidence review → recommend workflow enforces deeper orchestration structurally.
+- **Bounded reasoning:** the conversational agent is instructed to plan multi-step work and verify approved actions; a runnable plan → investigate → evidence review → recommend workflow enforces deeper orchestration structurally.
 - **One data plane:** agentgateway routes and governs MCP, A2A, and OpenAI-compatible model traffic.
 - **One local-to-cloud contract:** the same container and Kubernetes base run on k3d and on a small GKE lab; only overlays and model identity change.
 - **Observable end to end:** optional OTLP telemetry flows to a self-hosted MLflow trace UI and Prometheus/Grafana metrics.
@@ -41,7 +41,7 @@ The completed **AgentOps Agent** is an on-call assistant for a fictional service
   [awaiting human approval + rationale · no state change]
 ```
 
-Every claim traces to a tool result. The guarded call creates ADK's confirmation request; only an approved call with a rationale executes `restart_service` and appends an audit record. The agent reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills; runtime state is copied into `.state/`, so exercises never mutate the course dataset. New to the acronyms below (MCP, A2A, OTLP)? The [glossary](https://agentops-open-course.fmind.dev/0.%20Overview/0.7.%20Glossary.html) defines every term.
+Every claim traces to a tool result. The guarded call creates ADK's confirmation request; only an approved call with a rationale executes `restart_service` and appends an audit record. The agent reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills; runtime state is copied into `.state/`, so exercises never mutate the course dataset. `AGENT_MCP_URL` reroutes only the conversational entrypoint's six reads; workflows and coordinator specialists keep local tools, and guarded writes always remain in-process. New to the acronyms below (MCP, A2A, OTLP)? The [glossary](https://agentops-open-course.fmind.dev/0.%20Overview/0.7.%20Glossary.html) defines every term.
 
 ```mermaid
 flowchart LR
@@ -67,7 +67,7 @@ curl -fsSL https://mise.run | sh
 # Follow mise's printed instructions to activate it in your shell.
 ```
 
-The learner bootstrap installs only the pinned core tools and environments, then runs the model-free gates. It makes no model, cloud, container, or deployment calls; `test` is offline after installation, while `check:core` may query package-index advisory services.
+The learner bootstrap installs only the pinned core tools and environments, then runs the offline gates. It makes no model, cloud, container, deployment, or advisory-service calls. The separate maintainer and CI gate `check:vuln` refreshes package advisories.
 
 ```bash
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
@@ -155,7 +155,7 @@ skills/         Installable Agent Skills packaging the course's patterns
 
 ## Reuse the patterns in your own agents
 
-The top-level [`skills/`](./skills/) directory packages this course's operational patterns — telemetry, guardrails, resilience, token budgets, least privilege, evaluation, incident response — as portable [Agent Skills](https://agents.md/) you can install into your own projects with the [`skills` CLI](https://github.com/vercel-labs/skills):
+The top-level [`skills/`](./skills/) directory packages this course's operational patterns — telemetry, guardrails, resilience, token budgets, least privilege, evaluation, incident response — in the portable [Agent Skills format](https://agentskills.io/specification) for installation with the [`skills` CLI](https://github.com/vercel-labs/skills):
 
 ```bash
 npx skills add MLOps-Courses/agentops-open-course --all

@@ -932,7 +932,6 @@ def check_source_versions(
             "kagent chart",
             parsed_owners["kagent"],
             {
-                "docs/0. Overview/0.3. Ecosystem.md": 1,
                 "docs/6. Platform/6.0. Platform.md": 1,
                 "docs/6. Platform/6.2. Platform Install.md": 3,
                 "docs/7. Observability/7.0. Reproducibility.md": 1,
@@ -948,7 +947,6 @@ def check_source_versions(
             "helm-diff",
             parsed_owners["helm-diff"],
             {
-                "docs/1. Setup/1.0. System.md": 2,
                 "docs/1. Setup/1.3. Kubernetes.md": 2,
                 "docs/6. Platform/6.2. Platform Install.md": 1,
             },

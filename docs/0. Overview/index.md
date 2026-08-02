@@ -35,7 +35,7 @@ This chapter covers:
 
 ## What decisions does this chapter help you make?
 
-Five questions, in order, each answered by one sub-page. Settle them before you commit engineering time to building:
+Five questions, in order, answered across the sub-pages below. Settle them before you commit engineering time to building:
 
 ```mermaid
 flowchart TD

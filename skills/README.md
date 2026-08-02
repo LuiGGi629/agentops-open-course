@@ -1,6 +1,6 @@
 # AgentOps Skills
 
-Installable [Agent Skills](https://agents.md/) that package this course's operational patterns so you can apply them in **your own** agent projects. They are tool-agnostic guidance — the how and the why — each pointing back to the worked reference implementation in this repository.
+Installable [Agent Skills](https://agentskills.io/specification) that package this course's operational patterns so you can apply them in **your own** agent projects. They are tool-agnostic guidance — the how and the why — each pointing back to the worked reference implementation in this repository.
 
 These are distinct from `agents/data/skills/`, which are runtime skills the reference agent loads at execution time. The skills here are for the human (or coding agent) building and operating an agent.
 
