@@ -98,7 +98,7 @@ run = "uv run python -m evals.report_eval"
 [tasks."eval:workflow"]
 description = "Evaluate three samples of the bounded plan and evidence-review workflow"
 env = { AGENT_ENTRYPOINT = "workflow", _.file = { path = "../../.env", redact = true } }
-run = "uv run python evals/run_adk_eval.py evals/workflow.evalset.json --repeat 3 --min-pass-rate 0.33"
+run = "uv run python evals/run_adk_eval.py evals/workflow.evalset.json --repeat 3 --min-pass-rate 0.33 --print-detailed-results"
 
 [tasks."eval:mlflow"]
 description = "Run full-conversation MLflow evals + prompt registry (run install:eval first)"

@@ -269,6 +269,7 @@ def test_main_launches_one_process_per_case_and_aggregates_authoritative_summari
             min_pass_rate=0.5,
             repeat=1,
             required_case=["second"],
+            print_detailed_results=True,
         ),
     )
     results = [
@@ -306,6 +307,7 @@ def test_main_launches_one_process_per_case_and_aggregates_authoritative_summari
         f"{eval_set}:second",
     ]
     assert all(command[0][2] == "evals.governed_adk_eval" for command in commands)
+    assert all(command[0][-1] == "--print_detailed_results" for command in commands)
     assert all(command[1]["stderr"] is run_adk_eval.subprocess.STDOUT for command in commands)
     assert len(set(state_dirs)) == 2
     assert all(not state_dir.exists() for state_dir in state_dirs)

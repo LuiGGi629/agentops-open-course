@@ -229,10 +229,17 @@ def test_run_adk_eval_parser_accepts_repeat_and_required_cases(monkeypatch, tmp_
             "0.5",
             "--required-case",
             "critical",
+            "--print-detailed-results",
         ],
     )
     args = run_adk_eval.parse_args()
-    assert (args.eval_set, args.repeat, args.min_pass_rate, args.required_case) == (eval_set, 3, 0.5, ["critical"])
+    assert (args.eval_set, args.repeat, args.min_pass_rate, args.required_case, args.print_detailed_results) == (
+        eval_set,
+        3,
+        0.5,
+        ["critical"],
+        True,
+    )
 
 
 def test_run_adk_eval_rejects_invalid_json_and_incomplete_summaries(tmp_path) -> None:

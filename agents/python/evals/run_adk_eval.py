@@ -146,6 +146,11 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="number of isolated samples per eval case (default: 1)",
     )
+    parser.add_argument(
+        "--print-detailed-results",
+        action="store_true",
+        help="print ADK's evaluated events and metric details after each case",
+    )
     return parser.parse_args()
 
 
@@ -180,6 +185,8 @@ def main() -> None:  # pragma: no cover - the model-backed subprocess belongs to
                     "--config_file_path",
                     str(args.config),
                 ]
+                if getattr(args, "print_detailed_results", False):
+                    command.append("--print_detailed_results")
                 child_env = {**os.environ, "AGENT_STATE_DIR": state_dir}
                 process = subprocess.Popen(  # noqa: S603 - fixed executable and argv, never a shell
                     command,
