@@ -27,15 +27,6 @@ patches:
   - target:
       group: kagent.dev
       version: v1alpha2
-      kind: Agent
-      name: agentops-agent
-    patch: |-
-      - op: replace
-        path: /spec/byo/deployment/env/0/value
-        value: qwen3:4b-instruct
-  - target:
-      group: kagent.dev
-      version: v1alpha2
       kind: ModelConfig
       name: agentgateway
     patch: |-
@@ -61,3 +52,21 @@ patches:
           ports:
             - port: 11434
               protocol: TCP
+
+replacements:
+  # Select both lists by their semantic names, so reordering either manifest
+  # cannot redirect the local model override to another environment variable.
+  - source:
+      group: kagent.dev
+      version: v1alpha2
+      kind: ModelConfig
+      name: agentgateway
+      fieldPath: spec.model
+    targets:
+      - select:
+          group: kagent.dev
+          version: v1alpha2
+          kind: Agent
+          name: agentops-agent
+        fieldPaths:
+          - spec.byo.deployment.env.[name=^AGENT_MODEL$].value

@@ -44,9 +44,16 @@ trap 'rm -rf "${tmp_dir}"; [[ "${cleanup_gateway_auth}" == "0" ]] || rm -rf "${g
 [[ -L infra/observability/prometheus-rules.yml ]]
 [[ ! -L infra/k8s/overlays/local/prometheus-rules.yaml ]]
 prometheus_rules_link="$(readlink infra/observability/prometheus-rules.yml)"
-[[ "${prometheus_rules_link}" == "../k8s/overlays/local/prometheus-rules.yaml" ]]
+assert_eq "Prometheus rules symlink" "${prometheus_rules_link}" "../k8s/overlays/local/prometheus-rules.yaml"
 promtool check rules infra/observability/prometheus-rules.yml
 promtool test rules infra/observability/tests/observability-collector-down.yml
+collector_health_endpoint="$(yq -r '.extensions.health_check.endpoint' infra/k8s/base/otel-collector-config.yaml)"
+collector_service_extensions="$(yq -r '.service.extensions | join(",")' infra/k8s/base/otel-collector-config.yaml)"
+assert_eq "collector health extension endpoint" "${collector_health_endpoint}" "0.0.0.0:13133"
+assert_eq "collector enabled extensions" "${collector_service_extensions}" "health_check"
+if rg -n '/env/[0-9]+/value' infra/k8s/overlays/*/kustomization.yaml; then
+	fail "overlay environment patches must select entries by name"
+fi
 
 for overlay in local gke; do
 	rendered="${tmp_dir}/${overlay}.yaml"
@@ -67,6 +74,12 @@ for overlay in local gke; do
 		"${rendered}"
 	kube-linter lint --fail-if-no-objects-found --with-color=false "${rendered}"
 
+	default_deny_ingress='select(.kind == "NetworkPolicy" and .metadata.name == "default-deny-ingress")'
+	default_deny_ingress_selector="$(yq -o=json -I=0 "${default_deny_ingress} | .spec.podSelector" "${rendered}")"
+	default_deny_ingress_types="$(yq -r "${default_deny_ingress} | .spec.policyTypes | join(\",\")" "${rendered}")"
+	assert_eq "${overlay} default-deny ingress selector" "${default_deny_ingress_selector}" "{}"
+	assert_eq "${overlay} default-deny ingress types" "${default_deny_ingress_types}" "Ingress"
+
 	# Raw A2A is never a public workload port: only the in-namespace gateway
 	# reaches the BYO pod. kagent's controller manages the CR/deployment through
 	# the Kubernetes API and has no proven reason to bypass this data plane.
@@ -77,17 +90,17 @@ for overlay in local gke; do
 	a2a_source_name="$(yq -r "select(${a2a_ingress}) | .spec.ingress[0].from[0].podSelector.matchLabels.\"app.kubernetes.io/name\"" "${rendered}")"
 	a2a_source_namespace="$(yq -r "select(${a2a_ingress}) | .spec.ingress[0].from[0].namespaceSelector" "${rendered}")"
 	a2a_ingress_port="$(yq -r "select(${a2a_ingress}) | .spec.ingress[0].ports[0].port" "${rendered}")"
-	[[ "${a2a_selector}" == "agentops-agent" ]]
-	[[ "${a2a_ingress_rules}" == "1" ]]
-	[[ "${a2a_sources}" == "1" ]]
-	[[ "${a2a_source_name}" == "agentgateway" ]]
-	[[ "${a2a_source_namespace}" == "null" ]]
-	[[ "${a2a_ingress_port}" == "8080" ]]
+	assert_eq "${overlay} A2A selector" "${a2a_selector}" "agentops-agent"
+	assert_eq "${overlay} A2A ingress rule count" "${a2a_ingress_rules}" "1"
+	assert_eq "${overlay} A2A source count" "${a2a_sources}" "1"
+	assert_eq "${overlay} A2A source" "${a2a_source_name}" "agentgateway"
+	assert_eq "${overlay} A2A source namespace" "${a2a_source_namespace}" "null"
+	assert_eq "${overlay} A2A port" "${a2a_ingress_port}" "8080"
 
 	agent_egress_selector="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "agent-egress") | .spec.podSelector.matchLabels."app.kubernetes.io/name"' "${rendered}")"
 	gateway_agent_target="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "agentgateway-egress") | .spec.egress[] | select(.ports[].port == 8080) | .to[0].podSelector.matchLabels."app.kubernetes.io/name"' "${rendered}")"
-	[[ "${agent_egress_selector}" == "agentops-agent" ]]
-	[[ "${gateway_agent_target}" == "agentops-agent" ]]
+	assert_eq "${overlay} agent egress selector" "${agent_egress_selector}" "agentops-agent"
+	assert_eq "${overlay} gateway agent target" "${gateway_agent_target}" "agentops-agent"
 
 	# Keep gateway ingress source-and-port specific. The BYO agent uses MCP and
 	# the model route, the collector alone scrapes metrics, and only the kagent
@@ -105,17 +118,17 @@ for overlay in local gke; do
 	kagent_gateway_instance="$(yq -r "select(${gateway_ingress}) | .spec.ingress[] | select(.from[0].namespaceSelector.matchLabels.\"kubernetes.io/metadata.name\" == \"kagent\") | .from[0].podSelector.matchLabels.\"app.kubernetes.io/instance\"" "${rendered}")"
 	kagent_gateway_component="$(yq -r "select(${gateway_ingress}) | .spec.ingress[] | select(.from[0].namespaceSelector.matchLabels.\"kubernetes.io/metadata.name\" == \"kagent\") | .from[0].podSelector.matchLabels.\"app.kubernetes.io/component\"" "${rendered}")"
 	gateway_protocols="$(yq -r "select(${gateway_ingress}) | .spec.ingress[].ports[].protocol" "${rendered}" | sort | paste -sd, -)"
-	[[ "${gateway_ingress_selector}" == "agentgateway" ]]
-	[[ "${gateway_ingress_rules}" == "3" ]]
-	[[ "${gateway_ingress_source_counts}" == "1,1,1" ]]
-	[[ "${agent_gateway_ports}" == "3000,4000" ]]
-	[[ "${agent_gateway_namespace}" == "null" ]]
-	[[ "${collector_gateway_ports}" == "15020" ]]
-	[[ "${collector_gateway_namespace}" == "null" ]]
-	[[ "${kagent_gateway_ports}" == "3000,4000" ]]
-	[[ "${kagent_gateway_instance}" == "kagent" ]]
-	[[ "${kagent_gateway_component}" == "controller" ]]
-	[[ "${gateway_protocols}" == "TCP,TCP,TCP,TCP,TCP" ]]
+	assert_eq "${overlay} gateway ingress selector" "${gateway_ingress_selector}" "agentgateway"
+	assert_eq "${overlay} gateway ingress rule count" "${gateway_ingress_rules}" "3"
+	assert_eq "${overlay} gateway source counts" "${gateway_ingress_source_counts}" "1,1,1"
+	assert_eq "${overlay} agent gateway ports" "${agent_gateway_ports}" "3000,4000"
+	assert_eq "${overlay} agent gateway namespace" "${agent_gateway_namespace}" "null"
+	assert_eq "${overlay} collector gateway ports" "${collector_gateway_ports}" "15020"
+	assert_eq "${overlay} collector gateway namespace" "${collector_gateway_namespace}" "null"
+	assert_eq "${overlay} kagent gateway ports" "${kagent_gateway_ports}" "3000,4000"
+	assert_eq "${overlay} kagent gateway instance" "${kagent_gateway_instance}" "kagent"
+	assert_eq "${overlay} kagent gateway component" "${kagent_gateway_component}" "controller"
+	assert_eq "${overlay} gateway protocols" "${gateway_protocols}" "TCP,TCP,TCP,TCP,TCP"
 
 	# Collector ingress is source-and-port specific in the completed reference:
 	# gateway and kagent controller use OTLP/gRPC, the BYO agent uses OTLP/HTTP,
@@ -129,25 +142,32 @@ for overlay in local gke; do
 	kagent_otel_instance="$(yq -r "select(${collector_ingress}) | .spec.ingress[] | select(.from[0].namespaceSelector) | .from[0].podSelector.matchLabels.\"app.kubernetes.io/instance\"" "${rendered}")"
 	kagent_otel_component="$(yq -r "select(${collector_ingress}) | .spec.ingress[] | select(.from[0].namespaceSelector) | .from[0].podSelector.matchLabels.\"app.kubernetes.io/component\"" "${rendered}")"
 	kagent_otel_port="$(yq -r "select(${collector_ingress}) | .spec.ingress[] | select(.from[0].namespaceSelector) | .ports[0].port" "${rendered}")"
-	[[ "${collector_ingress_rules}" == "3" ]]
-	[[ "${collector_ports}" == "4317,4317,4318" ]]
-	[[ "${gateway_otel_port}" == "4317" ]]
-	[[ "${agent_otel_port}" == "4318" ]]
-	[[ "${kagent_otel_namespace}" == "kagent" ]]
-	[[ "${kagent_otel_instance}" == "kagent" ]]
-	[[ "${kagent_otel_component}" == "controller" ]]
-	[[ "${kagent_otel_port}" == "4317" ]]
+	assert_eq "${overlay} collector ingress rule count" "${collector_ingress_rules}" "3"
+	assert_eq "${overlay} collector ingress ports" "${collector_ports}" "4317,4317,4318"
+	assert_eq "${overlay} gateway OTLP port" "${gateway_otel_port}" "4317"
+	assert_eq "${overlay} agent OTLP port" "${agent_otel_port}" "4318"
+	assert_eq "${overlay} kagent OTLP namespace" "${kagent_otel_namespace}" "kagent"
+	assert_eq "${overlay} kagent OTLP instance" "${kagent_otel_instance}" "kagent"
+	assert_eq "${overlay} kagent OTLP component" "${kagent_otel_component}" "controller"
+	assert_eq "${overlay} kagent OTLP port" "${kagent_otel_port}" "4317"
+
+	collector_health_port="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "otel-collector") | .spec.template.spec.containers[] | select(.name == "collector") | .ports[] | select(.name == "health") | .containerPort' "${rendered}")"
+	collector_readiness="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "otel-collector") | .spec.template.spec.containers[] | select(.name == "collector") | .readinessProbe.httpGet.path + ":" + .readinessProbe.httpGet.port' "${rendered}")"
+	collector_liveness="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "otel-collector") | .spec.template.spec.containers[] | select(.name == "collector") | .livenessProbe.httpGet.path + ":" + .livenessProbe.httpGet.port' "${rendered}")"
+	assert_eq "${overlay} collector health port" "${collector_health_port}" "13133"
+	assert_eq "${overlay} collector readiness endpoint" "${collector_readiness}" "/:health"
+	assert_eq "${overlay} collector liveness endpoint" "${collector_liveness}" "/:health"
 
 	metrics_ingress='.kind == "NetworkPolicy" and .metadata.name == "otel-collector-metrics-ingress"'
 	metrics_ingress_count="$(yq -r "select(${metrics_ingress}) | .metadata.name" "${rendered}" | awk 'NF { count++ } END { print count + 0 }')"
 	if [[ "${overlay}" == "local" ]]; then
 		metrics_source="$(yq -r "select(${metrics_ingress}) | .spec.ingress[0].from[0].podSelector.matchLabels.\"app.kubernetes.io/name\"" "${rendered}")"
 		metrics_port="$(yq -r "select(${metrics_ingress}) | .spec.ingress[0].ports[0].port" "${rendered}")"
-		[[ "${metrics_ingress_count}" == "1" ]]
-		[[ "${metrics_source}" == "prometheus" ]]
-		[[ "${metrics_port}" == "8889" ]]
+		assert_eq "local collector metrics policy count" "${metrics_ingress_count}" "1"
+		assert_eq "local collector metrics source" "${metrics_source}" "prometheus"
+		assert_eq "local collector metrics port" "${metrics_port}" "8889"
 	else
-		[[ "${metrics_ingress_count}" == "0" ]]
+		assert_eq "GKE collector metrics policy count" "${metrics_ingress_count}" "0"
 	fi
 
 	agent_model="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_MODEL") | .value' "${rendered}")"
@@ -155,51 +175,53 @@ for overlay in local gke; do
 	agent_bind_host="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_A2A_BIND_HOST") | .value' "${rendered}")"
 	retired_gateway_flag="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env | map(select(.name == "AGENT_GATEWAY_ENABLED")) | length' "${rendered}")"
 	model_config="$(yq -r 'select(.kind == "ModelConfig" and .metadata.name == "agentgateway") | .spec.model' "${rendered}")"
-	[[ "${agent_provider}" == "openai-compatible" ]]
-	[[ "${agent_bind_host}" == "0.0.0.0" ]]
-	[[ "${retired_gateway_flag}" == "0" ]]
+	pod_quota="$(yq -r 'select(.kind == "ResourceQuota" and .metadata.name == "agentops-compute") | .spec.hard.pods' "${rendered}")"
+	assert_eq "${overlay} pod quota" "${pod_quota}" "13"
+	assert_eq "${overlay} agent model provider" "${agent_provider}" "openai-compatible"
+	assert_eq "${overlay} A2A bind host" "${agent_bind_host}" "0.0.0.0"
+	assert_eq "${overlay} retired gateway flag count" "${retired_gateway_flag}" "0"
 
 	backup_state_read_only="$(yq -r 'select(.kind == "CronJob" and .metadata.name == "agentops-state-backup") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name == "backup") | .volumeMounts[] | select(.name == "state") | (.readOnly // false)' "${rendered}")"
 	backup_target_read_only="$(yq -r 'select(.kind == "CronJob" and .metadata.name == "agentops-state-backup") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name == "backup") | .volumeMounts[] | select(.name == "backups") | (.readOnly // false)' "${rendered}")"
 	backup_arguments="$(yq -r 'select(.kind == "CronJob" and .metadata.name == "agentops-state-backup") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name == "backup") | .args[]' "${rendered}")"
-	[[ "${backup_state_read_only}" == "true" ]]
-	[[ "${backup_target_read_only}" == "false" ]]
+	assert_eq "${overlay} backup state read-only" "${backup_state_read_only}" "true"
+	assert_eq "${overlay} backup target writable" "${backup_target_read_only}" "false"
 	mlflow_memory_limit="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[0].resources.limits.memory' "${rendered}")"
-	[[ "${mlflow_memory_limit}" == "2Gi" ]]
+	assert_eq "${overlay} MLflow memory limit" "${mlflow_memory_limit}" "2Gi"
 	if rg -Fx -- '--lock-file' <<<"${backup_arguments}" >/dev/null; then
 		fail "backup CronJob must use the shared state-directory lock"
 	fi
 
 	if [[ "${overlay}" == "local" ]]; then
-		[[ "${agent_model}" == "qwen3:4b-instruct" ]]
-		[[ "${model_config}" == "qwen3:4b-instruct" ]]
+		assert_eq "local agent model" "${agent_model}" "qwen3:4b-instruct"
+		assert_eq "local ModelConfig model" "${model_config}" "qwen3:4b-instruct"
 	else
-		[[ "${agent_model}" == "gemini-3.5-flash" ]]
-		[[ "${model_config}" == "gemini-3.5-flash" ]]
+		assert_eq "GKE agent model" "${agent_model}" "gemini-3.5-flash"
+		assert_eq "GKE ModelConfig model" "${model_config}" "gemini-3.5-flash"
 
 		gateway_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "agentgateway") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
 		mlflow_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "mlflow") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
 		mlflow_bucket="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[] | select(.name == "mlflow") | .env[] | select(.name == "MLFLOW_ARTIFACTS_DESTINATION") | .value' "${rendered}")"
 		gke_storage_classes="$(yq -r 'select(.kind == "PersistentVolumeClaim") | .spec.storageClassName' "${rendered}" | rg -v '^---$' | sort -u)"
-		[[ "${gateway_gsa}" == "agentgateway@agentops-course-check.iam.gserviceaccount.com" ]]
-		[[ "${mlflow_gsa}" == "mlflow@agentops-course-check.iam.gserviceaccount.com" ]]
-		[[ "${mlflow_bucket}" == "gs://agentops-course-check-mlflow" ]]
-		[[ "${gke_storage_classes}" == "agentops-standard" ]]
+		assert_eq "GKE gateway service account" "${gateway_gsa}" "agentgateway@agentops-course-check.iam.gserviceaccount.com"
+		assert_eq "GKE MLflow service account" "${mlflow_gsa}" "mlflow@agentops-course-check.iam.gserviceaccount.com"
+		assert_eq "GKE MLflow bucket" "${mlflow_bucket}" "gs://agentops-course-check-mlflow"
+		assert_eq "GKE storage classes" "${gke_storage_classes}" "agentops-standard"
 
 		for deployment in agentgateway agentops-mcp loki otel-collector; do
 			deployment_cpu="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "'"${deployment}"'") | .spec.template.spec.containers[0].resources.requests.cpu' "${rendered}")"
-			[[ "${deployment_cpu}" == "50m" ]]
+			assert_eq "GKE ${deployment} CPU request" "${deployment_cpu}" "50m"
 		done
 		mlflow_cpu="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[0].resources.requests.cpu' "${rendered}")"
 		agent_cpu="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.resources.requests.cpu' "${rendered}")"
-		[[ "${mlflow_cpu}" == "100m" ]]
-		[[ "${agent_cpu}" == "100m" ]]
+		assert_eq "GKE MLflow CPU request" "${mlflow_cpu}" "100m"
+		assert_eq "GKE agent CPU request" "${agent_cpu}" "100m"
 
 		vertex_backend_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.provider.vertex.model' infra/agentgateway/gke/config.yaml)"
-		[[ "${vertex_backend_model}" == "google/gemini-3.5-flash" ]]
+		assert_eq "GKE Vertex backend model" "${vertex_backend_model}" "google/gemini-3.5-flash"
 
 		dns_service_cidr="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "dns-egress") | .spec.egress[].to[]? | select(.ipBlock) | .ipBlock.cidr' "${rendered}")"
-		[[ "${dns_service_cidr}" == "10.30.0.10/32" ]]
+		assert_eq "GKE DNS service CIDR" "${dns_service_cidr}" "10.30.0.10/32"
 
 		# Terraform selects Calico, not Dataplane V2. Lock both workloads to the
 		# corresponding GKE metadata endpoint and reject the incompatible one.
@@ -214,13 +236,13 @@ for overlay in local gke; do
 			wif_to_counts="$(yq -r "${wif_rule} | .to | length" "${rendered}" | sort -n | paste -sd, -)"
 			wif_ports="$(yq -r "${wif_rule} | .ports[].port" "${rendered}" | sort -n | paste -sd, -)"
 			wif_protocols="$(yq -r "${wif_rule} | .ports[].protocol" "${rendered}" | sort | paste -sd, -)"
-			[[ "${wif_rule_count}" == "1" ]]
-			[[ "${wif_to_counts}" == "1" ]]
-			[[ "${wif_ports}" == "987,988" ]]
-			[[ "${wif_protocols}" == "TCP,TCP" ]]
+			assert_eq "${policy} WIF rule count" "${wif_rule_count}" "1"
+			assert_eq "${policy} WIF destination count" "${wif_to_counts}" "1"
+			assert_eq "${policy} WIF ports" "${wif_ports}" "987,988"
+			assert_eq "${policy} WIF protocols" "${wif_protocols}" "TCP,TCP"
 		done
 		wif_cidr_count="$(grep -Fc "${wif_cidr}" "${rendered}")"
-		[[ "${wif_cidr_count}" == "2" ]]
+		assert_eq "GKE WIF CIDR occurrence count" "${wif_cidr_count}" "2"
 	fi
 done
 
@@ -347,12 +369,12 @@ container_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes
 container_stats_addr="$(yq -r '.config.statsAddr' "${host_container_config}")"
 container_readiness_addr="$(yq -r '.config.readinessAddr' "${host_container_config}")"
 container_admin_addr="$(yq -r '.config.adminAddr' "${host_container_config}")"
-[[ "${container_mcp}" == "http://host.docker.internal:8000/mcp" ]]
-[[ "${container_a2a}" == "host.docker.internal:8080" ]]
-[[ "${container_model}" == "host.docker.internal:11434" ]]
-[[ "${container_stats_addr}" == "0.0.0.0:15020" ]]
-[[ "${container_readiness_addr}" == "0.0.0.0:15021" ]]
-[[ "${container_admin_addr}" == "off" ]]
+assert_eq "host container MCP upstream" "${container_mcp}" "http://host.docker.internal:8000/mcp"
+assert_eq "host container A2A upstream" "${container_a2a}" "host.docker.internal:8080"
+assert_eq "host container model upstream" "${container_model}" "host.docker.internal:11434"
+assert_eq "host container stats address" "${container_stats_addr}" "0.0.0.0:15020"
+assert_eq "host container readiness address" "${container_readiness_addr}" "0.0.0.0:15021"
+assert_eq "host container admin address" "${container_admin_addr}" "off"
 
 # Secured host mode uses the same container contract, but stages only the
 # serving certificate/key and public JWKS into a private runtime directory.
@@ -370,12 +392,12 @@ auth_jwks="$(yq -r '.binds[].listeners[].routes[] | select(.policies.jwtAuth.jwk
 auth_mcp="$(yq -r '.binds[] | select(.port == 3000) | .listeners[].routes[].backends[].mcp.targets[].mcp.host' "${host_auth_container_config}")"
 auth_a2a="$(yq -r '.binds[] | select(.port == 3001) | .listeners[].routes[].backends[].host' "${host_auth_container_config}")"
 auth_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.hostOverride' "${host_auth_container_config}")"
-[[ "${auth_certs}" == "/etc/agentgateway/auth/tls-cert.pem" ]]
-[[ "${auth_keys}" == "/etc/agentgateway/auth/tls-key.pem" ]]
-[[ "${auth_jwks}" == "/etc/agentgateway/auth/jwks.json" ]]
-[[ "${auth_mcp}" == "http://host.docker.internal:8000/mcp" ]]
-[[ "${auth_a2a}" == "host.docker.internal:8080" ]]
-[[ "${auth_model}" == "host.docker.internal:11434" ]]
+assert_eq "host auth certificate mount" "${auth_certs}" "/etc/agentgateway/auth/tls-cert.pem"
+assert_eq "host auth key mount" "${auth_keys}" "/etc/agentgateway/auth/tls-key.pem"
+assert_eq "host auth JWKS mount" "${auth_jwks}" "/etc/agentgateway/auth/jwks.json"
+assert_eq "host auth MCP upstream" "${auth_mcp}" "http://host.docker.internal:8000/mcp"
+assert_eq "host auth A2A upstream" "${auth_a2a}" "host.docker.internal:8080"
+assert_eq "host auth model upstream" "${auth_model}" "host.docker.internal:11434"
 
 # Inspect the actual argument array produced by the wrapper, rather than a
 # parallel policy description that could drift from `docker run`.
@@ -386,11 +408,11 @@ container_user="$(awk '$0 == "--user" { getline; print; exit }' "${host_containe
 container_cap_drop="$(awk '$0 == "--cap-drop" { getline; print; exit }' "${host_container_args}")"
 container_security_opt="$(awk '$0 == "--security-opt" { getline; print; exit }' "${host_container_args}")"
 container_tmpfs="$(awk '$0 == "--tmpfs" { getline; print; exit }' "${host_container_args}")"
-[[ "${container_user}" == "65532:65532" ]]
+assert_eq "host container user" "${container_user}" "65532:65532"
 grep -Fxq -- "--read-only" "${host_container_args}"
-[[ "${container_cap_drop}" == "ALL" ]]
-[[ "${container_security_opt}" == "no-new-privileges=true" ]]
-[[ "${container_tmpfs}" == "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777" ]]
+assert_eq "host container dropped capabilities" "${container_cap_drop}" "ALL"
+assert_eq "host container security option" "${container_security_opt}" "no-new-privileges=true"
+assert_eq "host container tmpfs" "${container_tmpfs}" "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"
 grep -Fxq -- "cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29" "${host_container_args}"
 
 # The wrapper must join a dedicated network, never the shared default bridge. On the default
@@ -399,10 +421,12 @@ grep -Fxq -- "cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225
 grep -Fxq -- "--network" "${host_container_args}"
 container_network="$(awk '$0 == "--network" { getline; print; exit }' "${host_container_args}")"
 [[ -n "${container_network}" && "${container_network}" != "bridge" && "${container_network}" != "host" ]]
+container_network_alias="$(awk '$0 == "--network-alias" { getline; print; exit }' "${host_container_args}")"
+assert_eq "host gateway network alias" "${container_network_alias}" "agentops-gateway"
 
 awk '$0 == "--publish" { getline; print }' "${host_container_args}" >"${tmp_dir}/host-container.published"
 published_count="$(awk 'NF { count++ } END { print count + 0 }' "${tmp_dir}/host-container.published")"
-[[ "${published_count}" == "5" ]]
+assert_eq "host published port count" "${published_count}" "5"
 grep -Fxq -- "127.0.0.1:3000:3000" "${tmp_dir}/host-container.published"
 grep -Fxq -- "127.0.0.1:3001:3001" "${tmp_dir}/host-container.published"
 grep -Fxq -- "127.0.0.1:4000:4000" "${tmp_dir}/host-container.published"
@@ -512,7 +536,11 @@ docker compose \
 	config \
 	--format json >"${compose_config}"
 compose_services="$(jq -r '.services | keys[]' "${compose_config}" | sort | paste -sd, -)"
-[[ "${compose_services}" == "alertmanager,grafana,loki,mlflow,otel-collector,prometheus" ]]
+assert_eq "observability Compose services" "${compose_services}" "alertmanager,grafana,loki,mlflow,otel-collector,prometheus"
+compose_network="$(jq -r '.networks.default.name' "${compose_config}")"
+prometheus_gateway_target="$(yq -r '.scrape_configs[] | select(.job_name == "agentgateway") | .static_configs[0].targets[0]' infra/observability/prometheus.yml)"
+assert_eq "observability shared gateway network" "${compose_network}" "agentops-host-gateway-net"
+assert_eq "Prometheus gateway target" "${prometheus_gateway_target}" "agentops-gateway:15020"
 jq -e '
 	.services |
 	to_entries |

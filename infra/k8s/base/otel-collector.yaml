@@ -36,14 +36,18 @@ spec:
               containerPort: 4318
             - name: prometheus
               containerPort: 8889
+            - name: health
+              containerPort: 13133
           readinessProbe:
-            tcpSocket:
-              port: otlp-grpc
+            httpGet:
+              path: /
+              port: health
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            tcpSocket:
-              port: otlp-grpc
+            httpGet:
+              path: /
+              port: health
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:

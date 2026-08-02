@@ -18,15 +18,15 @@ Point the agent at `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`, then use
 - Alertmanager: <http://127.0.0.1:9093>
 - Loki logs API: <http://127.0.0.1:3100>
 
-Prometheus loads `prometheus-rules.yml` (SLO burn rate, latency, collector health, token/guardrail/schema signals) and routes fired alerts to Alertmanager. The `alertmanager.yml` webhook receiver points at a placeholder host endpoint: replace it with a real notification bridge or read alerts from the UI/API.
+Prometheus loads `prometheus-rules.yml` (SLO burn rate, latency, collector health, token/guardrail/schema signals) and routes fired alerts to Alertmanager. The `alertmanager.yml` webhook receiver is a placeholder: on Docker Desktop it can reach a loopback receiver, while native Linux needs a receiver on the Docker bridge or in the shared network. Replace it with a real notification bridge or read alerts from the UI/API.
 
-When agentgateway runs in Kubernetes, forward its internal metrics listener so Compose Prometheus can scrape the same policy traffic:
+When agentgateway runs in Kubernetes, forward its internal metrics listener only for direct diagnosis:
 
 ```bash
 kubectl -n agentops port-forward svc/agentgateway 15020:15020
 ```
 
-The in-cluster collector scrapes `agentgateway:15020` directly and needs no port-forward.
+The host Compose Prometheus job targets the host gateway container, not this forward. In-cluster, the collector scrapes `agentgateway:15020` directly and needs no port-forward.
 
 Stop the stack while preserving data:
 

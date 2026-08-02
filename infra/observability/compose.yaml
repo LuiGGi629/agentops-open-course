@@ -86,7 +86,8 @@ services:
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
-    # Lets the placeholder webhook reach a receiver on the Docker host.
+    # Docker Desktop resolves this to its host transport. On native Linux the
+    # placeholder receiver must listen on the bridge address, not host loopback.
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
@@ -113,8 +114,6 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=7d
-    extra_hosts:
-      - host.docker.internal:host-gateway
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus-rules.yml:/etc/prometheus/rules/agentops.yml:ro
@@ -170,3 +169,10 @@ volumes:
   loki-data: {}
   mlflow-data: {}
   prometheus-data: {}
+
+# Share the gateway wrapper's scoped bridge so Prometheus scrapes the gateway
+# container directly. The startup tasks create this external network first.
+networks:
+  default:
+    name: ${AGENTOPS_GATEWAY_NETWORK:-agentops-host-gateway-net}
+    external: true

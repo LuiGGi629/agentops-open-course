@@ -22,6 +22,15 @@ fail() {
 	exit 1
 }
 
+# assert_eq <label> <got> <want> — compare one exact invariant and name it on failure.
+assert_eq() {
+	local label="$1"
+	local got="$2"
+	local want="$3"
+
+	[[ "${got}" == "${want}" ]] || fail "${label}: got '${got}', want '${want}'"
+}
+
 # require_cmd <command> [doctor-profile] — assert a tool is on PATH, naming how to install it.
 require_cmd() {
 	local command_name="$1"

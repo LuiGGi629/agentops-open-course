@@ -20,4 +20,4 @@ scrape_configs:
       - targets: [mlflow:5000]
   - job_name: agentgateway
     static_configs:
-      - targets: [host.docker.internal:15020]
+      - targets: [agentops-gateway:15020]

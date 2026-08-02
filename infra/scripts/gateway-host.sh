@@ -10,6 +10,7 @@ source "${repo_root}/scripts/lib.sh"
 readonly host_config_dir="${repo_root}/infra/agentgateway/host"
 readonly image="cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29"
 readonly managed_label="dev.fmind.agentops.host-gateway"
+readonly network_alias="agentops-gateway"
 readonly relay_script="${script_dir}/loopback-relay.py"
 
 readonly container_name="${AGENTOPS_GATEWAY_CONTAINER:-agentops-host-gateway}"
@@ -213,6 +214,7 @@ require_docker() {
 
 ensure_network() {
 	if docker network inspect "${network_name}" >/dev/null 2>&1; then
+		network_is_managed || die "network '${network_name}' exists but is not managed by this repository"
 		return 0
 	fi
 	docker network create --label "${managed_label}=true" "${network_name}" >/dev/null
@@ -311,6 +313,7 @@ build_docker_args() {
 	if [[ "${lifecycle}" != "validate" ]]; then
 		docker_args+=(
 			--network "${network_name}"
+			--network-alias "${network_alias}"
 			--name "${container_name}"
 			--label "${managed_label}=true"
 			--publish "127.0.0.1:${mcp_port}:3000"
@@ -447,7 +450,6 @@ start_loopback_relay() {
 		--port "${mcp_upstream_port}" \
 		--port "${a2a_upstream_port}" \
 		--port "${model_upstream_port}" \
-		--port "${metrics_port}" \
 		--ready-file "${relay_dir}/ready" \
 		--token "${token}" \
 		</dev/null >"${relay_dir}/relay.log" 2>&1 &
@@ -560,6 +562,9 @@ validate_config() {
 print_args() {
 	local args_dir
 
+	require_docker
+	ensure_network
+	resolve_host_alias
 	args_dir="$(mktemp -d "${TMPDIR:-/tmp}/agentops-gateway-args.XXXXXX")"
 	write_runtime_config "${args_dir}"
 	build_docker_args "${args_dir}/config.yaml" run

@@ -272,11 +272,8 @@ wait_http "gateway readiness" "http://localhost:${gateway_readiness_port}/health
 
 kernel="$(uname -s)"
 docker_os="$(docker info --format '{{.OperatingSystem}}')"
-# How a container on the wrapper's network reaches host loopback. Docker Desktop provides its
-# own transport, so `host-gateway` is right there. On native Linux the wrapper runs a relay on
-# its dedicated network's gateway address — and `host-gateway` would resolve to the DEFAULT
-# bridge instead, which is exactly the address we moved off. The Linux branch below overrides it.
-relay_host_alias="host-gateway"
+# Native Linux needs a relay for the gateway's loopback-bound MCP, A2A, and
+# model upstreams. Metrics flow directly from Prometheus to the gateway container.
 if [[ "${kernel}" == "Linux" && "${docker_os}" != *"Docker Desktop"* ]]; then
 	relay_ready="${gateway_runtime_dir}/${gateway_container}/relay/ready"
 	[[ -f "${relay_ready}" ]] || die "native Linux gateway started without its bridge-only loopback relay"
@@ -293,8 +290,7 @@ if [[ "${kernel}" == "Linux" && "${docker_os}" != *"Docker Desktop"* ]]; then
 	# the relay listens, or the wrapper has silently regressed to the shared address.
 	default_bridge_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
 	[[ -z "${default_bridge_gateway}" || "${relay_listen_host}" != "${default_bridge_gateway}" ]]
-	relay_host_alias="${relay_listen_host}"
-	[[ ",${relay_ports}," == *",${gateway_metrics_port},"* ]]
+	[[ ",${relay_ports}," != *",${gateway_metrics_port},"* ]]
 fi
 
 (
@@ -456,18 +452,16 @@ curl --fail --silent --show-error \
 	"http://localhost:${gateway_metrics_port}/metrics" \
 	>"${work_dir}/gateway-metrics.txt"
 grep -Eq '^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? [0-9]' "${work_dir}/gateway-metrics.txt"
-# Prometheus runs in Compose, so prove the same target from a container. On
-# native Linux this crosses the wrapper-owned bridge relay; Docker Desktop
-# provides its own host.docker.internal transport.
+# Prometheus runs on the wrapper-owned bridge, so prove its exact direct target
+# rather than a different host-published or relay path.
 docker run --rm \
 	--network "${AGENTOPS_GATEWAY_NETWORK:-${gateway_container}-net}" \
 	--read-only \
 	--cap-drop ALL \
 	--security-opt no-new-privileges=true \
-	--add-host "host.docker.internal:${relay_host_alias}" \
 	"${curl_image}" \
 	--fail --silent --show-error --max-time 5 \
-	"http://host.docker.internal:${gateway_metrics_port}/metrics" \
+	"http://agentops-gateway:15020/metrics" \
 	>"${work_dir}/gateway-metrics-from-container.txt"
 grep -Eq '^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? [0-9]' "${work_dir}/gateway-metrics-from-container.txt"
 curl --fail --silent --show-error \

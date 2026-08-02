@@ -13,8 +13,8 @@ route:
 receivers:
   - name: local-webhook
     webhook_configs:
-      # Placeholder: any HTTP listener on the host, e.g. port 5001. Replace
-      # with your real notification bridge; nothing in the course depends on
-      # this endpoint existing.
+      # Placeholder: Docker Desktop can reach a loopback listener on port 5001.
+      # Native Linux needs a listener on the Docker bridge address or a receiver
+      # container on the shared network. Nothing in the course depends on it.
       - url: http://host.docker.internal:5001/alerts
         send_resolved: true

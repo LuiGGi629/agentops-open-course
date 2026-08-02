@@ -84,18 +84,18 @@ for overlay in local gke; do
       | .metadata.name' "${manifest}"
 	)"
 
-	[[ "${agent_claim}" == "agentops-agent-state" ]]
-	[[ "${agent_tmp_limit}" == "128Mi" ]]
-	[[ "${mcp_claim}" == "${agent_claim}" ]]
-	[[ "${mcp_fs_group}" == "10001" ]]
-	[[ "${mcp_state_read_only}" == "true" ]]
-	[[ "${gateway_automount}" == "false" ]]
-	[[ "${mlflow_automount}" == "false" ]]
-	[[ "${mlflow_artifact_root}" == "mlflow-artifacts:/" ]]
+	assert_eq "${overlay} agent state claim" "${agent_claim}" "agentops-agent-state"
+	assert_eq "${overlay} agent tmp limit" "${agent_tmp_limit}" "128Mi"
+	assert_eq "${overlay} MCP shared state claim" "${mcp_claim}" "${agent_claim}"
+	assert_eq "${overlay} MCP fsGroup" "${mcp_fs_group}" "10001"
+	assert_eq "${overlay} MCP state read-only" "${mcp_state_read_only}" "true"
+	assert_eq "${overlay} gateway token automount" "${gateway_automount}" "false"
+	assert_eq "${overlay} MLflow token automount" "${mlflow_automount}" "false"
+	assert_eq "${overlay} MLflow artifact root" "${mlflow_artifact_root}" "mlflow-artifacts:/"
 	if [[ "${overlay}" == "gke" ]]; then
-		[[ "${mlflow_artifacts_destination}" == "gs://agentops-course-check-mlflow" ]]
+		assert_eq "GKE MLflow artifact destination" "${mlflow_artifacts_destination}" "gs://agentops-course-check-mlflow"
 	else
-		[[ "${mlflow_artifacts_destination}" == "/var/lib/mlflow/artifacts" ]]
+		assert_eq "local MLflow artifact destination" "${mlflow_artifacts_destination}" "/var/lib/mlflow/artifacts"
 	fi
 	[[ -z "${unbounded_tmp_volumes}" ]]
 done

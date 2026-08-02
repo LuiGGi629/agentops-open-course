@@ -22,7 +22,7 @@ mise run doctor:gateway
 mise run gateway:host
 ```
 
-The wrapper publishes every gateway listener on `127.0.0.1`, drops capabilities, uses a read-only filesystem, and removes only its labelled container. On native Linux, a wrapper-owned relay listens only on Docker's bridge gateway and forwards to the loopback MCP, A2A, and Ollama processes. Docker's loopback publication makes gateway `:15020` available to Compose Prometheus without exposing raw upstream or metrics ports on the workstation's LAN interfaces. Detached lifecycle tasks are `gateway:host:start`, `gateway:host:status`, `gateway:host:logs`, and `gateway:host:stop`, including relay cleanup.
+The wrapper publishes every gateway listener on `127.0.0.1`, drops capabilities, uses a read-only filesystem, and removes only its labelled container. On native Linux, a wrapper-owned relay listens only on the dedicated Docker bridge gateway and forwards to the loopback MCP, A2A, and Ollama processes. Compose joins that scoped bridge and scrapes gateway `:15020` directly through the stable `agentops-gateway` alias; metrics never use the relay or a LAN interface. Detached lifecycle tasks are `gateway:host:start`, `gateway:host:status`, `gateway:host:logs`, and `gateway:host:stop`, including relay cleanup.
 
 The `host`, `k3d`, and `gke` files carry the same policies; only their upstream endpoints and model provider differ, and the Kubernetes profiles enforce the demo API key on the model listener. The raw agentgateway binary currently binds configured listeners on all interfaces, so it is an advanced/manual path rather than the host quickstart.
 

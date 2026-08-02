@@ -12,6 +12,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
 require_cmd openssl gateway
+require_cmd xxd gateway
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 out_dir="infra/agentgateway/host/auth"

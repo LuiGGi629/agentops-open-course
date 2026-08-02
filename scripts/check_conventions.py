@@ -128,6 +128,7 @@ PORT_CONTRACT: Final = {
     8002: ("agents/python/mise.toml", r"adk web src --port 8002"),
     8003: ("mise.toml", r"zensical serve --dev-addr 127\.0\.0\.1:8003"),
     11434: ("agents/python/src/agent/config.py", r'default="http://127\.0\.0\.1:11434/v1"'),
+    13133: ("infra/k8s/base/otel-collector-config.yaml", r"endpoint: 0\.0\.0\.0:13133"),
     5000: ("infra/observability/compose.yaml", r"MLFLOW_PORT:-5000"),
     4317: ("infra/observability/compose.yaml", r"OTEL_GRPC_PORT:-4317"),
     4318: ("infra/observability/compose.yaml", r"OTEL_HTTP_PORT:-4318"),
