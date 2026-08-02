@@ -85,6 +85,8 @@ The core gate validates course content, data, Python, shell, workflows, links, a
 Required test coverage of 95% reached
 ```
 
+For the shortest unverified preview, the published course keeps a separate [six-command fast path](https://agentops-open-course.fmind.dev/#what-are-the-six-commands-that-reach-the-first-agent-turn); return to this guarded sequence before treating the checkout as validated.
+
 For the first interactive run, install [Ollama](https://ollama.com/download), then pull Qwen3 (~2.5 GB, Apache-2.0 open weights):
 
 ```bash
@@ -99,7 +101,7 @@ cd agents/python
 mise run run
 ```
 
-Ask `List the open incidents`. It should answer with **INC-002, INC-005, and INC-010** — three ids from the committed dataset, not three it invented. That is the whole local loop: an agent that reads real data through typed tools and refuses to make one up. `mise run run` prints the answer, not the tool calls behind it; use `mise run web` and its Events timeline to watch those. Chapter 2 explains how it is wired.
+Ask `List the open incidents`, then compare the answer with the seed's three open rows: **INC-002, INC-005, and INC-010**. Any extra id is ungrounded. That is the whole local loop: an agent that reads real data through typed tools and refuses to make one up. `mise run run` prints the answer, not the tool calls behind it; use `mise run web` and its Events timeline to watch those. Chapter 2 explains how it is wired.
 
 Later, Chapter 3 compares the same conversational agent with `mise run workflow` and `mise run coordinator`. Those tasks select bounded orchestration through the same lazy `src/agent` package; the default runtime tasks stay pinned to the conversational composition.
 

@@ -641,7 +641,7 @@ class RouteContractTests(unittest.TestCase):
         manifest = json.loads(check_conventions.ROUTE_MANIFEST.read_text(encoding="utf-8"))
         changelog = check_conventions.ROOT.joinpath("CHANGELOG.md").read_text(encoding="utf-8")
         expected = check_conventions.changelog_release_versions(changelog)
-        current = set(manifest["releases"]["0.5.0"])
+        current = {check_conventions.page_url(page) for page in check_conventions.ROOT.joinpath("docs").rglob("*.md")}
 
         assert (
             check_conventions.validate_route_manifest(

@@ -46,6 +46,17 @@ flowchart TD
 
 The loop runs the other way too: `k3d cluster stop local` between sessions returns the memory without destroying anything, and `mise run cluster:start` resumes the same cluster ([6.2. Platform Install](./6.2.%20Platform%20Install.md#how-do-you-stop-the-cluster-between-sessions) owns both).
 
+## What would plain Kubernetes use instead of kagent?
+
+A plain Deployment is enough when no agent-specific reconciliation is useful.
+
+| Choice                                                                                         | What it owns                                                                        | What you gain or lose                                                                                                                                |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| kagent BYO `Agent`                                                                             | Agent description, image deployment, model reference, and controller reconciliation | The course can inspect an agent-native custom resource, but accepts an alpha API and its narrower deployment schema.                                 |
+| [Kubernetes Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) | Declarative Pod and ReplicaSet updates using stable built-in APIs                   | You gain the full Deployment schema and fewer controllers, but lose kagent's agent inventory, `ModelConfig` relationship, and agent-specific status. |
+
+The application image and A2A contract do not care which controller owns the Pod. Use the built-in Deployment unless the agent-native resource and controller behavior earn their extra API surface.
+
 ## Which page owns which platform manifest?
 
 Every platform concern has one owning manifest, so a broken rollout has one place to look.
@@ -59,20 +70,20 @@ This chapter covers:
 - **[6.4. Platform Tools](./6.4. Platform Tools.md)** _(reference)_: Move the six read-only tools into their own in-cluster MCP deployment.
 - **[6.5. Platform Gateway](./6.5. Platform Gateway.md)** _(reference)_: Keep agentgateway private behind network policy, and keep its secrets encrypted in git.
 - **[6.6. Platform Delivery](./6.6. Platform Delivery.md)** _(hands-on)_: Back up the state, drill a restore, plan optional GKE, and tear down safely.
-- **[6.7. Progressive Delivery](./6.7. Progressive Delivery.md)** _(hands-on)_: Review source evidence before promotion, then use an immutable image digest as the rollback surface.
+- **[6.7. Promotion and Rollback](./6.7. Promotion and Rollback.md)** _(hands-on)_: Review source evidence before promotion, then use an immutable image digest as the rollback surface.
 
 Each page also owns the manifests below, so a symptom maps to one file:
 
-| Sub-page                                                    | What it adds                                                  | Owning manifest(s)                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
-| [6.0. Platform](./6.0. Platform.md)                         | Agents as Kubernetes workloads; the shared base and overlays  | `infra/k8s/base/kustomization.yaml`                            |
-| [6.1. Containers](./6.1. Containers.md)                     | The multi-stage, digest-pinned agent image                    | `agents/python/Dockerfile`                                     |
-| [6.2. Platform Install](./6.2. Platform Install.md)         | Cluster/registry, kagent, and the Skaffold development loop   | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
-| [6.3. Platform Agents](./6.3. Platform Agents.md)           | The hardened BYO `Agent` and gateway `ModelConfig`            | `infra/kagent/agent.yaml`, `modelconfig.yaml`                  |
-| [6.4. Platform Tools](./6.4. Platform Tools.md)             | The read-only MCP server and its governed `RemoteMCPServer`   | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`      |
-| [6.5. Platform Gateway](./6.5. Platform Gateway.md)         | The private data plane, network policy, and workload identity | `infra/k8s/base/network-policies.yaml` + overlays              |
-| [6.6. Platform Delivery](./6.6. Platform Delivery.md)       | State recovery, the OpenTofu GKE plan, and teardown           | `infra/scripts/`, `infra/gcp/`                                 |
-| [6.7. Progressive Delivery](./6.7. Progressive Delivery.md) | Source evaluation before the image build/deploy handoff       | `scripts/promote.sh`                                           |
+| Sub-page                                                        | What it adds                                                  | Owning manifest(s)                                             |
+| --------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| [6.0. Platform](./6.0. Platform.md)                             | Agents as Kubernetes workloads; the shared base and overlays  | `infra/k8s/base/kustomization.yaml`                            |
+| [6.1. Containers](./6.1. Containers.md)                         | The multi-stage, digest-pinned agent image                    | `agents/python/Dockerfile`                                     |
+| [6.2. Platform Install](./6.2. Platform Install.md)             | Cluster/registry, kagent, and the Skaffold development loop   | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
+| [6.3. Platform Agents](./6.3. Platform Agents.md)               | The hardened BYO `Agent` and gateway `ModelConfig`            | `infra/kagent/agent.yaml`, `modelconfig.yaml`                  |
+| [6.4. Platform Tools](./6.4. Platform Tools.md)                 | The read-only MCP server and its governed `RemoteMCPServer`   | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`      |
+| [6.5. Platform Gateway](./6.5. Platform Gateway.md)             | The private data plane, network policy, and workload identity | `infra/k8s/base/network-policies.yaml` + overlays              |
+| [6.6. Platform Delivery](./6.6. Platform Delivery.md)           | State recovery, the OpenTofu GKE plan, and teardown           | `infra/scripts/`, `infra/gcp/`                                 |
+| [6.7. Promotion and Rollback](./6.7. Promotion and Rollback.md) | Source evaluation before the image build/deploy handoff       | `scripts/promote.sh`                                           |
 
 ## What changes between the local and GKE overlays?
 
