@@ -30,6 +30,50 @@ def contract_pages(root: pathlib.Path, relative_paths: tuple[str, ...]) -> dict[
 
 
 class SourceContractTests(unittest.TestCase):
+    def test_maintainer_drift_contracts_cover_the_current_tree(self) -> None:
+        pages = {
+            page: page.read_text(encoding="utf-8") for page in check_conventions.ROOT.joinpath("docs").rglob("*.md")
+        }
+        assert check_conventions.check_maintainer_drift_contracts(pages) == []
+
+    def test_maintainer_drift_contract_rejects_hook_and_metric_changes(self) -> None:
+        docs = (
+            "docs/1. Setup/1.0. System.md",
+            "docs/1. Setup/1.5. Workspace.md",
+            "docs/4. Quality/4.1. Linting.md",
+            "docs/4. Quality/4.3. Metrics.md",
+            "docs/8. Community/8.5. Contributions.md",
+        )
+        owners = ("lefthook.yml", "scripts/doctor.sh", ".github/workflows/ci.yml", "agents/python/src/agent/budget.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            copy_contract_files(root, (*docs, *owners))
+            budget = root / "agents/python/src/agent/budget.py"
+            text = budget.read_text(encoding="utf-8")
+            budget.write_text(text.replace('"agentops.tokens"', '"agentops.tokens.changed"', 1), encoding="utf-8")
+            workspace = root / "docs/1. Setup/1.5. Workspace.md"
+            text = workspace.read_text(encoding="utf-8")
+            workspace.write_text(text.replace("secure:staged; pre-push", "secure; pre-push", 1), encoding="utf-8")
+            problems = check_conventions.check_maintainer_drift_contracts(contract_pages(root, docs), root=root)
+        messages = {message for _, message in problems}
+        assert any("lefthook task description drifted" in message for message in messages)
+        assert any("custom metric inventory drifted" in message for message in messages)
+
+    def test_exact_line_test_and_module_counts_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            page = root / "docs/example.md"
+            problems = check_conventions.check_exact_count_claims(
+                {page: "Exactly 16 tests pass.\n```text\nExactly 4 tests pass.\n```\n"},
+                root=root,
+            )
+        assert problems == [
+            (
+                "docs/example.md",
+                "line 1: replace brittle exact line/test/module count with derived or count-free evidence",
+            )
+        ]
+
     def test_repository_python_inventory_rejects_an_orphan_script(self) -> None:
         problems = check_conventions.compare_repository_python_inventory(
             {"scripts/owned.py"},

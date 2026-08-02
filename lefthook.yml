@@ -24,7 +24,7 @@ pre-commit:
       run: mise run check:format
     check-python:
       priority: 31
-      glob: "*.{py,toml,lock}"
+      glob: "*.{py,toml}"
       run: mise run check:python
     check-shell:
       priority: 32

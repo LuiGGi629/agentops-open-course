@@ -1663,6 +1663,139 @@ def check_quickstarts(
     return problems
 
 
+def hook_task_contract(text: str) -> str:
+    """Return the ordered mise task marker represented by lefthook.yml."""
+    pre_commit, pre_push = text.split("\npre-push:\n", 1)
+    task_pattern = re.compile(r"(?m)^\s+run: mise run ([^\s{]+)")
+    commit_tasks = ",".join(task_pattern.findall(pre_commit))
+    push_tasks = ",".join(task_pattern.findall(pre_push))
+    return f"pre-commit={commit_tasks}; pre-push={push_tasks}"
+
+
+def doctor_tool_arrays(text: str) -> dict[str, set[str]]:
+    """Parse the simple, source-owned Bash arrays used to compose doctor profiles."""
+    arrays: dict[str, set[str]] = {}
+    for name, body in re.findall(r"(?ms)^readonly -a (\w+)=\((.*?)\)$", text):
+        arrays[name] = set(body.split())
+    return arrays
+
+
+def check_exact_count_claims(
+    pages: dict[pathlib.Path, str],
+    *,
+    root: pathlib.Path = ROOT,
+) -> list[Problem]:
+    """Reject prose counts that routinely drift as suites and modules grow."""
+    pattern = re.compile(
+        r"\bexactly\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:lines?|tests?|modules?)\b",
+        re.IGNORECASE,
+    )
+    return [
+        (
+            page.relative_to(root).as_posix(),
+            f"line {number}: replace brittle exact line/test/module count with derived or count-free evidence",
+        )
+        for page, text in pages.items()
+        for number, line in outside_fences(text)
+        if pattern.search(line)
+    ]
+
+
+def check_maintainer_drift_contracts(
+    pages: dict[pathlib.Path, str],
+    *,
+    root: pathlib.Path = ROOT,
+) -> list[Problem]:
+    """Keep hook, doctor, CI, metric, and count prose tied to executable owners."""
+    problems: list[Problem] = []
+
+    hook = root.joinpath("lefthook.yml").read_text(encoding="utf-8")
+    marker = f"<!-- lefthook-tasks: {hook_task_contract(hook)} -->"
+    problems += [
+        (relative, "lefthook task description drifted from lefthook.yml")
+        for relative in ("docs/1. Setup/1.5. Workspace.md", "docs/4. Quality/4.1. Linting.md")
+        if marker not in pages.get(root / relative, "")
+    ]
+
+    doctor = root.joinpath("scripts/doctor.sh").read_text(encoding="utf-8")
+    system_relative = "docs/1. Setup/1.0. System.md"
+    system = pages.get(root / system_relative, "")
+    if '--8<-- "scripts/doctor.sh:doctor-tool-tiers"' not in system:
+        problems.append((system_relative, "doctor tool tiers must include the source-owned arrays"))
+    arrays = doctor_tool_arrays(doctor)
+    expected_additions = {
+        "base": arrays.get("base_tools", set()),
+        "model": arrays.get("model_tools", set()),
+        "gateway": arrays.get("gateway_tools", set()),
+        "platform": arrays.get("platform_tools", set()),
+        "gcp": arrays.get("gcp_platform_tools", set()) | arrays.get("gcp_tools", set()),
+    }
+    known_tools = set().union(*expected_additions.values())
+    lines = system.splitlines()
+    tier_lines = {
+        "base": next((line for line in lines if line.startswith("The base doctor checks")), ""),
+        **{
+            tier: next((line for line in lines if line.lstrip().startswith(f"- **{tier}**")), "")
+            for tier in ("model", "gateway", "platform", "gcp")
+        },
+    }
+    for tier, expected in expected_additions.items():
+        documented = set(re.findall(r"`([^`]+)`", tier_lines[tier])) & known_tools
+        if documented != expected:
+            problems.append(
+                (
+                    system_relative,
+                    f"doctor {tier} tool list drifted: expected {sorted(expected)}, found {sorted(documented)}",
+                )
+            )
+
+    workflow = root.joinpath(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    install_match = re.search(r"(?m)^\s+run: mise run (install:[\w-]+)\s*$", workflow)
+    if install_match is None:
+        problems.append((".github/workflows/ci.yml", "CI must declare one scoped install task"))
+    else:
+        install_task = install_match.group(1)
+        ci_docs = (
+            "docs/1. Setup/1.5. Workspace.md",
+            "docs/4. Quality/4.1. Linting.md",
+            "docs/8. Community/8.5. Contributions.md",
+        )
+        problems.extend(
+            (relative, f"CI prose must name `{install_task}` from ci.yml")
+            for relative in ci_docs
+            if install_task not in pages.get(root / relative, "")
+        )
+
+    metrics_relative = "docs/4. Quality/4.3. Metrics.md"
+    metrics_page = pages.get(root / metrics_relative, "")
+    inventory = metrics_page.split("## Which metrics does the agent actually emit today?", 1)[-1].split("\n## ", 1)[0]
+    documented_metrics = set(re.findall(r"(?m)^1\. `([^`]+)`", inventory))
+    source_metrics: set[str] = set()
+    for source in root.joinpath("agents/python/src/agent").glob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=source.as_posix())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in {"create_counter", "create_histogram"} or not node.args:
+                continue
+            value = node.args[0]
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                source_metrics.add(value.value)
+    if documented_metrics != source_metrics:
+        message = (
+            f"custom metric inventory drifted: expected {sorted(source_metrics)}, found {sorted(documented_metrics)}"
+        )
+        problems.append(
+            (
+                metrics_relative,
+                message,
+            )
+        )
+
+    problems += check_exact_count_claims(pages, root=root)
+    return problems
+
+
 def check_gcp_runbook(*, root: pathlib.Path = ROOT) -> list[Problem]:
     """Root-scoped OpenTofu commands must select the module directory explicitly."""
     path = root / "infra/gcp/README.md"
@@ -1886,6 +2019,7 @@ def check_docs() -> list[Problem]:
     problems += check_port_contracts(pages)
     problems += check_cost_owner(pages)
     problems += check_quickstarts(pages)
+    problems += check_maintainer_drift_contracts(pages)
     problems += check_gcp_runbook()
     problems += check_skaffold_runbooks()
     problems += check_eval_runtime_baseline()

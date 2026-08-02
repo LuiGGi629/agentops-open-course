@@ -17,6 +17,17 @@ readonly platform_free_disk_gib="${BASH_REMATCH[2]}"
 # that materializes it instead of a single generic sentence for the whole tier.
 required=()
 
+# --8<-- [start:doctor-tool-tiers]
+readonly -a base_tools=(git uv dprint sqlite3 jq lychee shfmt shellcheck actionlint)
+readonly -a model_tools=(curl ollama)
+readonly -a gateway_tools=(curl docker openssl yq)
+readonly -a platform_tools=(
+	rg k3d kubectl helm helmfile skaffold kubeconform kube-linter agentgateway promtool sops age-keygen
+)
+readonly -a gcp_platform_tools=(rg kubectl helm helmfile skaffold kubeconform tofu tflint)
+readonly -a gcp_tools=(gcloud gke-gcloud-auth-plugin)
+# --8<-- [end:doctor-tool-tiers]
+
 add_tier() {
 	local install_task="$1"
 	local tool
@@ -31,26 +42,24 @@ add_tier() {
 # that author a page: check:data needs sqlite3, check:links lychee, check:shell
 # shfmt + shellcheck, check:workflows actionlint, check:licenses jq.
 add_base_tier() {
-	add_tier "mise run install" git uv dprint sqlite3 jq lychee shfmt shellcheck actionlint
+	add_tier "mise run install" "${base_tools[@]}"
 }
 
 # openssl is the gateway tier's only host-provided tool: gateway:host:auth mints
 # the demo TLS material and JWTs with it.
 add_gateway_tier() {
-	add_tier "mise run install:platform" curl docker openssl yq
+	add_tier "mise run install:platform" "${gateway_tools[@]}"
 }
 
 add_platform_tier() {
 	add_gateway_tier
-	add_tier "mise run install:platform" \
-		rg k3d kubectl helm helmfile skaffold kubeconform kube-linter agentgateway promtool sops age-keygen
+	add_tier "mise run install:platform" "${platform_tools[@]}"
 }
 
 add_gcp_tier() {
 	add_gateway_tier
-	add_tier "mise run install:platform" \
-		rg kubectl helm helmfile skaffold kubeconform tofu tflint
-	add_tier "mise run install:gcp" gcloud gke-gcloud-auth-plugin
+	add_tier "mise run install:platform" "${gcp_platform_tools[@]}"
+	add_tier "mise run install:gcp" "${gcp_tools[@]}"
 }
 
 report_linux_capacity() {
@@ -91,7 +100,7 @@ base)
 	;;
 model)
 	add_base_tier
-	add_tier "mise run install" curl ollama
+	add_tier "mise run install" "${model_tools[@]}"
 	;;
 gateway)
 	add_base_tier
