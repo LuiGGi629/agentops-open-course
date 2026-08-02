@@ -12,6 +12,7 @@ Usage:
     uv run python scripts/check_conventions.py rendered [site-directory]
     uv run python scripts/check_conventions.py skills
     uv run python scripts/check_conventions.py release-metadata [expected-tag]
+    uv run python scripts/check_conventions.py repository-python
 
 Every rule prints ``path: what is wrong`` on stderr and the command exits non-zero, so a failure
 names the file and the fix without needing the source.
@@ -22,6 +23,8 @@ import hashlib
 import json
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator
@@ -116,6 +119,7 @@ EXERCISE_FIELDS: Final = (
 )
 DIAGRAM_LEGACY: Final = ROOT / "docs/diagram-legacy.txt"
 ROUTE_MANIFEST: Final = ROOT / "docs/released-urls.json"
+REPOSITORY_PYTHON_FILES: Final = ROOT / "scripts/repository-python-files.txt"
 PORT_CONTRACT: Final = {
     3000: ("infra/agentgateway/host/config.yaml", r"(?m)^\s*-\s+port:\s+3000$"),
     3001: ("infra/agentgateway/host/config.yaml", r"(?m)^\s*-\s+port:\s+3001$"),
@@ -141,6 +145,43 @@ PORT_CONTRACT: Final = {
 }
 
 Problem = tuple[str, str]
+
+
+def compare_repository_python_inventory(listed: set[str], tracked: set[str]) -> list[Problem]:
+    """Require one reviewed owner list for every tracked Python file outside the agent."""
+    missing = sorted(tracked - listed)
+    stale = sorted(listed - tracked)
+    if not missing and not stale:
+        return []
+    return [
+        (
+            REPOSITORY_PYTHON_FILES.relative_to(ROOT).as_posix(),
+            f"repository Python inventory drifted: unlisted={missing}, stale={stale}",
+        )
+    ]
+
+
+def check_repository_python_inventory(root: pathlib.Path = ROOT) -> list[Problem]:
+    """Compare the inventory with Git's tracked Python sources."""
+    inventory = root / REPOSITORY_PYTHON_FILES.relative_to(ROOT)
+    try:
+        listed = {line.strip() for line in inventory.read_text(encoding="utf-8").splitlines() if line.strip()}
+        git = shutil.which("git")
+        if git is None:
+            return [(inventory.relative_to(root).as_posix(), "git is required to resolve tracked Python files")]
+        # Git is resolved from PATH, while every argument is a repository-owned
+        # constant; no retrieved or user-provided value reaches the process.
+        result = subprocess.run(  # noqa: S603
+            [git, "ls-files", "*.py"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        return [(inventory.relative_to(root).as_posix(), f"could not resolve tracked Python files: {error}")]
+    tracked = {path for path in result.stdout.splitlines() if path and not path.startswith("agents/python/")}
+    return compare_repository_python_inventory(listed, tracked)
 
 
 def outside_fences(text: str) -> Iterator[tuple[int, str]]:
@@ -2168,8 +2209,12 @@ def main(argv: list[str]) -> int:
         problems = check_skills()
     elif check == "release-metadata":
         problems = check_release_metadata(argv[2] if len(argv) > 2 else "")
+    elif check == "repository-python":
+        problems = check_repository_python_inventory()
     else:
-        sys.stderr.write("usage: check_conventions.py <docs|rendered|skills|release-metadata> [argument]\n")
+        sys.stderr.write(
+            "usage: check_conventions.py <docs|rendered|skills|release-metadata|repository-python> [argument]\n"
+        )
         return 2
     for where, message in problems:
         sys.stderr.write(f"{where}: {message}\n")

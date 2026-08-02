@@ -219,8 +219,7 @@ run = "dprint fmt"
 description = "Format the Python reference agent"
 run = [
   "cd agents/python && mise run format:python .",
-  "cd agents/python && uv run ruff check --select=I --fix ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/accessibility_browser.py ../../scripts/check_conventions.py ../../scripts/course_evidence.py ../../scripts/docs_routes.py ../../scripts/freshness_report.py ../../scripts/release_evidence.py ../../scripts/release_freshness.py ../../scripts/release_reconcile.py ../../scripts/test_check_conventions.py ../../scripts/test_freshness_report.py ../../scripts/test_release_evidence.py ../../scripts/test_release_freshness.py ../../scripts/test_release_reconcile.py",
-  "cd agents/python && uv run ruff format ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/accessibility_browser.py ../../scripts/check_conventions.py ../../scripts/course_evidence.py ../../scripts/docs_routes.py ../../scripts/freshness_report.py ../../scripts/release_evidence.py ../../scripts/release_freshness.py ../../scripts/release_reconcile.py ../../scripts/test_check_conventions.py ../../scripts/test_freshness_report.py ../../scripts/test_release_evidence.py ../../scripts/test_release_freshness.py ../../scripts/test_release_reconcile.py",
+  "./scripts/repository-python.sh format",
 ]
 
 [tasks."format:shell"]
@@ -267,7 +266,7 @@ description = "Verify the committed offline dataset"
 run = "cd agents/data && mise run check"
 
 [tasks."check:docs"]
-description = "Build the course site"
+description = "Test authoring contracts, build the course site, and validate rendered routes"
 run = [
   "uv run python -m unittest scripts/test_check_conventions.py",
   "uv run python -m unittest scripts/test_release_evidence.py",
@@ -315,12 +314,11 @@ description = "Verify repository, documentation, and agent dependency licenses"
 run = "./scripts/check-licenses.sh core"
 
 [tasks."check:python"]
-description = "Lint, type-check, and audit the Python reference agent"
+description = "Format-check, lint, and type-check every tracked Python source"
 run = [
   "cd agents/python && mise run check",
-  "cd agents/python && uv run ruff format --check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/accessibility_browser.py ../../scripts/check_conventions.py ../../scripts/course_evidence.py ../../scripts/docs_routes.py ../../scripts/freshness_report.py ../../scripts/release_evidence.py ../../scripts/release_freshness.py ../../scripts/release_reconcile.py ../../scripts/test_check_conventions.py ../../scripts/test_freshness_report.py ../../scripts/test_release_evidence.py ../../scripts/test_release_freshness.py ../../scripts/test_release_reconcile.py",
-  "cd agents/python && uv run ruff check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/accessibility_browser.py ../../scripts/check_conventions.py ../../scripts/course_evidence.py ../../scripts/docs_routes.py ../../scripts/freshness_report.py ../../scripts/release_evidence.py ../../scripts/release_freshness.py ../../scripts/release_reconcile.py ../../scripts/test_check_conventions.py ../../scripts/test_freshness_report.py ../../scripts/test_release_evidence.py ../../scripts/test_release_freshness.py ../../scripts/test_release_reconcile.py",
-  "cd agents/python && uv run ty check ../../infra/mlflow/entrypoint.py ../../infra/scripts/loopback-relay.py ../../load/fake_model.py ../../scripts/accessibility_browser.py ../../scripts/check_conventions.py ../../scripts/course_evidence.py ../../scripts/docs_routes.py ../../scripts/freshness_report.py ../../scripts/release_evidence.py ../../scripts/release_freshness.py ../../scripts/release_reconcile.py ../../scripts/test_check_conventions.py ../../scripts/test_freshness_report.py ../../scripts/test_release_evidence.py ../../scripts/test_release_freshness.py ../../scripts/test_release_reconcile.py",
+  "./scripts/repository-python.sh check",
+  "uv run python scripts/check_conventions.py repository-python",
 ]
 
 [tasks."check:release-metadata"]

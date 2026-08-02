@@ -30,6 +30,16 @@ def contract_pages(root: pathlib.Path, relative_paths: tuple[str, ...]) -> dict[
 
 
 class SourceContractTests(unittest.TestCase):
+    def test_repository_python_inventory_rejects_an_orphan_script(self) -> None:
+        problems = check_conventions.compare_repository_python_inventory(
+            {"scripts/owned.py"},
+            {"scripts/owned.py", "scripts/foo.py"},
+        )
+        assert any("scripts/foo.py" in message for _, message in problems)
+
+    def test_repository_python_inventory_covers_the_current_tree(self) -> None:
+        assert check_conventions.check_repository_python_inventory() == []
+
     def test_checked_snippet_requires_one_existing_bounded_source_region(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

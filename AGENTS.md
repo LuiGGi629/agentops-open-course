@@ -60,6 +60,15 @@ GitHub Actions artifacts are transient handoffs. The organization caps artifact 
 
 This file owns the stable network inventory, while `scripts/check_conventions.py` maps every entry to its executable owner: MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, web client `:8001`, ADK web UI `:8002`, documentation preview `:8003`, Ollama `:11434`, MLflow `:5000`, OTLP `:4317/:4318`, collector metrics `:8889`, pod-local collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, host Grafana `:3002`, Loki `:3100`, and the local registry `:5050`.
 
+## Maintainer recipes
+
+Release evidence is commit-scoped. Freeze `main`, dispatch Eval and Platform at the candidate SHA, then dispatch Release with that same SHA and the fresh handoffs. Any push creates a new candidate and restarts the evidence sequence; never combine evidence from different commits.
+
+- **Add repository Python:** add the tracked path to `scripts/repository-python-files.txt`; `mise run check:python` rejects both unlisted and stale entries.
+- **Add a network port:** update this file's inventory, `PORT_CONTRACT` in `scripts/check_conventions.py`, the executable owner, and the table in `docs/0. Overview/0.3. Ecosystem.md`.
+- **Add a course page:** start from the required FAQ frame, add it to the chapter index and navigation, preserve the closing proof contract, then run the docs and accessibility gates.
+- **Bump a coordinated pin:** update the authority named above, regenerate its lock or digest evidence, search for checked compatibility copies, and run every affected offline profile before changing prose.
+
 ## Development commands
 
 Root tasks:
