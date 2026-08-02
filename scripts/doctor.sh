@@ -43,7 +43,7 @@ add_gateway_tier() {
 add_platform_tier() {
 	add_gateway_tier
 	add_tier "mise run install:platform" \
-		rg k3d kubectl helm helmfile skaffold kubeconform kube-linter agentgateway sops age-keygen
+		rg k3d kubectl helm helmfile skaffold kubeconform kube-linter agentgateway promtool sops age-keygen
 }
 
 add_gcp_tier() {

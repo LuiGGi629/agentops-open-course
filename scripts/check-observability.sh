@@ -16,7 +16,6 @@ esac
 
 compose=(
 	docker compose
-	--project-name agentops-observability
 	--file infra/observability/compose.yaml
 )
 readonly -a compose

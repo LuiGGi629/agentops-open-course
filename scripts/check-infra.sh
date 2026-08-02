@@ -13,6 +13,7 @@ require_cmd skaffold platform
 require_cmd docker gateway
 require_cmd tofu gcp
 require_cmd tflint gcp
+require_cmd promtool platform
 
 mkdir -p .agents/tmp
 tmp_dir=$(mktemp -d .agents/tmp/infra-check.XXXXXX)
@@ -44,6 +45,8 @@ trap 'rm -rf "${tmp_dir}"; [[ "${cleanup_gateway_auth}" == "0" ]] || rm -rf "${g
 [[ ! -L infra/k8s/overlays/local/prometheus-rules.yaml ]]
 prometheus_rules_link="$(readlink infra/observability/prometheus-rules.yml)"
 [[ "${prometheus_rules_link}" == "../k8s/overlays/local/prometheus-rules.yaml" ]]
+promtool check rules infra/observability/prometheus-rules.yml
+promtool test rules infra/observability/tests/observability-collector-down.yml
 
 for overlay in local gke; do
 	rendered="${tmp_dir}/${overlay}.yaml"

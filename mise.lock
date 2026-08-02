@@ -87,6 +87,45 @@ checksum = "sha256:c56e8ce22f7e80cb85ad946cc82d198767b056366201d3e1a2b93d865be38
 url = "https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-windows-amd64.zip"
 url_api = "https://api.github.com/repos/FiloSottile/age/releases/assets/333752673"
 
+[[tools."aqua:prometheus/prometheus"]]
+version = "3.13.2"
+backend = "aqua:prometheus/prometheus"
+
+[tools."aqua:prometheus/prometheus"."platforms.linux-arm64"]
+checksum = "sha256:7cecb17a6f41d59814e1a0581a1f81f79051ad5973d1ecf39e23a9f747d6572a"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495312527"
+
+[tools."aqua:prometheus/prometheus"."platforms.linux-arm64-musl"]
+checksum = "sha256:7cecb17a6f41d59814e1a0581a1f81f79051ad5973d1ecf39e23a9f747d6572a"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495312527"
+
+[tools."aqua:prometheus/prometheus"."platforms.linux-x64"]
+checksum = "sha256:0e8c4d46101bd025ea8265e377d2caabc57f488fc1be1c367f37db69ea41be6f"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495312468"
+
+[tools."aqua:prometheus/prometheus"."platforms.linux-x64-musl"]
+checksum = "sha256:0e8c4d46101bd025ea8265e377d2caabc57f488fc1be1c367f37db69ea41be6f"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495312468"
+
+[tools."aqua:prometheus/prometheus"."platforms.macos-arm64"]
+checksum = "sha256:f68ca4f1dbedd6366bbfdd8ac5d2c0b7ba1f273474acc8d38eb33202fbeec7a4"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495311912"
+
+[tools."aqua:prometheus/prometheus"."platforms.macos-x64"]
+checksum = "sha256:e57095aed0b69e10edaee28b92718d4a65f46d466bf93aeda54075e901d15c2a"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495311854"
+
+[tools."aqua:prometheus/prometheus"."platforms.windows-x64"]
+checksum = "sha256:ec54940b61af8342e0d413a4457d8b772fe6717cc9fa3abaeb83af81bc020184"
+url = "https://github.com/prometheus/prometheus/releases/download/v3.13.2/prometheus-3.13.2.windows-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/prometheus/releases/assets/495313830"
+
 [[tools.dprint]]
 version = "0.55.2"
 backend = "aqua:dprint/dprint"

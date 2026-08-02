@@ -13,7 +13,6 @@ require_cmd docker gateway
 
 compose=(
 	docker compose
-	--project-name agentops-observability
 	--file "${repo_dir}/infra/observability/compose.yaml"
 )
 readonly -a compose

@@ -1,3 +1,5 @@
+name: agentops-observability
+
 x-hardened-service: &hardened-service
   cap_drop: [ALL]
   init: true

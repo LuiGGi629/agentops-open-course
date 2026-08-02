@@ -19,6 +19,7 @@ kube-linter = "0.8.3"
 opentofu = "1.12.5"
 tflint = "0.64.0"
 trivy = "0.72.0"
+"aqua:prometheus/prometheus" = "3.13.2" # ships promtool for the Chapter 7 alert-rule drill
 sqlite = "3.53.4"
 shellcheck = "0.11.0"
 shfmt = "3.13.1"
@@ -82,7 +83,7 @@ run = [
 [tasks."install:tools:platform"]
 hide = true # implementation detail of install:platform
 description = "Install tools used by the local platform and optional GKE plan"
-run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
+run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint aqua:prometheus/prometheus sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
 
 [tasks."install:maintainer"]
 description = "Install every dependency used by the complete maintainer validation"
@@ -414,7 +415,7 @@ run = "./infra/scripts/observability-up.sh"
 [tasks."observability:down"]
 description = "Stop local observability services while preserving their volumes"
 run = [
-  "docker compose --project-name agentops-observability -f infra/observability/compose.yaml down",
+  "docker compose -f infra/observability/compose.yaml down",
   "./scripts/check-observability.sh stopped",
 ]
 
