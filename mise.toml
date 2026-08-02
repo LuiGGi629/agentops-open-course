@@ -194,6 +194,22 @@ docker build \
 description = "Preflight source behavior and manifests, then print a guarded build/deploy handoff"
 run = "./scripts/promote.sh"
 
+[tasks."chaos:collector"]
+description = "Stop and automatically restore the host OTel collector for the Chapter 7.7 alert drill"
+run = "./scripts/chaos-drill.sh collector"
+
+[tasks."chaos:database"]
+description = "Corrupt and reject a temporary runtime-database copy without touching seed or state"
+run = "./scripts/chaos-drill.sh database"
+
+[tasks."chaos:runbook"]
+description = "Poison a temporary runbook copy and prove injection neutralization"
+run = "./scripts/chaos-drill.sh runbook"
+
+[tasks."chaos:mcp"]
+description = "Wedge and automatically restore the MCP deployment on the verified local cluster"
+run = "./scripts/chaos-drill.sh mcp"
+
 [tasks."gke:deploy"]
 description = "Deploy the project-resolved workload bundle to the exact GKE context"
 run = "./infra/scripts/deploy-gke.sh"
@@ -334,6 +350,7 @@ run = [
   "shfmt -d scripts infra/scripts",
   "shellcheck scripts/*.sh infra/scripts/*.sh",
   "scripts/test-lib.sh",
+  "scripts/test-chaos-drill.sh",
   "infra/scripts/test-gcp-lab-audit.sh",
   "infra/scripts/test-smoke-gke-model.sh",
 ]
