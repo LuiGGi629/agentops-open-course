@@ -1,5 +1,7 @@
 [project]
 name = "agentops-mlflow"
+# This environment builds an internal server image, not a published Python
+# package; course release identity lives in the OCI label supplied at build time.
 version = "0.1.0"
 requires-python = ">=3.13,<3.14"
 dependencies = [

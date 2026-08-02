@@ -14,7 +14,9 @@ concurrency:
 jobs:
   macos-arm64-core:
     name: macOS arm64 core
-    runs-on: macos-15 # Standard public runner is M1 arm64; the Intel label is explicit.
+    # This workflow covers macOS arm64 only. Linux arm64 and WSL2 remain
+    # best-effort gaps until equivalent exact-SHA jobs are added.
+    runs-on: macos-15 # Standard public runner is M1 arm64.
     timeout-minutes: 60
     steps:
       - name: Checkout the candidate revision

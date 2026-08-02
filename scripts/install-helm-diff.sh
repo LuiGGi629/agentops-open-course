@@ -4,10 +4,16 @@ lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${lib_dir}/lib.sh"
 
+readonly expected=3.15.10
+
+if [[ ${1:-} == --version ]]; then
+	printf '%s\n' "${expected}"
+	exit 0
+fi
+
 require_cmd curl model
 require_cmd helm platform
 
-readonly expected=3.15.10
 readonly expected_commit=5873f8d94712f014dc2bb329acae63b8ffbf569b
 current=$(helm plugin list | awk '$1 == "diff" { print $2 }')
 

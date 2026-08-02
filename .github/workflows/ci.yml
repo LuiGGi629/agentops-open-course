@@ -34,6 +34,14 @@ jobs:
           # The install tasks pull exactly the two tiers CI needs.
           install: false
 
+      - name: Restore uv download cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'agents/python/uv.lock', 'infra/mlflow/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install project dependencies
         run: mise run install:validation
 

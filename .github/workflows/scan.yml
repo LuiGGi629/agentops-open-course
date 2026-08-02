@@ -16,6 +16,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  container-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      value: ${{ steps.matrix.outputs.value }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the shared container matrix
+        id: matrix
+        run: echo "value=$(jq -c . scripts/container-matrix.json)" >> "$GITHUB_OUTPUT"
+
   repository:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -39,22 +52,12 @@ jobs:
         run: mise run secure
 
   containers:
+    needs: container-matrix
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: agent
-            context: agents
-            dockerfile: agents/python/Dockerfile
-            image: agentops-agent:scan
-            smoke: "import asyncio; from agent.composition import root_agent; from agent.server import create_app; app = create_app(); assert root_agent.name == 'agentops_agent'; asyncio.run(app.state.runtime.close())"
-          - name: mlflow
-            context: infra/mlflow
-            dockerfile: infra/mlflow/Dockerfile
-            image: agentops-mlflow:scan
-            smoke: "import mlflow"
+      matrix: ${{ fromJSON(needs.container-matrix.outputs.value) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,25 +77,10 @@ jobs:
       - name: Smoke-test ${{ matrix.name }} image runtime
         run: docker run --rm --entrypoint python "${{ matrix.image }}" -c "${{ matrix.smoke }}"
 
-      - name: Scan ${{ matrix.name }} image vulnerabilities and secrets
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - name: Scan ${{ matrix.name }} image
+        uses: ./.github/actions/scan-image
         with:
-          image-ref: ${{ matrix.image }}
-          trivy-config: trivy.yaml
-          version: v0.72.0
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-
-      - name: Verify ${{ matrix.name }} image licenses
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ matrix.image }}
-          trivy-config: trivy.yaml
-          version: v0.72.0
-          scanners: license
-          severity: UNKNOWN,HIGH,CRITICAL
-          exit-code: "1"
+          image: ${{ matrix.image }}
 
   scan:
     name: scan

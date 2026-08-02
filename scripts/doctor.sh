@@ -12,6 +12,8 @@ if [[ ! ${capacity_contract} =~ ^total-ram-gib=([0-9]+)[[:space:]]+free-disk-gib
 fi
 readonly platform_total_ram_gib="${BASH_REMATCH[1]}"
 readonly platform_free_disk_gib="${BASH_REMATCH[2]}"
+helm_diff_version="$("${lib_dir}/install-helm-diff.sh" --version)"
+readonly helm_diff_version
 
 # Each entry is "<command> <install task>": a missing tool names the one command
 # that materializes it instead of a single generic sentence for the whole tier.
@@ -172,10 +174,10 @@ if [[ ${profile} == platform ]]; then
 	printf 'cgroup     v2 ready\n'
 	report_linux_capacity
 
-	if ! helm plugin list | rg -q '^diff[[:space:]]+3\.15\.10'; then
-		fail 'helm       helm-diff 3.15.10 is missing; run mise run install:platform'
+	if ! helm plugin list | awk -v expected="${helm_diff_version}" '$1 == "diff" && $2 == expected { found=1 } END { exit !found }'; then
+		fail "helm       helm-diff ${helm_diff_version} is missing; run mise run install:platform"
 	fi
-	printf 'helm       helm-diff 3.15.10 ready\n'
+	printf 'helm       helm-diff %s ready\n' "${helm_diff_version}"
 
 	context=$(kubectl config current-context 2>/dev/null || true)
 	if [[ ${context} == "k3d-local" ]]; then
@@ -188,10 +190,10 @@ if [[ ${profile} == platform ]]; then
 fi
 
 if [[ ${profile} == gcp ]]; then
-	if ! helm plugin list | rg -q '^diff[[:space:]]+3\.15\.10'; then
-		fail 'helm       helm-diff 3.15.10 is missing; run mise run install:platform'
+	if ! helm plugin list | awk -v expected="${helm_diff_version}" '$1 == "diff" && $2 == expected { found=1 } END { exit !found }'; then
+		fail "helm       helm-diff ${helm_diff_version} is missing; run mise run install:platform"
 	fi
-	printf 'helm       helm-diff 3.15.10 ready\n'
+	printf 'helm       helm-diff %s ready\n' "${helm_diff_version}"
 
 	project="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 	if [[ -n ${project} ]]; then

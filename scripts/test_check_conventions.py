@@ -416,11 +416,13 @@ class SourceContractTests(unittest.TestCase):
     def test_release_reconcile_recovers_without_the_promotion_artifact(self) -> None:
         workflow = check_conventions.ROOT.joinpath(".github/workflows/release.yml").read_text(encoding="utf-8")
         promote = workflow.split("\n  promote:\n", 1)[1].split("\n  seal:\n", 1)[0]
+        promote_program = check_conventions.ROOT.joinpath("scripts/release-promote.sh").read_text(encoding="utf-8")
         verify = workflow.split("\n  verify:\n", 1)[1].split("\n  reconcile:\n", 1)[0]
         reconcile = workflow.split("\n  reconcile:\n", 1)[1].split("\n  release:\n", 1)[0]
         assert "--method DELETE" not in promote
-        assert "--validate-index-only" in promote
-        assert "--source-image" in promote
+        assert "run: ./scripts/release-promote.sh" in promote
+        assert "--validate-index-only" in promote_program
+        assert "--source-image" in promote_program
         assert "--validate-index-only" in verify
         assert "--source-image" in verify
         assert "needs: [publish, promote, seal, verify, release]" in reconcile
@@ -432,10 +434,12 @@ class SourceContractTests(unittest.TestCase):
         assert "--registry-absent" in reconcile
         assert "name: release-promotion" not in reconcile
 
-    def test_release_pins_buildx_for_every_registry_job(self) -> None:
+    def test_release_uses_the_single_pinned_buildx_action(self) -> None:
         workflow = check_conventions.ROOT.joinpath(".github/workflows/release.yml").read_text(encoding="utf-8")
+        action = check_conventions.ROOT.joinpath(".github/actions/setup-buildx/action.yml").read_text(encoding="utf-8")
         assert workflow.count("name: Set up Docker Buildx") == 5
-        assert workflow.count("version: v0.36.0") == 5
+        assert workflow.count("uses: ./.github/actions/setup-buildx") == 5
+        assert action.count("version: v0.36.0") == 1
 
     def test_release_reconcile_requires_the_exact_buildx_absence_error(self) -> None:
         workflow = check_conventions.ROOT.joinpath(".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -454,20 +458,23 @@ class SourceContractTests(unittest.TestCase):
         workflow = check_conventions.ROOT.joinpath(".github/workflows/platform.yml").read_text(encoding="utf-8")
         assert workflow.count("runAsUser: 100\n") == 3
         assert workflow.count("runAsGroup: 101\n") == 3
-        assert workflow.count("image: curlimages/curl:8.21.0@sha256:") == 3
+        assert workflow.count("CURL_IMAGE: curlimages/curl:8.21.0@sha256:") == 1
+        assert workflow.count("image: ${CURL_IMAGE}") == 3
         assert workflow.count("kubernetes.io/metadata.name: kube-system") == 1
         assert workflow.count("{port: 53, protocol: UDP}") == 1
         assert workflow.count("{port: 53, protocol: TCP}") == 1
 
     def test_platform_privacy_canaries_survive_pii_redaction(self) -> None:
         workflow = check_conventions.ROOT.joinpath(".github/workflows/platform.yml").read_text(encoding="utf-8")
+        drill = check_conventions.ROOT.joinpath("infra/scripts/platform-backup-drill.sh").read_text(encoding="utf-8")
         assert "BACKUP_EVIDENCE_MARKER: platform-backup-canary" in workflow
         assert "TELEMETRY_LOG_MARKER: platform-telemetry-log-canary" in workflow
         assert "TELEMETRY_SENTINEL: platform-private-content-canary" in workflow
         assert "def safe_container_state:" in workflow
         assert ".terminated | {exitCode, reason, signal, startedAt, finishedAt}" in workflow
-        assert workflow.count("wait_for_job agentops platform-state-") == 2
-        assert "--for=condition=complete job/platform-state-" not in workflow
+        assert "run: ./infra/scripts/platform-backup-drill.sh" in workflow
+        assert drill.count("wait_for_job agentops platform-state-") == 2
+        assert "--for=condition=complete job/platform-state-" not in drill
 
     def test_gcp_runbook_rejects_a_root_scoped_tofu_command_without_chdir(self) -> None:
         relative = "infra/gcp/README.md"
