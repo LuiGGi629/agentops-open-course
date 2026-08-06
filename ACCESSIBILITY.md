@@ -4,7 +4,7 @@ The AgentOps Open Course should be usable without a mouse, without color percept
 
 ## Current support
 
-- The rendered site uses semantic headings, labeled navigation and search, visible keyboard focus from the Material theme, and a skip-to-content link.
+- The rendered site uses semantic headings, labeled navigation and search, visible keyboard focus from the Hextra theme, and a skip-to-content link.
 - The dependency-free web client labels its endpoint, message, approval rationale, and cancellation controls; streaming and terminal task states use a polite live region.
 - Commands, expected output, warnings, and completion criteria are written as text. Color is never the only intended signal.
 - Contributor policy requires every new or changed Mermaid diagram to have adjacent prose that communicates the same actors, relationships, and sequence.

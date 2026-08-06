@@ -105,7 +105,7 @@ Ask `List the open incidents`, then compare the answer with the seed's three ope
 
 Later, Chapter 3 compares the same conversational agent with `mise run workflow` and `mise run coordinator`. Those tasks select bounded orchestration through the same lazy `src/agent` package; the default runtime tasks stay pinned to the conversational composition.
 
-The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html).
+The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](./content/0.%20Overview/0.6.%20Troubleshooting.md).
 
 That is the first complete loop. [1. Setup](./content/1.%20Setup/_index.md) stages later prerequisites only when the corresponding chapter needs them.
 
@@ -150,7 +150,9 @@ agents/python/  Reference ADK agent, tests, evaluations, and A2A server
 agents/data/    Immutable SQLite, runbook, skill, and log seed data
 clients/web/    Minimal offline A2A web client for the AgentOps Agent
 load/           k6 load tests and latency budgets for the platform
-docs/           FAQ-based course content built with Zensical
+content/        FAQ-based course pages, built into site/ by Hugo
+layouts/        Hugo templates: include shortcode, admonitions, sidebar
+data/nav.yaml   The explicit learning path rendered in the sidebar
 infra/          agentgateway, kagent, k3d/GKE, MLflow, and OTel resources
 skills/         Installable Agent Skills packaging the course's patterns
 ```
@@ -182,7 +184,7 @@ mise run check              # core plus both infrastructure overlays
 mise run scan               # gitleaks history + Trivy scans
 ```
 
-To reset only the agent's local writable state, run `cd agents/python && mise run data:reset`; it never touches the seed. For anything that will not start, the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html) is the owning page.
+To reset only the agent's local writable state, run `cd agents/python && mise run data:reset`; it never touches the seed. For anything that will not start, the [troubleshooting guide](./content/0.%20Overview/0.6.%20Troubleshooting.md) is the owning page.
 
 ## Contributing and reuse
 

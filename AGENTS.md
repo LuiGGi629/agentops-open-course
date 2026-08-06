@@ -6,7 +6,7 @@ Guidance for coding agents working in the AgentOps Open Course. Humans should st
 
 The course teaches the complete lifecycle of one **AgentOps Agent** with Google ADK, agentgateway, kagent, MLflow, and OpenTelemetry. `main` is a completed, executable reference that learners inspect and extend; it must not drift into a collection of illustrative snippets. Chapter 8.7 turns that reference into a capstone contract for a learner-owned domain.
 
-- `content/` contains FAQ-based course pages published by Zensical.
+- `content/` contains FAQ-based course pages, built by **Hugo** (`hugo.toml`, `layouts/`, `data/nav.yaml`).
 - `agents/python/` is the locked Python reference agent, offline tests, and model-backed evaluations.
 - `agents/data/` is immutable seed input: SQLite, logs, runbooks, and the agent's runtime Agent Skills.
 - `skills/` holds installable, portable Agent Skills (`npx skills add …`) that distil the course's patterns for reuse in other projects — distinct from the runtime skills under `agents/data/skills`. `scripts/check_conventions.py skills` (via `mise run check:skills`) validates them.
@@ -21,7 +21,7 @@ The course teaches the complete lifecycle of one **AgentOps Agent** with Google 
 
 ## Course invariants
 
-- **Docs mirror source.** Critical Python excerpts use checked `pymdownx.snippets` regions from `agents/python`; commands/manifests match `infra`. Prefer a short exact excerpt plus a source link over a second pseudo-implementation.
+- **Docs mirror source.** Critical Python excerpts use the checked `{{< include >}}` shortcode over named `--8<-- [start:x]`/`[end:x]` regions in `agents/python`; a missing file or region fails the build; commands/manifests match `infra`. Prefer a short exact excerpt plus a source link over a second pseudo-implementation.
 - **Every course page is an FAQ.** It starts with YAML `description` front matter, contains at least one H2, and every H2 ends in `?`. `scripts/check_conventions.py` enforces this and the page frame below.
 - **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/python/.state`; Kubernetes agent/MCP processes share `agentops-agent-state` so reads remain coherent with approved writes. Only the A2A startup and direct write boundary may prepare or migrate runtime state; probes and read tools stay read-only.
 - **Restore is crash-recoverable, not an instantaneous multi-file rename.** Stop every writer first. `agent.state` serializes backup/restore with a process lock and fsyncs a three-phase journal; A2A startup recovers an interrupted transaction before schema preflight or publication. Never bypass that boundary with direct file copies or delete unexplained `.restore-*` evidence.
@@ -49,7 +49,7 @@ The optional GKE path compatibility-pins `gemini-3.5-flash`. Do not move that pi
 Use the repository files and locks as version authority — never a number copied into prose. The authoritative pin for each component lives in:
 
 - Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution. The MLflow server image has its own `infra/mlflow/pyproject.toml`.
-- Zensical and the documentation toolchain: root `pyproject.toml` and `uv.lock`.
+- Hugo: `mise.toml` `[tools]`. The Hextra theme is a Hugo Module pinned in `go.mod`/`go.sum`; the self-hosted Mermaid and FlexSearch bundles are pinned by version and sha256 in `assets/js/vendor/versions.json`. The remaining documentation gates (front-matter parsing, browser accessibility) are Python: root `pyproject.toml` and `uv.lock`.
 - CLI tools (agentgateway, k3d, kubectl, helm, helmfile, skaffold, k6, gcloud, …): `mise.toml` `[tools]`, with checksums and provenance in `mise.lock`.
 - Workflow-only Docker Buildx: the explicit `version` inputs in `.github/workflows/release.yml`.
 - kagent Helm charts: `infra/helmfile.yaml`. API resources are `v1alpha2`.
@@ -59,6 +59,27 @@ Use the repository files and locks as version authority — never a number copie
 GitHub Actions artifacts are transient handoffs. The organization caps artifact and log retention at **7 days**, so every `upload-artifact` step stays at or below that limit; durable release evidence belongs on the immutable GitHub release and in OCI attestations.
 
 This file owns the stable network inventory, while `scripts/check_conventions.py` maps every entry to its executable owner: MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, web client `:8001`, ADK web UI `:8002`, documentation preview `:8003`, Ollama `:11434`, MLflow `:5000`, OTLP `:4317/:4318`, collector metrics `:8889`, pod-local collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, host Grafana `:3002`, Loki `:3100`, and the local registry `:5050`.
+
+## Documentation build (Hugo)
+
+The site is built by **Hugo** (single static binary, pinned in `mise.toml`) with the **Hextra** theme consumed as a Hugo Module pinned in `go.mod`. `mise run serve` previews on `:8003`; `mise run build:docs` writes `site/`.
+
+| Concern                                | Where it lives                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Site configuration                     | `hugo.toml`                                                                              |
+| Learning path (explicit, hand-ordered) | `data/nav.yaml` + `layouts/_partials/sidebar.html`                                       |
+| Source-quoting include                 | `layouts/_shortcodes/include.html` → `_partials/include/{extract,region,language}.html`  |
+| Admonitions and collapsibles           | `layouts/_shortcodes/{admonition,collapsible}.html` + `assets/css/custom.css`            |
+| Self-hosted Mermaid and FlexSearch     | `assets/js/vendor/` (pinned in `versions.json`, re-pinned by `scripts/vendor-assets.sh`) |
+| Search accessibility shim              | `assets/js/search-a11y.js`                                                               |
+| Syntax migration tool                  | `scripts/convert_material.py`                                                            |
+
+Four things differ from a stock Hugo site and are easy to break:
+
+1. **`strict: true` has no single switch.** It is assembled from `--panicOnWarning` in `build:docs`, `refLinksErrorLevel = "ERROR"` in `hugo.toml`, and `check_navigation`, which fails when a page under `content/` is missing from `data/nav.yaml`. Keep all three.
+1. **Every page declares its own `url`.** Hugo's urlize would publish `/0.-overview/` from `0. Overview/`, so the URL is explicit and `check_page_urls` holds all 76 to the file tree. Rename a page and its `url` must move with it.
+1. **Includes read through asset mounts, not the filesystem.** `hugo.toml` mounts `agents/`, `infra/`, `scripts/`, and `.github/` under `assets/source/`, which is what makes `hugo server` rebuild a page when the code it quotes changes. `os.ReadFile` would not.
+1. **The page title lives in front matter.** Hextra renders `.Title` as the `<h1>`; a Markdown H1 in the body would publish a second one.
 
 ## Maintainer recipes
 
@@ -151,16 +172,16 @@ Every course page follows the same frame. `scripts/check_conventions.py` (via `m
 
 ```markdown
 ---
+title: "N.M. Title"
 description: <one sentence>
+url: "/n-chapter/n-m-title/"
 ---
 
-# N.M. Title
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** <outcome, verb first, second person, plain words>
-    - **You need:** <a checkable precondition, or "Nothing beyond a terminal">
-    - **Time:** about <N> minutes, <concept | hands-on | reference | orientation>.
+- **You will:** <outcome, verb first, second person, plain words>
+- **You need:** <a checkable precondition, or "Nothing beyond a terminal">
+- **Time:** about <N> minutes, <concept | hands-on | reference | orientation>. {{% /admonition %}}
 
 ## <question ending in ?>
 
@@ -178,19 +199,19 @@ Continue to [<next page>](link) when <the condition that matters>.
 ```
 
 - The closing H2 is exactly `What proves this page worked?`, or `What proves this chapter worked?` on a `content/*/_index.md`, or `How should you use this page later?` on a pure lookup page (0.5, 0.6, 0.7). Nothing links to those anchors, so the wording stays uniform on purpose.
-- Depth that is valuable but not needed on a first pass goes in a `??? note "Deeper: …"` collapsible, relocated word for word. Every summary starts with `Deeper:`. Zero to three per page.
+- Depth that is valuable but not needed on a first pass goes in a `{{% collapsible note "Deeper: …" %}}`, relocated word for word. Every summary starts with `Deeper:`. Zero to three per page.
 - Never collapse the subject's definition, the reason it matters, the command to run, the expected output, or anything that costs money, destroys data, or bounds a security claim. The arithmetic behind a cost may be collapsed; the sentence saying "this can be billed" or "this is not production" stays visible above the triangle.
-- On a hands-on page the learner must reach a runnable command within the first two H2 sections. `docs/2. Agents/2.1. First Agent.md` is the reference for that shape.
+- On a hands-on page the learner must reach a runnable command within the first two H2 sections. `content/2. Agents/2.1. First Agent.md` is the reference for that shape.
 - Admonition vocabulary is fixed: `abstract` for the page frame, `success` for end-of-page takeaways, `warning` for common mistakes, `danger` for destructive/costly/security actions, `tip` for an optional shortcut, `info` for skippable background, `note` for a neutral aside. The same message must use the same type everywhere it appears.
 - Prose rules: open each H2 with a concrete sentence of 25 words or fewer; keep sentences under ~35 words and at most one em-dash pair per paragraph; cap inline cross-links at two per paragraph and push the rest to a closing "Owned by …" line; define an unfamiliar term at first use in 15 words or fewer; use full page names as link labels, never a bare `[5.2]`.
 - Accessibility is content, not decoration: adjacent `**Diagram in words:**` prose must communicate every new or changed Mermaid diagram's actors, relationships, and sequence; never rely on color alone; link dense unfamiliar terms to glossary anchors. `ACCESSIBILITY.md` is the public contract; `scripts/diagram-legacy.txt` is an exact-hash ratchet for previously reviewed diagrams, not permission for new exemptions.
 - Keep prose practical and question-led; finish technical pages with verification and, where relevant, teardown.
 - Use only `1.` for ordered Markdown list items.
-- A `--8<--` snippet include must sit inside a fenced code block. A bare include is rendered as Markdown, so a leading `#` comment in the region becomes an `<h1>`.
+- A `{{< include path="…" region="…" lang="…" >}}` must stand on its own, **outside** any fence — it emits its own highlighted block, and inside a fence it would publish as literal markup. The rule inverted when `pymdownx.snippets` was replaced; `check_snippets` rejects both mistakes.
 - Never add machine-specific paths, credentials, floating image tags, stale registry names, or commands that depend on private dotfiles.
 - Distinguish offline tests, local model calls, hosted model calls, Kubernetes changes, and cloud changes before asking a learner to run anything.
 - Do not claim alerts, feedback endpoints, online scorers, public auth/TLS, HA, backups, or cost metrics unless the repository implements and validates them.
-- The public course is hosted at `https://agentops-open-course.fmind.dev/`. When changing repository, Pages, DNS, or source-link contracts, re-run the anonymous publication gate before claiming the surface still works.
+- This repository is the **Hugo evaluation build** and is not deployed. `baseURL` still names `https://agentops-open-course.fmind.dev/` so canonical and social metadata stay comparable with the Zensical build, but no CNAME, Pages workflow, or DNS record ships from here.
 - Update `README.md`, public component READMEs, course prose, and this file together when a public contract changes.
 
 ## Definition of done
