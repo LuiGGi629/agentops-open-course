@@ -1,26 +1,28 @@
 ---
+title: "5. Gateway"
 description: Route and govern the agent's MCP, A2A, and model traffic through a local-first agentgateway data plane.
+url: "/5-gateway/"
 ---
 
-# 5. Gateway
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** Map the chapter's reading order and the page that owns each gateway boundary.
-    - **You need:** Chapters 2-4 finished; [5.1. Gateway Setup](./5.1.%20Gateway%20Setup.md) installs the optional platform tier before starting anything.
-    - **Time:** about 4 minutes, orientation.
+- **You will:** Map the chapter's reading order and the page that owns each gateway boundary.
+- **You need:** Chapters 2-4 finished; [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) installs the optional platform tier before starting anything.
+- **Time:** about 4 minutes, orientation.
+{{% /admonition %}}
 
 ## Where should you begin?
 
-Begin with [5.0. Gateway](./5.0.%20Gateway.md), which owns the case for the extra hop, the data-plane definition, the listener map, and the responsibility boundary.
+Begin with [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}), which owns the case for the extra hop, the data-plane definition, the listener map, and the responsibility boundary.
 
 This index only maps the reading order. The six hands-on pages then apply that single model to MCP, A2A, model, security, and observability concerns.
 
-??? note "Deeper: who builds agentgateway?"
+{{% collapsible note "Deeper: who builds agentgateway?" %}}
 
-    agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an
-    **[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This
-    chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in ADK/Python.
+agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an
+**[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This
+chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in ADK/Python.
+{{% /collapsible %}}
 
 ## Which page covers what?
 
@@ -55,7 +57,7 @@ flowchart TD
 Before you start, three things about the shape of the chapter:
 
 - **It all runs on your laptop.** The host profile needs no Kubernetes cluster, cloud account, or provider key.
-- **It needs the platform tier, Docker, and Qwen3.** [5.1. Gateway Setup](./5.1.%20Gateway%20Setup.md) runs `mise run install:platform`, then the model and gateway doctors.
+- **It needs the platform tier, Docker, and Qwen3.** [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) runs `mise run install:platform`, then the model and gateway doctors.
 - **Not all of it is required.** The secured JWT/TLS profile in 5.5. Gateway Security is opt-in, the Vertex Gemini path in 5.4. Model Gateway is an optional proprietary comparison, and the Kubernetes material is a preview of Chapter 6.
 
 ## What proves this chapter worked?
@@ -73,10 +75,10 @@ The chapter checkpoint tests fail-closed MCP, A2A discovery, local model transla
 **You are done when:**
 
 - You can name the page that owns the MCP, A2A, and model boundaries, and the two pages that cut across all three.
-- The chapter's required drill is done: the `## Your turn` in [5.2. MCP Gateway](./5.2.%20MCP%20Gateway.md#your-turn-how-do-you-take-one-tool-off-the-allowlist) took one tool away from every caller by editing one CEL rule, with nothing under `agents/python/` touched.
+- The chapter's required drill is done: the `## Your turn` in [5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md#your-turn-how-do-you-take-one-tool-off-the-allowlist" >}}) took one tool away from every caller by editing one CEL rule, with nothing under `agents/python/` touched.
 - You know where to find the listener map and the gateway-versus-ADK responsibility boundary.
 - Without reopening Chapter 4: you can name the callback that hardens a tool result before the model reads it, and say why the gateway's prompt guard does not replace it.
 
 [Chapter 6](../6. Platform/) moves the same listener contract to **k3d**, a Kubernetes cluster that runs on your own machine, and to optional GKE overlays.
 
-Continue to [5.0. Gateway](./5.0.%20Gateway.md) when you can explain the chapter order from the map above.
+Continue to [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}) when you can explain the chapter order from the map above.

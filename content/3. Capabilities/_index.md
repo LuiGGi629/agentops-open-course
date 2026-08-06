@@ -1,14 +1,15 @@
 ---
+title: "3. Capabilities"
 description: Give the agent real powers — tools, skills, MCP, memory, workflows, and A2A — with clean, packaged code.
+url: "/3-capabilities/"
 ---
 
-# 3. Capabilities
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** Map the eight capabilities this chapter bolts onto the agent you already ran, and learn which one to reach for when.
-    - **You need:** Chapter 2 finished, with `mise run test` green in `agents/python`.
-    - **Time:** about 8 minutes, orientation.
+- **You will:** Map the eight capabilities this chapter bolts onto the agent you already ran, and learn which one to reach for when.
+- **You need:** Chapter 2 finished, with `mise run test` green in `agents/python`.
+- **Time:** about 8 minutes, orientation.
+{{% /admonition %}}
 
 ## Which capabilities will you add?
 
@@ -25,17 +26,15 @@ Your agent can now hold a conversation ([Chapter 2](../2. Agents/)). This chapte
 
 Each is a small, single-purpose unit that composes cleanly.
 
-**Key term:** A [_composition root_](../0.%20Overview/0.7.%20Glossary.md#composition-root) is the single place that constructs an application and wires its dependencies.
+**Key term:** A [_composition root_]({{< relref "/0. Overview/0.7. Glossary.md#composition-root" >}}) is the single place that constructs an application and wires its dependencies.
 
 Everything assembles in that composition root. `composition.py` builds `root_agent` and hands it a single flat tool list, and each entry in that list is owned by a different module this chapter teaches:
 
-```python
---8<-- "agents/python/src/agent/composition.py:root-agent"
-```
+{{< include path="agents/python/src/agent/composition.py" region="root-agent" lang="python" >}}
 
-Read only the `tools=` line for now. Cross-cutting policy is attached separately by `AgentOpsPolicyPlugin` on the `App`, owned by [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
+Read only the `tools=` line for now. Cross-cutting policy is attached separately by `AgentOpsPolicyPlugin` on the `App`, owned by [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}).
 
-That one assignment is the map for the whole chapter. One branch, `_read_tools()`, decides whether reads run locally or over the governed MCP toolset. **MCP** is the Model Context Protocol: one contract for serving a tool to any agent that speaks it ([0.7. Glossary](../0.%20Overview/0.7.%20Glossary.md#mcp)).
+That one assignment is the map for the whole chapter. One branch, `_read_tools()`, decides whether reads run locally or over the governed MCP toolset. **MCP** is the Model Context Protocol: one contract for serving a tool to any agent that speaks it ([0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md#mcp" >}})).
 
 The guarded writes, long-term memory, and skills always stay in-process, and [3.6. A2A](./3.6. A2A.md) wraps the finished agent for the network:
 
@@ -96,17 +95,18 @@ Each capability has exactly one owner, so a failure has one place to look. This 
 | [3.6. A2A](./3.6. A2A.md)                 | The persistent A2A server, card, and task store                              | `server.py`                                                   |
 | [3.7. Multi-Agent](./3.7. Multi-Agent.md) | A coordinator with least-privilege specialists                               | `delegation.py`, selected with `AGENT_ENTRYPOINT=coordinator` |
 
-??? note "Deeper: how 3.5 and 3.7 share one package boundary"
+{{% collapsible note "Deeper: how 3.5 and 3.7 share one package boundary" %}}
 
-    The `triage_workflow` graph and `coordinator_agent` are runnable selections, while `agent` remains the default.
+The `triage_workflow` graph and `coordinator_agent` are runnable selections, while `agent` remains the default.
 
-    ```bash
-    cd agents/python
-    mise run workflow
-    mise run coordinator
-    ```
+```bash
+cd agents/python
+mise run workflow
+mise run coordinator
+```
 
-    All three tasks resolve the lazy `root_agent` from `src/agent`. The task aliases set the validated `AGENT_ENTRYPOINT`; implementations remain in `agent/workflow.py` and `agent/delegation.py`, with no sibling discovery packages to maintain.
+All three tasks resolve the lazy `root_agent` from `src/agent`. The task aliases set the validated `AGENT_ENTRYPOINT`; implementations remain in `agent/workflow.py` and `agent/delegation.py`, with no sibling discovery packages to maintain.
+{{% /collapsible %}}
 
 ## Which switches change this chapter's behavior?
 
@@ -114,16 +114,17 @@ One composition selector and three opt-in switches change what runs.
 
 The task aliases set the composition selector. Every capability switch defaults to the offline, deterministic path, so the test gate needs no model, network, or embedding server.
 
-??? note "Deeper: the selector and three capability switches"
+{{% collapsible note "Deeper: the selector and three capability switches" %}}
 
-    `config.py` parses every choice once. Knowing them up front tells you what is conditional as you read each page:
+`config.py` parses every choice once. Knowing them up front tells you what is conditional as you read each page:
 
-    | Setting                    | Default | Effect when changed                                                               | Page      |
-    | -------------------------- | ------- | --------------------------------------------------------------------------------- | --------- |
-    | `AGENT_ENTRYPOINT`         | `agent` | Selects the workflow or coordinator behind the shared package boundary            | 3.5 / 3.7 |
-    | `AGENT_MCP_URL`            | unset   | `_read_tools()` swaps the local read tools for the governed MCP toolset           | 3.3       |
-    | `AGENT_SEMANTIC_RETRIEVAL` | `false` | Runbook search uses local-embedding vector retrieval, falling back to keywords    | 3.4       |
-    | `AGENT_A2A_STREAMING`      | `false` | The A2A server emits partial per-token events, at the redaction cost 3.6 explains | 3.6       |
+| Setting                    | Default | Effect when changed                                                               | Page      |
+| -------------------------- | ------- | --------------------------------------------------------------------------------- | --------- |
+| `AGENT_ENTRYPOINT`         | `agent` | Selects the workflow or coordinator behind the shared package boundary            | 3.5 / 3.7 |
+| `AGENT_MCP_URL`            | unset   | `_read_tools()` swaps the local read tools for the governed MCP toolset           | 3.3       |
+| `AGENT_SEMANTIC_RETRIEVAL` | `false` | Runbook search uses local-embedding vector retrieval, falling back to keywords    | 3.4       |
+| `AGENT_A2A_STREAMING`      | `false` | The A2A server emits partial per-token events, at the redaction cost 3.6 explains | 3.6       |
+{{% /collapsible %}}
 
 ## What proves this chapter worked?
 
@@ -141,9 +142,9 @@ Model-backed behavior remains separate because a green offline suite proves wiri
 **You are done when:**
 
 - `mise run test` passes in `agents/python`, with no model server and no network running.
-- The chapter's required drill is done: [3.1. Tools](./3.1.%20Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool) proves a local `get_oncall_schedule` slice with valid and rejected inputs, proves the public MCP surface stayed fixed, then removes only the experiment files.
+- The chapter's required drill is done: [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}) proves a local `get_oncall_schedule` slice with valid and rejected inputs, proves the public MCP surface stayed fixed, then removes only the experiment files.
 - You can name the sub-page that owns each capability, and the module behind it.
 - You can point at the one branch in `composition.py` that decides whether reads run locally or over MCP.
 - Without reopening Chapter 2: you can say why the model can only ever _ask_ for a state change, and name the two tools it has to ask for.
 
-Continue to [3.0. Packaging](./3.0.%20Packaging.md) when the `tools=` line of `root_agent` reads as a map of this chapter rather than a list of unfamiliar names.
+Continue to [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}}) when the `tools=` line of `root_agent` reads as a map of this chapter rather than a list of unfamiliar names.

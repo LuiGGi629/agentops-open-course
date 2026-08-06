@@ -176,7 +176,7 @@ def convert_includes(body: str) -> str:
             path, region = snippet.group(1), snippet.group(2)
             language = opening.group(3)
             attribute = f' lang="{language}"' if language else ""
-            output.append(f'{{{{< include "{path}" "{region}"{attribute} >}}}}')
+            output.append(f'{{{{< include path="{path}" region="{region}"{attribute} >}}}}')
             index += 3
             continue
         output.append(lines[index])
@@ -199,6 +199,9 @@ def resolve_link(page: pathlib.Path, target: str) -> str | None:
     resolved = (page.parent / path).resolve()
     if resolved.is_dir():
         resolved = resolved / "_index.md"
+    if resolved.name == "index.md":
+        # Chapter indexes became Hugo branch bundles; the links still say `index.md`.
+        resolved = resolved.with_name("_index.md")
     if resolved.suffix != ".md" or not resolved.is_file():
         return None
     try:
@@ -224,7 +227,10 @@ def convert_links(page: pathlib.Path, body: str) -> tuple[str, list[str]]:
         target = match.group(1)
         reference = resolve_link(page, target)
         if reference is None:
-            if target.endswith(".md") or ".md#" in target:
+            # Only a *relative* link that still names a page is a migration defect; the
+            # course links to its own GitHub blobs by absolute URL on purpose.
+            relative = not target.startswith(("http://", "https://", "mailto:", "#", "/"))
+            if relative and (target.endswith(".md") or ".md#" in target):
                 unresolved.append(target)
             return match.group(0)
         return f']({{{{< relref "{reference}" >}}}})'

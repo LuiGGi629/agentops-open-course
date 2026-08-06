@@ -1,14 +1,15 @@
 ---
+title: "1. Setup"
 description: Set up a professional local environment and toolchain for building and operating agents.
+url: "/1-setup/"
 ---
 
-# 1. Setup
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** Prepare the smallest local environment needed for the first agent conversation in Chapter 2.
-    - **You need:** A terminal and an internet connection; everything else is installed here.
-    - **Time:** about 8 minutes, orientation.
+- **You will:** Prepare the smallest local environment needed for the first agent conversation in Chapter 2.
+- **You need:** A terminal and an internet connection; everything else is installed here.
+- **Time:** about 8 minutes, orientation.
+{{% /admonition %}}
 
 ## Which pages do you need now?
 
@@ -44,15 +45,16 @@ An agent platform pulls in heavy, stateful dependencies — a running model serv
 
 Staging keeps the base learning path account-free and free of containers, clusters, and cloud resources. You can finish Chapter 1 and read or build the whole course without Docker, a GPU, a provider key, or k3d.
 
-??? note "Deeper: how the ladder is defined and pinned"
+{{% collapsible note "Deeper: how the ladder is defined and pinned" %}}
 
-    `scripts/doctor.sh` defines small, scoped profiles, so you pay for a dependency only at the boundary it validates. `mise.toml` still pins every tool for reproducibility, and `run_auto_install = false` makes a missing tool fail fast rather than silently installing it.
+`scripts/doctor.sh` defines small, scoped profiles, so you pay for a dependency only at the boundary it validates. `mise.toml` still pins every tool for reproducibility, and `run_auto_install = false` makes a missing tool fail fast rather than silently installing it.
+{{% /collapsible %}}
 
 ## Which tier does each chapter actually require?
 
-[1.0. System](./1.0.%20System.md) owns the exact profile-to-chapter map, independence rule, probes, and matching install tiers. Run the doctor named by the chapter you are entering; later pages repeat only the command they ask you to use.
+[1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) owns the exact profile-to-chapter map, independence rule, probes, and matching install tiers. Run the doctor named by the chapter you are entering; later pages repeat only the command they ask you to use.
 
-[1.5. Workspace](./1.5.%20Workspace.md) owns the offline learner gate and the broader maintainer boundary. Chapter 1 uses `mise run check:core`; the closing checkpoint below is its canonical command list.
+[1.5. Workspace]({{< relref "/1. Setup/1.5. Workspace.md" >}}) owns the offline learner gate and the broader maintainer boundary. Chapter 1 uses `mise run check:core`; the closing checkpoint below is its canonical command list.
 
 ## What is deliberately not part of this chapter?
 
@@ -78,7 +80,7 @@ mise run test           # the Python agent's offline suite
 mise run build:docs     # the static site renders from docs/
 ```
 
-When they are green, [2.1. First Agent](../2.%20Agents/2.1.%20First%20Agent.md) runs the AgentOps Agent on local Qwen3.
+When they are green, [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) runs the AgentOps Agent on local Qwen3.
 
 **You are done when:**
 
@@ -86,6 +88,6 @@ When they are green, [2.1. First Agent](../2.%20Agents/2.1.%20First%20Agent.md) 
 - `mise run doctor:model` confirms `qwen3:4b-instruct` is served locally.
 - `mise run format:core`, `mise run check:core`, `mise run test`, and `mise run build:docs` each finish without reporting an error.
 - You can say which pages you skipped and what brings you back: 1.2. Containers at Chapter 5, 1.3. Kubernetes at Chapter 6.
-- Without reopening Chapter 0: you can name the model path you chose in [0.4. Providers](../0.%20Overview/0.4.%20Providers.md) and say why it needs no account, and you can name the one variable to raise when a local turn is slower than the agent's 60-second model deadline.
+- Without reopening Chapter 0: you can name the model path you chose in [0.4. Providers]({{< relref "/0. Overview/0.4. Providers.md" >}}) and say why it needs no account, and you can name the one variable to raise when a local turn is slower than the agent's 60-second model deadline.
 
-Continue to [1.0. System](./1.0.%20System.md) when you are ready to install the learner toolchain.
+Continue to [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when you are ready to install the learner toolchain.

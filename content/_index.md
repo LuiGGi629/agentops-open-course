@@ -1,29 +1,30 @@
 ---
+title: "AgentOps Open Course"
 description: Build, evaluate, secure, deploy, and operate one production-shaped AI agent with an open-source AgentOps stack.
+url: "/"
 ---
-
-# AgentOps Open Course
 
 Learn from one completed **AgentOps Agent**, from its first local model call to an observable Kubernetes workload. Every chapter inspects and runs the same reference, so concepts stay connected to code, tests, policy, and operations. The capstone then guides you through replacing the fictional incident domain with your own agent platform.
 
-!!! abstract "In one glance"
+{{% admonition abstract "In one glance" %}}
 
-    - **You will:** Build, test, secure, deploy, and operate one production-shaped AI agent, then replace its domain with your own.
-    - **You need:** Linux x86_64 with cgroup v2, git, and basic Python for the fully supported path. Linux arm64, macOS, and WSL2 are best-effort. No account, API key, or cloud project is required.
-    - **Time:** about 12 to 19 focused hours to read the course and clear each chapter's checkpoint.
+- **You will:** Build, test, secure, deploy, and operate one production-shaped AI agent, then replace its domain with your own.
+- **You need:** Linux x86_64 with cgroup v2, git, and basic Python for the fully supported path. Linux arm64, macOS, and WSL2 are best-effort. No account, API key, or cloud project is required.
+- **Time:** about 12 to 19 focused hours to read the course and clear each chapter's checkpoint.
+{{% /admonition %}}
 
 ## How should you start?
 
 Choose the entry point that matches your current experience:
 
 - **Want to see it work before you read anything?** Take the six commands below. They end in a real agent turn on your own hardware, in about the time the model takes to download.
-- **New to agents or AgentOps?** Begin with [0.0. Course](./0.%20Overview/0.0.%20Course.md). Chapter 0 is read-only and helps you decide whether an agent fits your problem.
-- **Ready to prepare your machine?** Go to [1.0. System](./1.%20Setup/1.0.%20System.md). Chapter 1 owns installation, local checks, and model setup.
-- **Already have the repository and local model ready?** Start the first conversation at [2.1. First Agent](./2.%20Agents/2.1.%20First%20Agent.md).
+- **New to agents or AgentOps?** Begin with [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}). Chapter 0 is read-only and helps you decide whether an agent fits your problem.
+- **Ready to prepare your machine?** Go to [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}). Chapter 1 owns installation, local checks, and model setup.
+- **Already have the repository and local model ready?** Start the first conversation at [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}).
 
 This separation is intentional. You make the architecture and provider decisions before downloading tools, prove the code offline before adding a model, then run the agent where the course can explain what happened.
 
-Keep [0.7. Glossary](./0.%20Overview/0.7.%20Glossary.md) open when a term is unfamiliar. Use [0.6. Troubleshooting](./0.%20Overview/0.6.%20Troubleshooting.md) only when a command later fails.
+Keep [0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md" >}}) open when a term is unfamiliar. Use [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md" >}}) only when a command later fails.
 
 ## What are the six commands that reach the first agent turn?
 
@@ -31,9 +32,10 @@ You need [mise](https://mise.jdx.dev/) and [Ollama](https://ollama.com/download)
 
 <!-- quickstart: unverified-preview -->
 
-!!! warning "This is an unverified preview"
+{{% admonition warning "This is an unverified preview" %}}
 
-    This shortest path omits `mise run doctor`, `mise run check:core`, and `mise run test`. Use the guarded sequence in [1.0. System](./1.%20Setup/1.0.%20System.md) when any command fails or before trusting the checkout.
+This shortest path omits `mise run doctor`, `mise run check:core`, and `mise run test`. Use the guarded sequence in [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when any command fails or before trusting the checkout.
+{{% /admonition %}}
 
 ```bash
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
@@ -46,9 +48,9 @@ mise run run
 
 Ask `List the open incidents`. A correct run answers with exactly **INC-002, INC-005, and INC-010** — three ids from the committed seed dataset, not three it invented. That is the whole local loop in one turn: a model that reads real data through typed tools and refuses to make one up.
 
-The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.6. Troubleshooting](./0.%20Overview/0.6.%20Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu) names the one variable to raise, and how to tell a slow turn from an unreachable model.
+The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu" >}}) names the one variable to raise, and how to tell a slow turn from an unreachable model.
 
-`mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent](./2.%20Agents/2.1.%20First%20Agent.md) repeats this run under `mise run web` so you can watch the `list_incidents` call that produced those three ids, and Chapter 2 explains how it is wired.
+`mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) repeats this run under `mise run web` so you can watch the `list_incidents` call that produced those three ids, and Chapter 2 explains how it is wired.
 
 ## What will you be able to do?
 
@@ -104,15 +106,15 @@ New to agent systems? Read the chapters in order. Already shipping LLM applicati
 
 | Chapter                                   | You will leave with                                                      |
 | ----------------------------------------- | ------------------------------------------------------------------------ |
-| [0. Overview](./0.%20Overview/)           | A clear AgentOps lifecycle, architecture, and provider choice.           |
-| [1. Setup](./1.%20Setup/)                 | A pinned local workspace and a model-free verification checkpoint.       |
-| [2. Agents](./2.%20Agents/)               | A first ADK agent with explicit configuration and session semantics.     |
-| [3. Capabilities](./3.%20Capabilities/)   | Typed tools, least-privilege skills, MCP, retrieval, workflows, and A2A. |
-| [4. Quality](./4.%20Quality/)             | Branch-covered tests, evaluations, guardrails, and security regressions. |
-| [5. Gateway](./5.%20Gateway/)             | Governed MCP, A2A, and model traffic through agentgateway.               |
-| [6. Platform](./6.%20Platform/)           | Reproducible k3d and optional GKE deployments with kagent.               |
-| [7. Observability](./7.%20Observability/) | Self-hosted tracing, metrics, evaluation, feedback, and audit evidence.  |
-| [8. Capstone](./8.%20Community/)          | An evidence-backed agent platform of your own, plus optional OSS upkeep. |
+| [0. Overview]({{< relref "/0. Overview/_index.md" >}})           | A clear AgentOps lifecycle, architecture, and provider choice.           |
+| [1. Setup]({{< relref "/1. Setup/_index.md" >}})                 | A pinned local workspace and a model-free verification checkpoint.       |
+| [2. Agents]({{< relref "/2. Agents/_index.md" >}})               | A first ADK agent with explicit configuration and session semantics.     |
+| [3. Capabilities]({{< relref "/3. Capabilities/_index.md" >}})   | Typed tools, least-privilege skills, MCP, retrieval, workflows, and A2A. |
+| [4. Quality]({{< relref "/4. Quality/_index.md" >}})             | Branch-covered tests, evaluations, guardrails, and security regressions. |
+| [5. Gateway]({{< relref "/5. Gateway/_index.md" >}})             | Governed MCP, A2A, and model traffic through agentgateway.               |
+| [6. Platform]({{< relref "/6. Platform/_index.md" >}})           | Reproducible k3d and optional GKE deployments with kagent.               |
+| [7. Observability]({{< relref "/7. Observability/_index.md" >}}) | Self-hosted tracing, metrics, evaluation, feedback, and audit evidence.  |
+| [8. Capstone]({{< relref "/8. Community/_index.md" >}})          | An evidence-backed agent platform of your own, plus optional OSS upkeep. |
 
 Every page opens with the same "In one glance" block — what you will do, what you need first, and how long it takes — and ends with a checkpoint you can actually verify. Skim the glance block and skip a page when it is not for you today.
 
@@ -124,6 +126,6 @@ Google ADK, agentgateway, kagent, MLflow, OpenTelemetry, Prometheus, Grafana, Ol
 
 ## How do you begin?
 
-Start reading at [0.0. Course](./0.%20Overview/0.0.%20Course.md), or enter at the later stage that matches your current setup. Every chapter ends with a checkpoint; Chapters 5-7 also include explicit verification and teardown steps. Finish by adapting the reference through [8.7. Capstone](./8.%20Community/8.7.%20Capstone.md).
+Start reading at [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), or enter at the later stage that matches your current setup. Every chapter ends with a checkpoint; Chapters 5-7 also include explicit verification and teardown steps. Finish by adapting the reference through [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}).
 
 The source repository is public at [MLOps-Courses/agentops-open-course](https://github.com/MLOps-Courses/agentops-open-course). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.

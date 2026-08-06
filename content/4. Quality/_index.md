@@ -1,14 +1,15 @@
 ---
+title: "4. Quality"
 description: "Make the agent correct and trustworthy: typing, linting, testing, metrics, evaluations, guardrails, and security."
+url: "/4-quality/"
 ---
 
-# 4. Quality
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** See how the chapter's seven quality layers fit together and which page owns each check.
-    - **You need:** Chapter 3 finished and `mise run test` passing.
-    - **Time:** about 5 minutes, orientation.
+- **You will:** See how the chapter's seven quality layers fit together and which page owns each check.
+- **You need:** Chapter 3 finished and `mise run test` passing.
+- **Time:** about 5 minutes, orientation.
+{{% /admonition %}}
 
 ## How will you make the agent trustworthy?
 
@@ -30,7 +31,7 @@ Expect to write code, not just read. [4.5. Guardrails](./4.5. Guardrails.md) car
 
 ## Where is gate versus evidence explained?
 
-[4.4. Evaluations](./4.4.%20Evaluations.md#which-evaluation-task-should-you-run-and-when) owns the definition, workflow map, and task-by-task decision. This index only marks each page's prerequisites so you can enter the chapter without learning the same policy twice.
+[4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#which-evaluation-task-should-you-run-and-when" >}}) owns the definition, workflow map, and task-by-task decision. This index only marks each page's prerequisites so you can enter the chapter without learning the same policy twice.
 
 ## What proves this chapter worked?
 
@@ -48,9 +49,9 @@ Neither needs a model, a provider key, or a network.
 
 - `mise run test` passes, including the enforced 95% branch-coverage floor.
 - `mise run redteam` passes every adversarial case in `tests/test_security.py`.
-- The chapter's required drill is done: the `## Your turn` in [4.5. Guardrails](./4.5.%20Guardrails.md#your-turn-how-do-you-turn-a-guardrail-into-a-regression) added a regression you watched fail against a deliberately weakened guard, then restored.
+- The chapter's required drill is done: the `## Your turn` in [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md#your-turn-how-do-you-turn-a-guardrail-into-a-regression" >}}) added a regression you watched fail against a deliberately weakened guard, then restored.
 - You can use the page markers above to say which checkpoints need a configured model and which run offline.
-- You can point to [4.4. Evaluations](./4.4.%20Evaluations.md#which-evaluation-task-should-you-run-and-when) for the chapter's gate-versus-evidence policy.
+- You can point to [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#which-evaluation-task-should-you-run-and-when" >}}) for the chapter's gate-versus-evidence policy.
 - Without reopening Chapter 3: you can name which of the six memory stores a value belongs in when it must survive the next turn but not the next session.
 
-Continue to [4.0. Typing](./4.0.%20Typing.md) when you know the first three pages need no model or provider account.
+Continue to [4.0. Typing]({{< relref "/4. Quality/4.0. Typing.md" >}}) when you know the first three pages need no model or provider account.

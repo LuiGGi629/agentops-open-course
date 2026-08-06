@@ -1,8 +1,8 @@
 {{- /*
   include — the Hugo replacement for `pymdownx.snippets`.
 
-      include "agents/python/src/agent/model.py" "build-model"
-      include "infra/helmfile.yaml" "kagent-crds-release" lang="yaml"
+      include path="agents/python/src/agent/model.py" region="build-model" lang="python"
+      include path="infra/helmfile.yaml" region="kagent-crds-release" lang="yaml"
 
   (wrapped in the usual shortcode delimiters; they are omitted here because a nested
   shortcode comment would close this Go template comment early.)
@@ -21,10 +21,10 @@
   code it quotes changes.
 */ -}}
 
-{{- $path := .Get 0 -}}
+{{- $path := .Get "path" -}}
 {{- $code := partial "include/extract.html" (dict
   "path" $path
-  "region" (.Get 1)
+  "region" (.Get "region")
   "position" .Position
 ) -}}
 

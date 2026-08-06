@@ -1,18 +1,20 @@
 ---
+title: "0. Overview"
 description: "Orient before you build: decide when an agent is justified, map the AgentOps lifecycle, assign ownership across the stack, and choose the required OSS path or an optional hosted provider."
+url: "/0-overview/"
 ---
 
-# 0. Overview
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
+- **You will:** Answer the five questions the rest of the course assumes you have already settled.
+- **You need:** Nothing beyond this course page; Chapter 0 is read-only.
+- **Time:** about 4 minutes, orientation.
+{{% /admonition %}}
 
-    - **You will:** Answer the five questions the rest of the course assumes you have already settled.
-    - **You need:** Nothing beyond this course page; Chapter 0 is read-only.
-    - **Time:** about 4 minutes, orientation.
+{{% admonition tip "Keep the glossary open" %}}
 
-!!! tip "Keep the glossary open"
-
-    Every term the course teaches as a concept has a one-line definition in [0.7. Glossary](./0.7. Glossary.md), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below.
+Every term the course teaches as a concept has a one-line definition in [0.7. Glossary](./0.7. Glossary.md), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below.
+{{% /admonition %}}
 
 ## What will you learn in this chapter?
 
@@ -70,4 +72,4 @@ There is nothing to run here. The chapter has worked when you can answer its fiv
 - You have picked a model path, and you know the default one needs no account and no fee.
 - You know which four pages you will read now (0.0, 0.1, 0.2, 0.4) and which four lookup pages you have bookmarked (0.3, 0.5, 0.6, 0.7).
 
-Continue to [0.0. Course](./0.0.%20Course.md) when you are ready to pick a learning path.
+Continue to [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}) when you are ready to pick a learning path.

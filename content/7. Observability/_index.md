@@ -1,14 +1,15 @@
 ---
+title: "7. Observability"
 description: "Gain insight into the agent in production: reproducibility, tracing, monitoring, cost, feedback, online evaluation, governance, and incident response."
+url: "/7-observability/"
 ---
 
-# 7. Observability
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** See how one agent turn becomes a trace, a metric, and a log line, and know which page owns which signal.
-    - **You need:** Chapter 5 finished and Docker running. Only [7.6. Governance](./7.6. Governance.md) also needs the Chapter 6 cluster.
-    - **Time:** about 6 minutes, orientation.
+- **You will:** See how one agent turn becomes a trace, a metric, and a log line, and know which page owns which signal.
+- **You need:** Chapter 5 finished and Docker running. Only [7.6. Governance](./7.6. Governance.md) also needs the Chapter 6 cluster.
+- **Time:** about 6 minutes, orientation.
+{{% /admonition %}}
 
 ## How will you operate the agent after deployment?
 
@@ -16,16 +17,17 @@ Your AgentOps Agent runs behind agentgateway ([Chapter 5](../5. Gateway/)), and 
 
 The telemetry stack is a Docker Compose stack, not a cluster feature. Seven of the eight pages below run entirely on it; [7.6. Governance](./7.6. Governance.md) is the single page that reads its evidence off the deployed workload and therefore needs `mise run install:platform` and a running k3d cluster. Read the rest whenever Chapter 5 is behind you.
 
-!!! tip "Start the stack before you read further"
+{{% admonition tip "Start the stack before you read further" %}}
 
-    Every later page in this chapter shows you something inside a running stack. Bring it up now, from the repository root:
+Every later page in this chapter shows you something inside a running stack. Bring it up now, from the repository root:
 
-    ```bash
-    mise run doctor:gateway    # checks Docker, Compose, and the other container prerequisites
-    mise run observability:up  # MLflow, the collector, Prometheus, Alertmanager, Loki, Grafana
-    ```
+```bash
+mise run doctor:gateway    # checks Docker, Compose, and the other container prerequisites
+mise run observability:up  # MLflow, the collector, Prometheus, Alertmanager, Loki, Grafana
+```
 
-    Then open MLflow at `http://localhost:5000` and Grafana at `http://localhost:3002`, and keep both tabs open for the rest of the chapter. Your own turns only appear there once the agent exports to the collector, which [7.1. Tracing](./7.1. Tracing.md) _(hands-on)_ sets up.
+Then open MLflow at `http://localhost:5000` and Grafana at `http://localhost:3002`, and keep both tabs open for the rest of the chapter. Your own turns only appear there once the agent exports to the collector, which [7.1. Tracing](./7.1. Tracing.md) _(hands-on)_ sets up.
+{{% /admonition %}}
 
 Every later page assumes one telemetry topology and one set of ports. This landing page is the map: which signal answers which question, what runs where, and which port each piece listens on.
 
@@ -46,9 +48,10 @@ Traces, metrics, logs, assessments, and audit rows each answer a different opera
 
 Each of those pages is also explicit about where the shipped stack stops.
 
-??? note "Deeper: what this chapter deliberately does not ship"
+{{% collapsible note "Deeper: what this chapter deliberately does not ship" %}}
 
-    Pages separate implemented signals from desired production extensions, and each boundary is documented on the page where it bites: there is no fake dollar-cost panel ([7.3. Costs](./7.3. Costs.md)), no automatic live judge ([7.5. Online Evaluation](./7.5. Online Evaluation.md)), no external paging — alerts stop at the local Alertmanager ([7.2. Monitoring](./7.2. Monitoring.md)) — and no cryptographically immutable audit store or HA claim ([7.6. Governance](./7.6. Governance.md)).
+Pages separate implemented signals from desired production extensions, and each boundary is documented on the page where it bites: there is no fake dollar-cost panel ([7.3. Costs](./7.3. Costs.md)), no automatic live judge ([7.5. Online Evaluation](./7.5. Online Evaluation.md)), no external paging — alerts stop at the local Alertmanager ([7.2. Monitoring](./7.2. Monitoring.md)) — and no cryptographically immutable audit store or HA claim ([7.6. Governance](./7.6. Governance.md)).
+{{% /collapsible %}}
 
 ## What does the shipped telemetry stack look like end to end?
 
@@ -68,7 +71,7 @@ flowchart LR
 
 Three names in that diagram are worth pinning down now:
 
-- **OTLP** — the OpenTelemetry wire protocol that carries traces, metrics, and logs off the agent ([0.7. Glossary](../0.%20Overview/0.7.%20Glossary.md#otlp)).
+- **OTLP** — the OpenTelemetry wire protocol that carries traces, metrics, and logs off the agent ([0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md#otlp" >}})).
 - **`span_metrics`** — the collector connector that turns spans into request-count and duration metrics.
 - **experiment `0`** — MLflow's built-in default experiment, which the course image renames to `agentops-agent`.
 
@@ -87,19 +90,21 @@ The shipped OSS stack is MLflow, the OpenTelemetry Collector, Prometheus, Alertm
 
 Which scraper — the process that pulls metrics from an endpoint on a schedule — and which UI you actually get depends on the **deployment profile**: host Compose, the local k3d overlay, or GKE.
 
-??? note "Deeper: what each deployment profile ships"
+{{% collapsible note "Deeper: what each deployment profile ships" %}}
 
-    This table is the canonical deployment-profile split; sibling pages link back instead of restating it. Both collector profiles expose span-derived metrics at `:8889`. The Kubernetes collector also scrapes agentgateway `:15020`, so its `:8889` endpoint includes gateway metrics.
+This table is the canonical deployment-profile split; sibling pages link back instead of restating it. Both collector profiles expose span-derived metrics at `:8889`. The Kubernetes collector also scrapes agentgateway `:15020`, so its `:8889` endpoint includes gateway metrics.
 
-    | Profile           | Config                             | Scraper + alert rules                                                        | Grafana      | How you reach it                                |
-    | ----------------- | ---------------------------------- | ---------------------------------------------------------------------------- | ------------ | ----------------------------------------------- |
-    | Host Compose      | `infra/observability/compose.yaml` | Prometheus scrapes collector `:8889`, MLflow `/metrics`, gateway `:15020`    | yes, `:3002` | `localhost` ports                               |
-    | Local k8s overlay | `infra/k8s/overlays/local`         | own Prometheus + Alertmanager, same rules, scrape only `otel-collector:8889` | no           | `kubectl port-forward`                          |
-    | GKE overlay       | `infra/k8s/overlays/gke`           | none shipped; `:8889` stays a ClusterIP                                      | no           | point your own scraper at `otel-collector:8889` |
+| Profile           | Config                             | Scraper + alert rules                                                        | Grafana      | How you reach it                                |
+| ----------------- | ---------------------------------- | ---------------------------------------------------------------------------- | ------------ | ----------------------------------------------- |
+| Host Compose      | `infra/observability/compose.yaml` | Prometheus scrapes collector `:8889`, MLflow `/metrics`, gateway `:15020`    | yes, `:3002` | `localhost` ports                               |
+| Local k8s overlay | `infra/k8s/overlays/local`         | own Prometheus + Alertmanager, same rules, scrape only `otel-collector:8889` | no           | `kubectl port-forward`                          |
+| GKE overlay       | `infra/k8s/overlays/gke`           | none shipped; `:8889` stays a ClusterIP                                      | no           | point your own scraper at `otel-collector:8889` |
+{{% /collapsible %}}
 
-??? note "Deeper: how the collector splits one stream three ways"
+{{% collapsible note "Deeper: how the collector splits one stream three ways" %}}
 
-    The collector receives OTLP on `:4317` (gRPC) and `:4318` (HTTP), then splits it three ways: traces go to MLflow at `:5000` tagged with the `x-mlflow-experiment-id: 0` header, logs go to Loki at `:3100/otlp`, and the `span_metrics` connector plus native metrics are exposed for Prometheus on `:8889`. Prometheus (`:9090`) stores them, evaluates alert rules into Alertmanager (`:9093`), and Grafana (`:3002`, host profile only) reads both Prometheus and Loki. Agent traces, metrics, and logs always arrive over OTLP; agentgateway pushes OTLP traces to the collector only in the Kubernetes profiles, and its own metrics live at `:15020` — scraped directly by Prometheus on the host and by the collector in Kubernetes.
+The collector receives OTLP on `:4317` (gRPC) and `:4318` (HTTP), then splits it three ways: traces go to MLflow at `:5000` tagged with the `x-mlflow-experiment-id: 0` header, logs go to Loki at `:3100/otlp`, and the `span_metrics` connector plus native metrics are exposed for Prometheus on `:8889`. Prometheus (`:9090`) stores them, evaluates alert rules into Alertmanager (`:9093`), and Grafana (`:3002`, host profile only) reads both Prometheus and Loki. Agent traces, metrics, and logs always arrive over OTLP; agentgateway pushes OTLP traces to the collector only in the Kubernetes profiles, and its own metrics live at `:15020` — scraped directly by Prometheus on the host and by the collector in Kubernetes.
+{{% /collapsible %}}
 
 ## What proves this chapter worked?
 
@@ -111,7 +116,7 @@ The chapter checkpoint uses local or already-running lab telemetry. It does not 
 - `http://localhost:3002` opens Grafana without asking you to log in.
 - For a trace, a metric, a log line, an assessment, and an audit row, you can name the page that owns it.
 - You can say which port the agent exports to, and which store keeps each of the three signals.
-- You finished the required drill in [7.2. Monitoring](./7.2.%20Monitoring.md#your-turn-how-do-you-add-an-alert-rule-and-its-runbook): your own alert rule passed `promtool check rules`, reached `firing` at `http://localhost:9090/alerts`, and resolved when you cleared the condition.
+- You finished the required drill in [7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md#your-turn-how-do-you-add-an-alert-rule-and-its-runbook" >}}): your own alert rule passed `promtool check rules`, reached `firing` at `http://localhost:9090/alerts`, and resolved when you cleared the condition.
 - Without reopening Chapter 4, you can name the offline gate that proves a guardrail before release and the runtime signal that proves it in production — and say why neither replaces the other.
 
-Continue to [7.0. Reproducibility](./7.0.%20Reproducibility.md) when the stack is up and you know which page to open for the signal you need.
+Continue to [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md" >}}) when the stack is up and you know which page to open for the signal you need.

@@ -1,14 +1,15 @@
 ---
+title: "6. Platform"
 description: Run the same private AgentOps data plane on local k3d and an optional, explicitly planned GKE lab.
+url: "/6-platform/"
 ---
 
-# 6. Platform
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** See where each piece of the Kubernetes deployment lives, and prove both environments render before you install anything.
-    - **You need:** Chapter 5 finished and `mise run doctor:platform` passing.
-    - **Time:** about 12 minutes, orientation.
+- **You will:** See where each piece of the Kubernetes deployment lives, and prove both environments render before you install anything.
+- **You need:** Chapter 5 finished and `mise run doctor:platform` passing.
+- **Time:** about 12 minutes, orientation.
+{{% /admonition %}}
 
 ## Where will you run the agent?
 
@@ -25,7 +26,7 @@ Chapters 1-5 ran the reference agent as host processes behind agentgateway. This
 
 [6.0. Platform](./6.0. Platform.md) owns that "what changes when you move to Kubernetes" argument — read it first.
 
-This page applies nothing and creates no cluster. [6.2. Platform Install](./6.2.%20Platform%20Install.md) creates the cluster, installs kagent, and starts the workloads before the following pages inspect them.
+This page applies nothing and creates no cluster. [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}}) creates the cluster, installs kagent, and starts the workloads before the following pages inspect them.
 
 The install is a short, ordered path, and each step is owned by exactly one sub-page:
 
@@ -44,7 +45,7 @@ flowchart TD
 
 **Diagram in words:** Run the platform doctor, start k3d and its local registry, install kagent, then let Skaffold build and push the images. That build creates the BYO Agent, read-only MCP server, and agentgateway/NetworkPolicy path. A temporary port-forward to agentgateway `:3001` is the host entry point.
 
-The loop runs the other way too: `k3d cluster stop local` between sessions returns the memory without destroying anything, and `mise run cluster:start` resumes the same cluster ([6.2. Platform Install](./6.2.%20Platform%20Install.md#how-do-you-stop-the-cluster-between-sessions) owns both).
+The loop runs the other way too: `k3d cluster stop local` between sessions returns the memory without destroying anything, and `mise run cluster:start` resumes the same cluster ([6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-stop-the-cluster-between-sessions" >}}) owns both).
 
 ## What would plain Kubernetes use instead of kagent?
 
@@ -95,25 +96,26 @@ Both overlays layer onto the same `infra/k8s/base` Kustomize base, so ports, the
 
 Skaffold selects the overlay with `-p local` or `-p gke` and never mixes the two.
 
-??? note "Deeper: the row-by-row overlay diff"
+{{% collapsible note "Deeper: the row-by-row overlay diff" %}}
 
-    Only environment-specific values differ, and every one is a small patch you can diff:
+Only environment-specific values differ, and every one is a small patch you can diff:
 
-    | Concern          | `overlays/local`                        | `overlays/gke`                                               |
-    | ---------------- | --------------------------------------- | ------------------------------------------------------------ |
-    | Gateway config   | `agentgateway/k3d`                      | `agentgateway/gke`                                           |
-    | Model backend    | `qwen3:4b-instruct` (host Ollama)       | `gemini-3.5-flash` (Vertex)                                  |
-    | Image registry   | `registry.localhost:5050`               | Artifact Registry (`…-docker.pkg.dev`)                       |
-    | Identity         | in-cluster ServiceAccounts              | GKE Workload Identity annotations (`workload-identity.yaml`) |
-    | MLflow artifacts | local PVC (`/var/lib/mlflow/artifacts`) | GCS bucket from the OpenTofu `mlflow_bucket_name` output     |
-    | Egress exception | any IPv4 TCP `:11434` (intended Ollama) | any IPv4 `:443` (intended Vertex) plus WIF `:987`/`:988`     |
+| Concern          | `overlays/local`                        | `overlays/gke`                                               |
+| ---------------- | --------------------------------------- | ------------------------------------------------------------ |
+| Gateway config   | `agentgateway/k3d`                      | `agentgateway/gke`                                           |
+| Model backend    | `qwen3:4b-instruct` (host Ollama)       | `gemini-3.5-flash` (Vertex)                                  |
+| Image registry   | `registry.localhost:5050`               | Artifact Registry (`…-docker.pkg.dev`)                       |
+| Identity         | in-cluster ServiceAccounts              | GKE Workload Identity annotations (`workload-identity.yaml`) |
+| MLflow artifacts | local PVC (`/var/lib/mlflow/artifacts`) | GCS bucket from the OpenTofu `mlflow_bucket_name` output     |
+| Egress exception | any IPv4 TCP `:11434` (intended Ollama) | any IPv4 `:443` (intended Vertex) plus WIF `:987`/`:988`     |
 
-    Two of those rows are a `patches:` entry in exactly one overlay's `kustomization.yaml`, not in both:
+Two of those rows are a `patches:` entry in exactly one overlay's `kustomization.yaml`, not in both:
 
-    1. The model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`; `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`.
-    1. The MLflow GCS placeholder lives only in `overlays/gke`; `render-gke.sh` resolves it from OpenTofu, while `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`.
+1. The model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`; `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`.
+1. The MLflow GCS placeholder lives only in `overlays/gke`; `render-gke.sh` resolves it from OpenTofu, while `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`.
 
-    The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway](./6.5. Platform Gateway.md) explains and `scripts/check-infra.sh` asserts.
+The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway](./6.5. Platform Gateway.md) explains and `scripts/check-infra.sh` asserts.
+{{% /collapsible %}}
 
 ## What breaks first, and where do you look?
 
@@ -152,7 +154,7 @@ The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platfor
 - `mise run check:infra` exits 0, having rendered and validated both the `local` and the `gke` overlay.
 - You can name, for any of the eight sub-pages, the manifest it owns.
 - You can say why no cluster exists yet, and which page creates one.
-- You finished the required drill in [6.0. Platform](./6.0.%20Platform.md#your-turn-how-do-you-prove-a-manifest-change-reaches-the-render): your base edit showed up in both renders, your overlay edit in one, `mise run check:infra` refused the pinned model value, and `git restore infra/k8s` put the tree and the gate back.
+- You finished the required drill in [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md#your-turn-how-do-you-prove-a-manifest-change-reaches-the-render" >}}): your base edit showed up in both renders, your overlay edit in one, `mise run check:infra` refused the pinned model value, and `git restore infra/k8s` put the tree and the gate back.
 - Without reopening Chapter 5, you can name the three protocols agentgateway fronts and say why no cluster Service publishes any of them.
 
-Continue to [6.0. Platform](./6.0.%20Platform.md) when `mise run check:infra` passes without a cluster, a GCP project, or a model.
+Continue to [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}}) when `mise run check:infra` passes without a cluster, a GCP project, or a model.

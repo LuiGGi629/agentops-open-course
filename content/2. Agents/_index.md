@@ -1,14 +1,15 @@
 ---
+title: "2. Agents"
 description: Run and understand the completed Google ADK 2.x reference agent end to end on local Qwen3.
+url: "/2-agents/"
 ---
 
-# 2. Agents
+{{% admonition abstract "In one glance" %}}
 
-!!! abstract "In one glance"
-
-    - **You will:** See how the whole chapter fits together, then prove the agent assembles correctly without starting a model.
-    - **You need:** Chapter 1 finished, with `mise run doctor` and `mise run doctor:model` passing.
-    - **Time:** about 8 minutes, orientation.
+- **You will:** See how the whole chapter fits together, then prove the agent assembles correctly without starting a model.
+- **You need:** Chapter 1 finished, with `mise run doctor` and `mise run doctor:model` passing.
+- **Time:** about 8 minutes, orientation.
+{{% /admonition %}}
 
 ## What will you understand in this chapter?
 
@@ -16,11 +17,12 @@ This chapter builds one object, `root_agent`. Every later chapter adds to that s
 
 That object is the **AgentOps Agent**, the single reference agent carried through the entire course. It is assembled once in `composition.py` as a plain ADK `Agent` value: a model, an instruction string, a flat tool list, and a set of **policy callbacks** — code the runtime runs around every model call and tool call.
 
-??? note "Deeper: where does this agent go after Chapter 2?"
+{{% collapsible note "Deeper: where does this agent go after Chapter 2?" %}}
 
-    Every later chapter instruments _this same object_: Chapter 3 hangs capabilities off it, Chapter 4 wraps it in quality gates, Chapters 5 and 6 put it behind a gateway and onto Kubernetes, and Chapter 7 observes it in production.
+Every later chapter instruments _this same object_: Chapter 3 hangs capabilities off it, Chapter 4 wraps it in quality gates, Chapters 5 and 6 put it behind a gateway and onto Kubernetes, and Chapter 7 observes it in production.
 
-    [Chapter 3](../3. Capabilities/) deepens its tools, knowledge, workflows, and delegation; [Chapter 8.7](../8.%20Community/8.7.%20Capstone.md) asks you to adapt these boundaries to your own domain.
+[Chapter 3](../3. Capabilities/) deepens its tools, knowledge, workflows, and delegation; [Chapter 8.7]({{< relref "/8. Community/8.7. Capstone.md" >}}) asks you to adapt these boundaries to your own domain.
+{{% /collapsible %}}
 
 Read the sections by their kind, not just their order. **2.0 is conceptual**: the mental model you need before code makes sense. **2.1 and 2.5 are hands-on**: you run commands and see output. **2.2, 2.3, and 2.4 are reference**: the model, instruction, and runtime pieces you consult as you build.
 
@@ -48,30 +50,31 @@ Concretely, each field of `root_agent` traces to one owner:
 | [2.4. Sessions](./2.4. Sessions.md)         | Persistent sessions and A2A task state         | `server.py` `DatabaseSessionService`, `config.py` `state_dir` |
 | [2.5. Dev Loop](./2.5. Dev Loop.md)         | The offline gates and interactive run modes    | `mise.toml` tasks                                             |
 
-Tools and policy hooks are named here, not taught here. Owned by [Chapter 3](../3. Capabilities/) and [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md).
+Tools and policy hooks are named here, not taught here. Owned by [Chapter 3](../3. Capabilities/) and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}).
 
-??? note "Deeper: the same map as a diagram, and who owns tools and policy"
+{{% collapsible note "Deeper: the same map as a diagram, and who owns tools and policy" %}}
 
-    This diagram maps the anatomy to its owners:
+This diagram maps the anatomy to its owners:
 
-    ```mermaid
-    flowchart TD
-        concepts["Runtime concepts · 2.0<br/>Agent · Runner · Session · Events"]
-        subgraph agent["root_agent — assembled in composition.py · 2.1"]
-            model["model = build_model() · 2.2"]
-            instr["instruction = _instruction() · 2.3"]
-            tools["tools = [reads, actions, memory, skills]<br/>policy plugin on App · Ch. 3 / 4.5"]
-        end
-        runtime["Persistent runtime · 2.4<br/>DatabaseSessionService · A2A tasks · server.py"]
-        loop["Dev loop · 2.5<br/>mise run test · run · web · a2a"]
-        concepts --> agent
-        agent --> runtime
-        loop -. iterates .-> agent
-    ```
+```mermaid
+flowchart TD
+    concepts["Runtime concepts · 2.0<br/>Agent · Runner · Session · Events"]
+    subgraph agent["root_agent — assembled in composition.py · 2.1"]
+        model["model = build_model() · 2.2"]
+        instr["instruction = _instruction() · 2.3"]
+        tools["tools = [reads, actions, memory, skills]<br/>policy plugin on App · Ch. 3 / 4.5"]
+    end
+    runtime["Persistent runtime · 2.4<br/>DatabaseSessionService · A2A tasks · server.py"]
+    loop["Dev loop · 2.5<br/>mise run test · run · web · a2a"]
+    concepts --> agent
+    agent --> runtime
+    loop -. iterates .-> agent
+```
 
-    **Diagram in words:** Runtime concepts lead to one agent assembled from a model, instruction, tools, and an app-level policy plugin; persistent runtime and the dev loop surround it.
+**Diagram in words:** Runtime concepts lead to one agent assembled from a model, instruction, tools, and an app-level policy plugin; persistent runtime and the dev loop surround it.
 
-    The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3](../3. Capabilities/) owns each tool, and [4.5. Guardrails](../4.%20Quality/4.5.%20Guardrails.md) owns policy. This page only names the seams.
+The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3](../3. Capabilities/) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams.
+{{% /collapsible %}}
 
 ## What proves this chapter worked?
 
@@ -82,31 +85,32 @@ cd agents/python
 mise run test
 ```
 
-That is the offline test suite. The required drill in [2.3. Instructions](./2.3.%20Instructions.md#your-turn-which-eval-case-catches-a-rule-you-delete) is deterministic too: delete one instruction rule, watch the focused contract fail, then restore it. A live-model comparison remains optional evidence.
+That is the offline test suite. The required drill in [2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md#your-turn-which-eval-case-catches-a-rule-you-delete" >}}) is deterministic too: delete one instruction rule, watch the focused contract fail, then restore it. A live-model comparison remains optional evidence.
 
 The whole run can take several minutes depending on the machine and cache state. It ends with a coverage total checked against the enforced 95% threshold, then a pytest `passed` line. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
 
 A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate evidence lane, owned by [2.5. Dev Loop](./2.5. Dev Loop.md).
 
-??? note "Deeper: can you test the model and config wiring on its own?"
+{{% collapsible note "Deeper: can you test the model and config wiring on its own?" %}}
 
-    That is the umbrella gate (`uv run pytest` over the full suite). To verify just this chapter's seams in isolation, run the model and config tests directly:
+That is the umbrella gate (`uv run pytest` over the full suite). To verify just this chapter's seams in isolation, run the model and config tests directly:
 
-    ```bash
-    uv run pytest tests/test_model.py tests/test_config.py
-    ```
+```bash
+uv run pytest tests/test_model.py tests/test_config.py
+```
 
-    That focused subset exits cleanly and gives fast feedback. The repository-wide 95% branch-coverage gate belongs to `mise run test`, which adds the coverage flags around the complete suite.
+That focused subset exits cleanly and gives fast feedback. The repository-wide 95% branch-coverage gate belongs to `mise run test`, which adds the coverage flags around the complete suite.
 
-    Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop](./2.5. Dev Loop.md)'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
+Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop](./2.5. Dev Loop.md)'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
+{{% /collapsible %}}
 
 **You are done when:**
 
 - `mise run test` finishes in `agents/python` with no failures and a coverage total above the enforced 95% threshold.
-- You finished the required drill in [2.3. Instructions](./2.3.%20Instructions.md#your-turn-which-eval-case-catches-a-rule-you-delete): the focused offline contract went red without the runbook rule, green after the scoped restore, and the live-model comparison remained optional evidence.
+- You finished the required drill in [2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md#your-turn-which-eval-case-catches-a-rule-you-delete" >}}): the focused offline contract went red without the runbook rule, green after the scoped restore, and the live-model comparison remained optional evidence.
 - You can name the one object every later chapter adds to, and the file that assembles it.
 - You can say which sub-page owns the model, which owns the instruction, which owns the session store, and which owns the dev loop.
 - You know which two pages ask you to run something and which three you will come back to as reference.
 - Without reopening Chapter 1: you can name the command that proves the environment offline and the directory you run it from, and say why a passing `mise run test` reads no `.env`.
 
-Continue to [2.0. Concepts](./2.0.%20Concepts.md) when `mise run test` passes on your machine, because every page after this one assumes the agent already builds.
+Continue to [2.0. Concepts]({{< relref "/2. Agents/2.0. Concepts.md" >}}) when `mise run test` passes on your machine, because every page after this one assumes the agent already builds.
