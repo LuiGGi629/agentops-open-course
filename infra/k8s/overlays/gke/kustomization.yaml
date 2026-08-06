@@ -1,0 +1,130 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - ../../../agentgateway/gke
+  - network-policies.yaml
+  - storage-class.yaml
+
+configMapGenerator:
+  - name: gke-overlay-values
+    namespace: agentops
+    literals:
+      - mlflow-artifacts-destination=gs://__MLFLOW_BUCKET_NAME__
+
+patches:
+  - path: workload-identity.yaml
+  - target:
+      version: v1
+      kind: PersistentVolumeClaim
+      labelSelector: app.kubernetes.io/part-of=agentops-open-course
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: agentops-standard
+  # GKE system pods reserve more than one core on a two-core node. Keep the
+  # lab's idle requests close to measured usage while retaining burst limits.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      labelSelector: app.kubernetes.io/part-of=agentops-open-course
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 50m
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: mlflow
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+  - target:
+      group: kagent.dev
+      version: v1alpha2
+      kind: Agent
+      name: agentops-agent
+    patch: |-
+      - op: replace
+        path: /spec/byo/deployment/resources/requests/cpu
+        value: 100m
+  # Vertex exception: Google API endpoints publish no stable CIDR, so the
+  # rule is port-scoped HTTPS. This cluster uses Calico, whose GKE metadata
+  # endpoint requires both TCP 987 and 988 for Workload Identity Federation.
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: agentgateway-egress
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - ipBlock:
+                cidr: 169.254.169.252/32
+          ports:
+            - port: 987
+              protocol: TCP
+            - port: 988
+              protocol: TCP
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+          ports:
+            - port: 443
+              protocol: TCP
+  # Calico evaluates ClusterIP traffic before service translation. Permit the
+  # rendered kube-dns service IP as well as the base policy's DNS pod selector.
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: dns-egress
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - ipBlock:
+                cidr: __GKE_CLUSTER_DNS_IP__/32
+          ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+
+replacements:
+  - source:
+      group: kagent.dev
+      version: v1alpha2
+      kind: ModelConfig
+      name: agentgateway
+      fieldPath: spec.model
+    targets:
+      - select:
+          group: kagent.dev
+          version: v1alpha2
+          kind: Agent
+          name: agentops-agent
+        fieldPaths:
+          - spec.byo.deployment.env.[name=^AGENT_MODEL$].value
+  - source:
+      kind: ConfigMap
+      name: gke-overlay-values
+      fieldPath: data.mlflow-artifacts-destination
+    targets:
+      - select:
+          group: apps
+          version: v1
+          kind: Deployment
+          name: mlflow
+        fieldPaths:
+          - spec.template.spec.containers.[name=^mlflow$].env.[name=^MLFLOW_ARTIFACTS_DESTINATION$].value

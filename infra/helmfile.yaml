@@ -1,0 +1,28 @@
+# kagent's stable chart. The values disable its demo fleet and optional MCP servers.
+# kagent-chart-version: 0.9.12
+# --8<-- [start:kagent-crds-release]
+helmDefaults:
+  wait: true
+  waitForJobs: true
+  timeout: 600
+
+releases:
+  - name: kagent-crds
+    namespace: kagent
+    # The reviewed chart is addressed by immutable OCI manifest digest.
+    chart: oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds@sha256:85174e69eab19e05fcf82dbfda86e8e84c2be97a52c645d60cf1ae51ccbca977
+    createNamespace: true
+  # --8<-- [end:kagent-crds-release]
+
+  - name: kagent
+    namespace: kagent
+    # This upstream control-plane chart owns dynamic controller/Postgres labels
+    # and ports, so course NetworkPolicies stop at the agentops data plane. A
+    # production fork must inventory and policy the pinned chart separately.
+    # The reviewed chart is addressed by immutable OCI manifest digest.
+    chart: oci://ghcr.io/kagent-dev/kagent/helm/kagent@sha256:ec0dacc1a76edbd190a554757c8bdb193ccb0b35deeb35f6d7a7e7ffc76d99fd
+    createNamespace: true
+    needs:
+      - kagent/kagent-crds
+    values:
+      - kagent/values.yaml

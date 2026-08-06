@@ -1,0 +1,37 @@
+# Local observability
+
+The optional local stack is self-hosted and account-free: MLflow 3.15 stores traces and artifacts, OpenTelemetry Collector receives OTLP and derives RED metrics with `spanmetrics`, Prometheus stores metrics and evaluates the course alert rules, Alertmanager groups the fired alerts, Loki stores logs, and Grafana queries both. Every host port is bound to loopback.
+
+From the repository root:
+
+```bash
+mise run observability:up
+```
+
+The task verifies every endpoint and container hardening contract. If startup or readiness fails, it removes only the `agentops-observability` project containers while preserving their named volumes.
+
+Point the agent at `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`, then use:
+
+- MLflow traces: <http://127.0.0.1:5000>
+- Grafana dashboard: <http://127.0.0.1:3002/d/agentops-overview>
+- Prometheus: <http://127.0.0.1:9090>
+- Alertmanager: <http://127.0.0.1:9093>
+- Loki logs API: <http://127.0.0.1:3100>
+
+Prometheus loads `prometheus-rules.yml` (SLO burn rate, latency, collector health, token/guardrail/schema signals) and routes fired alerts to Alertmanager. The `alertmanager.yml` webhook receiver is a placeholder: on Docker Desktop it can reach a loopback receiver, while native Linux needs a receiver on the Docker bridge or in the shared network. Replace it with a real notification bridge or read alerts from the UI/API.
+
+When agentgateway runs in Kubernetes, forward its internal metrics listener only for direct diagnosis:
+
+```bash
+kubectl -n agentops port-forward svc/agentgateway 15020:15020
+```
+
+The host Compose Prometheus job targets the host gateway container, not this forward. In-cluster, the collector scrapes `agentgateway:15020` directly and needs no port-forward.
+
+Stop the stack while preserving data:
+
+```bash
+mise run observability:down
+```
+
+The task preserves the local MLflow, Prometheus, Loki, and Grafana volumes. Use the underlying Compose `down -v` only when you intentionally want to delete them.

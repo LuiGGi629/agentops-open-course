@@ -1,0 +1,498 @@
+# https://mise.jdx.dev
+# Root orchestrator: builds the docs (Zensical) and delegates to the Python agent
+# (agents/python), a self-contained project with its own mise.toml.
+# Git hooks (lefthook.yml) and CI (.github/workflows) call these same tasks.
+
+[tools]
+uv = "0.12.0"
+dprint = "0.55.2"
+lefthook = "2.1.10"
+gitleaks = "8.30.1"
+actionlint = "1.7.12"
+k3d = "5.9.0"
+kubectl = "1.36.3"
+helm = "4.2.3"
+helmfile = "1.7.1"
+skaffold = "2.24.0"
+kubeconform = "0.8.0"
+kube-linter = "0.8.3"
+opentofu = "1.12.5"
+tflint = "0.64.0"
+trivy = "0.72.0"
+"aqua:prometheus/prometheus" = "3.13.2" # ships promtool for the Chapter 7 alert-rule drill
+sqlite = "3.53.4"
+shellcheck = "0.11.0"
+shfmt = "3.13.1"
+sops = "3.13.3" # SOPS-encrypted secrets in git (Chapter 6); only needed to run infra/scripts/secrets.sh
+age = "1.3.1" # age recipients/keys for SOPS; ships age-keygen
+ripgrep = "15.2.0"
+lychee = "0.24.2"
+jq = "1.8.2"
+gh = "2.97.0"
+gcloud = "578.0.0"
+"github:mikefarah/yq" = "4.53.3"
+"github:agentgateway/agentgateway" = "1.4.1"
+
+[settings]
+lockfile = true
+lockfile_platforms = [
+  "linux-arm64",
+  "linux-arm64-musl",
+  "linux-x64",
+  "linux-x64-musl",
+  "macos-arm64",
+  "macos-x64",
+  "windows-x64",
+]
+
+[settings.task]
+run_auto_install = false # fail fast in hooks instead of silently installing a missing tool
+
+[tasks.install]
+# `install:core` is kept as an alias, not a second task: scripts/check-licenses.sh and older
+# course text name it, and two tasks with the same description made `mise tasks` unreadable.
+alias = ["i", "install:core"]
+description = "Install the learner-facing docs, agent, and git-hook dependencies"
+run = [
+  "mise run install:tools:core",
+  "uv sync --locked",
+  "lefthook install",
+  "cd agents/python && mise run install",
+]
+
+[tasks."install:tools:core"]
+hide = true # implementation detail of install:*; a learner picks a tier, never a tool list
+description = "Install only the tools used by learner and contributor core tasks"
+run = "mise install uv dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
+
+[tasks."install:platform"]
+description = "Install the separate MLflow server, local platform, and GKE plan dependencies"
+run = [
+  "mise run install:tools:platform",
+  "uv sync --directory infra/mlflow --locked",
+  "./scripts/install-helm-diff.sh",
+]
+
+[tasks."install:gcp"]
+description = "Install the optional Google Cloud CLI and GKE kubectl authentication plugin"
+run = [
+  "mise install gcloud",
+  "gcloud components install gke-gcloud-auth-plugin --quiet",
+]
+
+[tasks."install:tools:platform"]
+hide = true # implementation detail of install:platform
+description = "Install tools used by the local platform and optional GKE plan"
+run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint aqua:prometheus/prometheus sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
+
+[tasks."install:maintainer"]
+description = "Install every dependency used by the complete maintainer validation"
+# Nested mise commands must not read a contributor's global tool catalog. A
+# project-local config directory keeps project discovery intact while removing
+# global config and conf.d files from this clean-room installer.
+env = { MISE_CONFIG_DIR = ".agents/tmp/mise-config" }
+run = [
+  # Bare `mise install` also installs tools from a user's global config. Keep
+  # this tier project-scoped; the validation tier owns repository dependencies
+  # and this outer tier adds only cloud/release administration tools.
+  "mise install gh",
+  "mise run install:validation",
+  "mise run install:gcp",
+]
+
+[tasks."install:validation"]
+description = "Install every account-free dependency used by CI and local validation"
+env = { MISE_CONFIG_DIR = ".agents/tmp/mise-config" }
+run = [
+  "mise run install",
+  "cd agents/python && mise run install:eval",
+  "mise run install:platform",
+]
+
+[tasks."install:accessibility"]
+description = "Install the optional Chromium build and system libraries used by the browser accessibility smoke"
+run = "uv run --locked --script scripts/accessibility_browser.py --install-browser --with-deps"
+
+[tasks.doctor]
+# `doctor` and `doctor:base` were byte-identical tasks. One task, two names: the bare form is
+# the learner entry point, the suffixed form is what the tier pages cite next to doctor:model
+# and friends. It stays the base tier deliberately — the other profiles need Docker or a cluster.
+alias = "doctor:base"
+description = "Verify the base course-authoring toolchain"
+run = "./scripts/doctor.sh base"
+
+[tasks."doctor:model"]
+description = "Verify the account-free local Ollama model path"
+run = "./scripts/doctor.sh model"
+
+[tasks."doctor:gateway"]
+description = "Verify the host agentgateway path"
+run = "./scripts/doctor.sh gateway"
+
+[tasks."doctor:platform"]
+description = "Verify the local Kubernetes platform path"
+run = "./scripts/doctor.sh platform"
+
+[tasks."doctor:gcp"]
+description = "Verify the optional GCP and GKE path"
+run = "./scripts/doctor.sh gcp"
+
+[tasks."config:check"]
+description = "Validate the agent configuration and print it with secrets masked"
+run = "cd agents/python && mise run config:check"
+
+[tasks.serve]
+# `watch` was a byte-identical second task; it stays as an alias so the standard task
+# vocabulary (install, format, check, test, secure, build, watch) still resolves.
+alias = ["s", "w", "watch"]
+description = "Serve the documentation locally with live reload (Zensical) on :8003"
+# Not :8000. That port belongs to the raw MCP server in the stable network contract
+# (AGENTS.md), and a docs preview left running would otherwise shadow the ADK web UI a
+# learner opens in Chapter 2.1 — presenting as "the agent did not start".
+run = "uv run zensical serve --dev-addr 127.0.0.1:8003"
+
+[tasks.build]
+# Aggregates like format and check do. Before this, `mise run build` built only the site, so
+# building "everything" before a deploy silently shipped a stale agent image. Both image
+# children need Docker; use build:docs for the container-free documentation build.
+alias = "b"
+description = "Build every release artifact: the documentation site and both container images"
+depends = ["build:docs", "build:agent-image", "build:mlflow-image"]
+
+[tasks."build:docs"]
+description = "Build the static documentation site (Zensical → site/)"
+run = [
+  "uv run zensical build",
+  "uv run python scripts/docs_routes.py site",
+]
+
+[tasks."build:agent-image"]
+description = "Build the non-root AgentOps Agent image"
+run = """
+docker build \
+  --build-arg "AGENT_SOURCE_COMMIT=$(git rev-parse HEAD)" \
+  --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
+  --build-arg "OCI_VERSION=$(uv version --short)" \
+  --file agents/python/Dockerfile \
+  --tag agentops-agent:dev \
+  agents
+"""
+
+[tasks."build:mlflow-image"]
+description = "Build the locked self-hosted MLflow image"
+run = """
+docker build \
+  --build-arg "AGENT_SOURCE_COMMIT=$(git rev-parse HEAD)" \
+  --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
+  --build-arg "OCI_VERSION=$(uv version --short)" \
+  --file infra/mlflow/Dockerfile \
+  --tag "agentops-mlflow:$(./scripts/mlflow-version.sh)" \
+  infra/mlflow
+"""
+
+[tasks.promote]
+description = "Preflight source behavior and manifests, then print a guarded build/deploy handoff"
+run = "./scripts/promote.sh"
+
+[tasks."chaos:collector"]
+description = "Stop and automatically restore the host OTel collector for the Chapter 7.7 alert drill"
+run = "./scripts/chaos-drill.sh collector"
+
+[tasks."chaos:database"]
+description = "Corrupt and reject a temporary runtime-database copy without touching seed or state"
+run = "./scripts/chaos-drill.sh database"
+
+[tasks."chaos:runbook"]
+description = "Poison a temporary runbook copy and prove injection neutralization"
+run = "./scripts/chaos-drill.sh runbook"
+
+[tasks."chaos:mcp"]
+description = "Wedge and automatically restore the MCP deployment on the verified local cluster"
+run = "./scripts/chaos-drill.sh mcp"
+
+[tasks."gke:deploy"]
+description = "Deploy the project-resolved workload bundle to the exact GKE context"
+run = "./infra/scripts/deploy-gke.sh"
+
+[tasks."gke:smoke"]
+description = "Prove the exact GKE model tool loop and a read-only A2A retrieval"
+run = "./infra/scripts/smoke-gke-model.sh"
+
+[tasks.format]
+alias = "f"
+description = "Format all course sources, including optional OpenTofu infrastructure"
+depends = ["format:core", "format:tofu"]
+
+[tasks."format:core"]
+description = "Format docs, config, shell scripts, and the Python agent"
+depends = ["format:dprint", "format:python", "format:shell"]
+
+[tasks."format:dprint"]
+description = "Format Markdown and configuration files"
+run = "dprint fmt"
+
+[tasks."format:python"]
+description = "Format the Python reference agent"
+run = [
+  "cd agents/python && mise run format:python .",
+  "./scripts/repository-python.sh format",
+]
+
+[tasks."format:shell"]
+description = "Format repository shell scripts"
+run = "shfmt -w scripts infra/scripts"
+
+[tasks."format:tofu"]
+description = "Format the OpenTofu GCP module"
+run = "tofu -chdir=infra/gcp fmt -recursive"
+
+[tasks.check]
+alias = "c"
+description = "Run the complete maintainer validation, including infrastructure and all licenses"
+depends = ["check:infra", "check:licenses", "check:source", "check:vuln"]
+
+[tasks."check:vuln"]
+# Deliberately out of check:core and off the per-commit hook: a dependency audit is a function of
+# the lockfile and the advisory feed, not of the current diff, and it needs the network — which
+# would make an offline commit impossible. It stays in the maintainer gate and in CI.
+description = "Audit every lock-synchronized Python dependency profile against published advisories"
+run = "./scripts/check-vulnerabilities.sh"
+
+[tasks."check:core"]
+description = "Run the model-, container-, cluster-, and cloud-free course validation"
+depends = ["check:licenses:core", "check:source"]
+
+[tasks."check:source"]
+description = "Validate shared course sources without infrastructure or license profiles"
+depends = [
+  "check:data",
+  "check:docs",
+  "check:freshness",
+  "check:format",
+  "check:links",
+  "check:python",
+  "check:release-metadata",
+  "check:shell",
+  "check:skills",
+  "check:workflows",
+]
+
+[tasks."check:data"]
+description = "Verify the committed offline dataset"
+run = "cd agents/data && mise run check"
+
+[tasks."check:docs"]
+description = "Test authoring contracts, build the course site, and validate rendered routes"
+run = [
+  "uv run python -m unittest scripts/test_check_conventions.py",
+  "uv run python -m unittest infra/scripts/test_platform_backup_drill.py",
+  "uv run python -m unittest scripts/test_release_attestation.py",
+  "uv run python -m unittest scripts/test_release_evidence.py",
+  "uv run python -m unittest scripts/test_release_freshness.py",
+  "uv run python -m unittest scripts/test_release_promote.py",
+  "uv run python -m unittest scripts/test_release_reconcile.py",
+  "uv run python scripts/check_conventions.py docs",
+  "uv run zensical build",
+  "uv run python scripts/docs_routes.py site",
+  "uv run python scripts/check_conventions.py rendered site",
+]
+
+[tasks."check:accessibility"]
+description = "Build and exercise the representative documentation and web-client accessibility surfaces"
+run = [
+  "mise run build:docs",
+  "uv run --locked --script scripts/accessibility_browser.py",
+]
+
+[tasks."check:freshness"]
+description = "Test the read-only external freshness reporter without network access"
+run = "uv run python -m unittest scripts/test_freshness_report.py"
+
+[tasks."check:format"]
+description = "Check Markdown and configuration formatting"
+run = "dprint check"
+
+[tasks."check:infra"]
+description = "Render and validate the local and GKE infrastructure"
+run = "./scripts/check-infra.sh"
+
+[tasks."check:links"]
+description = "Check repository-local Markdown links without network access"
+run = "lychee --offline README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'docs/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
+
+[tasks."check:skills"]
+description = "Validate the installable Agent Skills under skills/"
+run = "uv run python scripts/check_conventions.py skills"
+
+[tasks."check:licenses"]
+description = "Verify repository and every lock-synchronized dependency profile license"
+run = "./scripts/check-licenses.sh full"
+
+[tasks."check:licenses:core"]
+description = "Verify repository, documentation, and agent dependency licenses"
+run = "./scripts/check-licenses.sh core"
+
+[tasks."check:python"]
+description = "Format-check, lint, and type-check every tracked Python source"
+run = [
+  "cd agents/python && mise run check",
+  "./scripts/repository-python.sh check",
+  "uv run python scripts/check_conventions.py repository-python",
+]
+
+[tasks."check:release-metadata"]
+description = "Verify package, citation, changelog, and optional tag versions agree"
+run = "uv run python scripts/check_conventions.py release-metadata"
+
+[tasks."check:shell"]
+description = "Lint repository shell scripts"
+run = [
+  "shfmt -d scripts infra/scripts",
+  "shellcheck scripts/*.sh infra/scripts/*.sh",
+  "scripts/test-lib.sh",
+  "scripts/test-chaos-drill.sh",
+  "infra/scripts/test-gcp-lab-audit.sh",
+  "infra/scripts/test-smoke-gke-model.sh",
+]
+
+[tasks."check:workflows"]
+description = "Lint GitHub Actions workflows"
+run = "actionlint .github/workflows/*.yml"
+
+[tasks.test]
+alias = "t"
+description = "Run the Python agent test suite"
+run = "cd agents/python && mise run test"
+
+[tasks."course:evidence"]
+description = "Run deterministic learner gates and create a sanitized completion manifest"
+run = "uv run python scripts/course_evidence.py create"
+
+[tasks."course:evidence:verify"]
+description = "Verify a completion manifest from its exact clean source revision"
+run = "uv run python scripts/course_evidence.py verify"
+
+[tasks."gateway:host"]
+description = "Run the loopback-only host agentgateway container in the foreground"
+run = "infra/scripts/gateway-host.sh run"
+
+[tasks."gateway:host:start"]
+description = "Start the loopback-only host agentgateway container"
+run = "infra/scripts/gateway-host.sh start"
+
+[tasks."gateway:host:stop"]
+description = "Stop the course-owned host agentgateway container"
+run = "infra/scripts/gateway-host.sh stop"
+
+[tasks."gateway:host:status"]
+description = "Show the course-owned host agentgateway container"
+run = "infra/scripts/gateway-host.sh status"
+
+[tasks."gateway:host:logs"]
+description = "Follow the course-owned host agentgateway logs"
+run = "infra/scripts/gateway-host.sh logs"
+
+[tasks."smoke:host"]
+description = "Exercise the account-free host model, MCP, A2A, CORS, and metrics path"
+run = "scripts/smoke-host.sh"
+
+[tasks."gateway:host:auth"]
+description = "Run the secured loopback host gateway profile (JWT + API key + TLS)"
+run = [
+  "./infra/scripts/gateway-tls.sh",
+  "./infra/scripts/gateway-jwt.sh >/dev/null",
+  "AGENTOPS_GATEWAY_CONFIG=config-auth.yaml infra/scripts/gateway-host.sh run",
+]
+
+[tasks."client:web"]
+description = "Serve the minimal A2A web client (offline, no build step) on :8001"
+run = "python3 -m http.server 8001 --directory clients/web"
+
+# k6 is intentionally not in [tools] (optional load path, AGPL-3.0); `mise x` runs the
+# pinned ephemeral binary documented in load/README.md and docs 7.2.
+[tasks."load:health"]
+description = "Load-test the health endpoints with k6 (own stack only)"
+run = "mise x k6@2.1.0 -- k6 run load/health.js"
+
+[tasks."load:mcp"]
+description = "Load-test the MCP read path through the gateway with k6"
+run = "mise x k6@2.1.0 -- k6 run load/mcp-read.js"
+
+[tasks."load:a2a"]
+description = "Load-test one A2A turn with k6 (1 VU — each turn spends model tokens)"
+run = "mise x k6@2.1.0 -- k6 run load/a2a-send.js"
+
+[tasks."model:fake"]
+description = "Run a deterministic OpenAI-compatible fake model on :11434 for platform-only load tests"
+run = "uv run --script load/fake_model.py"
+
+[tasks."observability:up"]
+description = "Start and readiness-check the hardened local observability stack"
+run = "./infra/scripts/observability-up.sh"
+
+[tasks."observability:down"]
+description = "Stop local observability services while preserving their volumes"
+run = [
+  "docker compose -f infra/observability/compose.yaml down",
+  "./scripts/check-observability.sh stopped",
+]
+
+[tasks."cluster:start"]
+description = "Create or resume the shared k3d local cluster and registry"
+run = "./scripts/cluster-start.sh"
+
+[tasks."platform:install"]
+description = "Install the pinned kagent control plane into k3d-local"
+run = [
+  "test \"$(kubectl config current-context)\" = k3d-local",
+  "kubectl apply --filename infra/k8s/base/namespace.yaml",
+  "helmfile --file infra/helmfile.yaml apply --skip-diff-on-install",
+]
+
+[tasks."platform:dev"]
+description = "Build, push, and reconcile the local platform; leave workloads for explicit teardown"
+run = [
+  "test \"$(kubectl config current-context)\" = k3d-local",
+  "cd infra && AGENT_SOURCE_COMMIT=\"$(git rev-parse HEAD)\" SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev --filename skaffold.yaml --profile local --cleanup=false",
+]
+
+[tasks."state:backup"]
+description = "Snapshot the agent SQLite state online-safely (SQLite backup API)"
+run = "./infra/scripts/backup-state.sh"
+
+[tasks."state:restore"]
+description = "Restore agent SQLite state from a snapshot (stop the A2A/MCP writers first)"
+run = "./infra/scripts/restore-state.sh"
+
+[tasks."state:drill"]
+description = "Run the offline backup+restore drill against throwaway state"
+run = "./infra/scripts/backup-drill.sh"
+
+[tasks.secure]
+# `scan` was a wrapper that only depended on `secure`; it stays as an alias so the pull-request
+# template, SECURITY.md, and the course pages that name either form both resolve to one gate.
+alias = "scan"
+description = "Scan git history, dependencies, secrets, and infrastructure"
+run = [
+  "gitleaks git --verbose",
+  # infra/agentgateway/host/auth holds git-ignored demo keys generated by gateway:host:auth;
+  # scanning them would fail the gate on any machine that ran the secured host profile.
+  "./scripts/trivy-repository.sh source",
+  # License risk has its own severity gate so UNKNOWN licenses fail without
+  # conflating them with vulnerabilities whose upstream severity is unknown.
+  "./scripts/trivy-repository.sh licenses",
+]
+
+[tasks."secure:staged"]
+description = "Scan staged changes and infrastructure before commit"
+run = [
+  "gitleaks git --staged --verbose",
+  # Local agent caches and generated environments are intentionally outside
+  # Git; letting them influence a staged verdict makes the hook host-dependent.
+  "./scripts/trivy-repository.sh config",
+]
+
+[tasks.clean]
+alias = "n"
+description = "Delete the built site and the root .venv; rerun `mise run install` afterwards"
+run = "rm -rf site/ .venv/"

@@ -1,0 +1,18 @@
+{
+  "include": [
+    {
+      "name": "agent",
+      "context": "agents",
+      "dockerfile": "agents/python/Dockerfile",
+      "image": "agentops-agent:scan",
+      "smoke": "import asyncio; from agent.composition import root_agent; from agent.server import create_app; app = create_app(); assert root_agent.name == 'agentops_agent'; asyncio.run(app.state.runtime.close())"
+    },
+    {
+      "name": "mlflow",
+      "context": "infra/mlflow",
+      "dockerfile": "infra/mlflow/Dockerfile",
+      "image": "agentops-mlflow:scan",
+      "smoke": "import mlflow"
+    }
+  ]
+}

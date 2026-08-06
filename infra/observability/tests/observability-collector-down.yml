@@ -1,0 +1,24 @@
+rule_files:
+  - ../prometheus-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="otel-collector"}'
+        values: 0x5
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ObservabilityCollectorDown
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ObservabilityCollectorDown
+        exp_alerts:
+          - exp_labels:
+              job: otel-collector
+              severity: page
+            exp_annotations:
+              summary: Prometheus cannot scrape the OpenTelemetry Collector
+              description: The otel-collector scrape target has been down for 2 minutes. All traces, metrics, and logs are being dropped in the meantime.
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/docs/7.%20Observability/7.2.%20Monitoring.md
