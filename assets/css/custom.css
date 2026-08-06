@@ -22,6 +22,56 @@ iframe.youtube {
     }
 }
 
+/* Course navigation.
+
+   layouts/_partials/nav/items.html renders data/nav.yaml and borrows Hextra's own
+   sidebar utility classes for colour, spacing, and focus, so the palette here is
+   deliberately absent — only the structure Tailwind cannot express lives below. */
+.course-nav__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.course-nav__list[data-depth="0"] > li + li {
+    margin-top: 0.125rem;
+}
+
+/* Nested chapters get a guide line, so a page's place in the learning path is
+   readable from indentation rather than from the active colour alone. */
+.course-nav__list:not([data-depth="0"]) {
+    margin-left: 0.5rem;
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--course-rule);
+}
+
+.course-nav__summary {
+    /* Both properties are needed: `list-style` covers Firefox and Chrome, the
+       WebKit pseudo-element covers Safari. Without them the browser's default
+       triangle sits next to the themed chevron. */
+    list-style: none;
+    user-select: none;
+}
+
+.course-nav__summary::-webkit-details-marker {
+    display: none;
+}
+
+.course-nav__chevron {
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+}
+
+details[open] > .course-nav__summary .course-nav__chevron {
+    transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .course-nav__chevron {
+        transition: none;
+    }
+}
+
 /* Admonitions and collapsibles.
 
    Material shipped these; Hugo does not, so the seven-type semantic vocabulary is

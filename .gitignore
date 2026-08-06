@@ -21,6 +21,7 @@ htmlcov/
 # The theme is pinned in go.mod, so _vendor/ stays a local convenience: vendoring it
 # would turn a theme bump from a lockfile diff into a 1.1 MB source diff.
 /site/
+/public/ # Hugo's default output dir, used when --destination is omitted
 /_vendor/
 /resources/
 .hugo_build.lock
