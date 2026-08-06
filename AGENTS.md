@@ -6,7 +6,7 @@ Guidance for coding agents working in the AgentOps Open Course. Humans should st
 
 The course teaches the complete lifecycle of one **AgentOps Agent** with Google ADK, agentgateway, kagent, MLflow, and OpenTelemetry. `main` is a completed, executable reference that learners inspect and extend; it must not drift into a collection of illustrative snippets. Chapter 8.7 turns that reference into a capstone contract for a learner-owned domain.
 
-- `docs/` contains FAQ-based course pages published by Zensical.
+- `content/` contains FAQ-based course pages published by Zensical.
 - `agents/python/` is the locked Python reference agent, offline tests, and model-backed evaluations.
 - `agents/data/` is immutable seed input: SQLite, logs, runbooks, and the agent's runtime Agent Skills.
 - `skills/` holds installable, portable Agent Skills (`npx skills add …`) that distil the course's patterns for reuse in other projects — distinct from the runtime skills under `agents/data/skills`. `scripts/check_conventions.py skills` (via `mise run check:skills`) validates them.
@@ -177,13 +177,13 @@ description: <one sentence>
 Continue to [<next page>](link) when <the condition that matters>.
 ```
 
-- The closing H2 is exactly `What proves this page worked?`, or `What proves this chapter worked?` on a `docs/*/index.md`, or `How should you use this page later?` on a pure lookup page (0.5, 0.6, 0.7). Nothing links to those anchors, so the wording stays uniform on purpose.
+- The closing H2 is exactly `What proves this page worked?`, or `What proves this chapter worked?` on a `content/*/_index.md`, or `How should you use this page later?` on a pure lookup page (0.5, 0.6, 0.7). Nothing links to those anchors, so the wording stays uniform on purpose.
 - Depth that is valuable but not needed on a first pass goes in a `??? note "Deeper: …"` collapsible, relocated word for word. Every summary starts with `Deeper:`. Zero to three per page.
 - Never collapse the subject's definition, the reason it matters, the command to run, the expected output, or anything that costs money, destroys data, or bounds a security claim. The arithmetic behind a cost may be collapsed; the sentence saying "this can be billed" or "this is not production" stays visible above the triangle.
 - On a hands-on page the learner must reach a runnable command within the first two H2 sections. `docs/2. Agents/2.1. First Agent.md` is the reference for that shape.
 - Admonition vocabulary is fixed: `abstract` for the page frame, `success` for end-of-page takeaways, `warning` for common mistakes, `danger` for destructive/costly/security actions, `tip` for an optional shortcut, `info` for skippable background, `note` for a neutral aside. The same message must use the same type everywhere it appears.
 - Prose rules: open each H2 with a concrete sentence of 25 words or fewer; keep sentences under ~35 words and at most one em-dash pair per paragraph; cap inline cross-links at two per paragraph and push the rest to a closing "Owned by …" line; define an unfamiliar term at first use in 15 words or fewer; use full page names as link labels, never a bare `[5.2]`.
-- Accessibility is content, not decoration: adjacent `**Diagram in words:**` prose must communicate every new or changed Mermaid diagram's actors, relationships, and sequence; never rely on color alone; link dense unfamiliar terms to glossary anchors. `ACCESSIBILITY.md` is the public contract; `docs/diagram-legacy.txt` is an exact-hash ratchet for previously reviewed diagrams, not permission for new exemptions.
+- Accessibility is content, not decoration: adjacent `**Diagram in words:**` prose must communicate every new or changed Mermaid diagram's actors, relationships, and sequence; never rely on color alone; link dense unfamiliar terms to glossary anchors. `ACCESSIBILITY.md` is the public contract; `scripts/diagram-legacy.txt` is an exact-hash ratchet for previously reviewed diagrams, not permission for new exemptions.
 - Keep prose practical and question-led; finish technical pages with verification and, where relevant, teardown.
 - Use only `1.` for ordered Markdown list items.
 - A `--8<--` snippet include must sit inside a fenced code block. A bare include is rendered as Markdown, so a leading `#` comment in the region becomes an `<h1>`.

@@ -8,13 +8,11 @@ url: "/0-overview/"
 
 - **You will:** Answer the five questions the rest of the course assumes you have already settled.
 - **You need:** Nothing beyond this course page; Chapter 0 is read-only.
-- **Time:** about 4 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 4 minutes, orientation. {{% /admonition %}}
 
 {{% admonition tip "Keep the glossary open" %}}
 
-Every term the course teaches as a concept has a one-line definition in [0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md" >}}), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below.
-{{% /admonition %}}
+Every term the course teaches as a concept has a one-line definition in [0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md" >}}), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below. {{% /admonition %}}
 
 ## What will you learn in this chapter?
 

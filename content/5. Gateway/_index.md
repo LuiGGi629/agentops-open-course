@@ -8,8 +8,7 @@ url: "/5-gateway/"
 
 - **You will:** Map the chapter's reading order and the page that owns each gateway boundary.
 - **You need:** Chapters 2-4 finished; [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) installs the optional platform tier before starting anything.
-- **Time:** about 4 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 4 minutes, orientation. {{% /admonition %}}
 
 ## Where should you begin?
 
@@ -19,10 +18,7 @@ This index only maps the reading order. The six hands-on pages then apply that s
 
 {{% collapsible note "Deeper: who builds agentgateway?" %}}
 
-agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an
-**[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This
-chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in ADK/Python.
-{{% /collapsible %}}
+agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an **[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in ADK/Python. {{% /collapsible %}}
 
 ## Which page covers what?
 

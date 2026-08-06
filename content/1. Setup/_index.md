@@ -8,8 +8,7 @@ url: "/1-setup/"
 
 - **You will:** Prepare the smallest local environment needed for the first agent conversation in Chapter 2.
 - **You need:** A terminal and an internet connection; everything else is installed here.
-- **Time:** about 8 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 8 minutes, orientation. {{% /admonition %}}
 
 ## Which pages do you need now?
 
@@ -47,8 +46,7 @@ Staging keeps the base learning path account-free and free of containers, cluste
 
 {{% collapsible note "Deeper: how the ladder is defined and pinned" %}}
 
-`scripts/doctor.sh` defines small, scoped profiles, so you pay for a dependency only at the boundary it validates. `mise.toml` still pins every tool for reproducibility, and `run_auto_install = false` makes a missing tool fail fast rather than silently installing it.
-{{% /collapsible %}}
+`scripts/doctor.sh` defines small, scoped profiles, so you pay for a dependency only at the boundary it validates. `mise.toml` still pins every tool for reproducibility, and `run_auto_install = false` makes a missing tool fail fast rather than silently installing it. {{% /collapsible %}}
 
 ## Which tier does each chapter actually require?
 

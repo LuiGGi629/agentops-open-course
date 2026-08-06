@@ -56,6 +56,9 @@ alias = ["i", "install:core"]
 description = "Install the learner-facing docs, agent, and git-hook dependencies"
 run = [
   "mise run install:tools:core",
+  # The Hextra theme is a Hugo Module pinned in go.mod; this materializes it into the
+  # local module cache so the first build does not have to.
+  "hugo mod get",
   "uv sync --locked",
   "lefthook install",
   "cd agents/python && mise run install",
@@ -317,7 +320,7 @@ run = "./scripts/check-infra.sh"
 
 [tasks."check:links"]
 description = "Check repository-local Markdown links without network access"
-run = "lychee --offline README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'content/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
+run = "lychee --offline --root-dir '{{config_root}}/static' README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'content/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
 
 [tasks."check:skills"]
 description = "Validate the installable Agent Skills under skills/"

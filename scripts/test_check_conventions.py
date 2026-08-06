@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import pathlib
 import shutil
@@ -712,15 +711,13 @@ class NavigationContractTests(unittest.TestCase):
 
     def test_every_page_is_reachable_from_the_learning_path(self) -> None:
         pages = {
-            page: page.read_text(encoding="utf-8")
-            for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
+            page: page.read_text(encoding="utf-8") for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
         }
         assert check_conventions.check_navigation(pages) == []
 
     def test_a_page_missing_from_the_navigation_is_rejected(self) -> None:
         pages = {
-            page: page.read_text(encoding="utf-8")
-            for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
+            page: page.read_text(encoding="utf-8") for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
         }
         pages[check_conventions.ROOT / "content/9. Ghost/9.0. Ghost.md"] = "---\ndescription: x\n---\n"
         problems = check_conventions.check_navigation(pages)

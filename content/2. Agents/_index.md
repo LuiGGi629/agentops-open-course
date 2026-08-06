@@ -8,8 +8,7 @@ url: "/2-agents/"
 
 - **You will:** See how the whole chapter fits together, then prove the agent assembles correctly without starting a model.
 - **You need:** Chapter 1 finished, with `mise run doctor` and `mise run doctor:model` passing.
-- **Time:** about 8 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 8 minutes, orientation. {{% /admonition %}}
 
 ## What will you understand in this chapter?
 
@@ -21,8 +20,7 @@ That object is the **AgentOps Agent**, the single reference agent carried throug
 
 Every later chapter instruments _this same object_: Chapter 3 hangs capabilities off it, Chapter 4 wraps it in quality gates, Chapters 5 and 6 put it behind a gateway and onto Kubernetes, and Chapter 7 observes it in production.
 
-[Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) deepens its tools, knowledge, workflows, and delegation; [Chapter 8.7]({{< relref "/8. Community/8.7. Capstone.md" >}}) asks you to adapt these boundaries to your own domain.
-{{% /collapsible %}}
+[Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) deepens its tools, knowledge, workflows, and delegation; [Chapter 8.7]({{< relref "/8. Community/8.7. Capstone.md" >}}) asks you to adapt these boundaries to your own domain. {{% /collapsible %}}
 
 Read the sections by their kind, not just their order. **2.0 is conceptual**: the mental model you need before code makes sense. **2.1 and 2.5 are hands-on**: you run commands and see output. **2.2, 2.3, and 2.4 are reference**: the model, instruction, and runtime pieces you consult as you build.
 
@@ -41,8 +39,8 @@ The `Agent(...)` call in `composition.py` names each part of the reference agent
 
 Concretely, each field of `root_agent` traces to one owner:
 
-| Sub-page                                    | What it teaches                                | Owning module / symbol                                        |
-| ------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
+| Sub-page                                                              | What it teaches                                | Owning module / symbol                                        |
+| --------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
 | [2.0. Concepts]({{< relref "/2. Agents/2.0. Concepts.md" >}})         | The ADK runtime loop and its object vocabulary | `google.adk` (framework)                                      |
 | [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}})   | Composing and running `root_agent`             | `composition.py` (composition root)                           |
 | [2.2. Models]({{< relref "/2. Agents/2.2. Models.md" >}})             | Provider selection behind `model=`             | `model.py` `build_model`, `config.py` `ModelProvider`         |
@@ -73,8 +71,7 @@ flowchart TD
 
 **Diagram in words:** Runtime concepts lead to one agent assembled from a model, instruction, tools, and an app-level policy plugin; persistent runtime and the dev loop surround it.
 
-The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams.
-{{% /collapsible %}}
+The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams. {{% /collapsible %}}
 
 ## What proves this chapter worked?
 
@@ -101,8 +98,7 @@ uv run pytest tests/test_model.py tests/test_config.py
 
 That focused subset exits cleanly and gives fast feedback. The repository-wide 95% branch-coverage gate belongs to `mise run test`, which adds the coverage flags around the complete suite.
 
-Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
-{{% /collapsible %}}
+Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well. {{% /collapsible %}}
 
 **You are done when:**
 

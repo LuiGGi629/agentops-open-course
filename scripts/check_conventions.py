@@ -131,7 +131,7 @@ PORT_CONTRACT: Final = {
     8080: ("agents/python/src/agent/config.py", r"a2a_port: int = Field\(default=8080,"),
     8001: ("mise.toml", r"python3 -m http\.server 8001"),
     8002: ("agents/python/mise.toml", r"adk web src --port 8002"),
-    8003: ("mise.toml", r"zensical serve --dev-addr 127\.0\.0\.1:8003"),
+    8003: ("mise.toml", r"hugo server --bind 127\.0\.0\.1 --port 8003"),
     11434: ("agents/python/src/agent/config.py", r'default="http://127\.0\.0\.1:11434/v1"'),
     13133: ("infra/k8s/base/otel-collector-config.yaml", r"endpoint: 0\.0\.0\.0:13133"),
     5000: ("infra/observability/compose.yaml", r"MLFLOW_PORT:-5000"),
@@ -267,7 +267,7 @@ def page_url(page: pathlib.Path) -> str:
     This function is the authority that ``check_page_urls`` holds those fields to.
     """
     relative = page.relative_to(ROOT / "content")
-    chapter = f"{page_slug(relative.parent.name)}/" if relative.parent != pathlib.Path(".") else ""
+    chapter = f"{page_slug(relative.parent.name)}/" if relative.parent != pathlib.Path() else ""
     if page.name == "_index.md":
         return f"/{chapter}" if chapter else "/"
     return f"/{chapter}{page_slug(page.stem)}/"
@@ -923,7 +923,9 @@ def check_theme_pin(root: pathlib.Path = ROOT) -> list[Problem]:
             continue
         digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
         if digest != entry.get("sha256"):
-            problems.append((f"assets/js/vendor/{name}", f"bundle does not match its pinned digest ({entry.get('version')})"))
+            problems.append(
+                (f"assets/js/vendor/{name}", f"bundle does not match its pinned digest ({entry.get('version')})")
+            )
     return problems
 
 
@@ -934,7 +936,6 @@ def check_source_versions(
 ) -> list[Problem]:
     """Copied volatile versions agree with their manifest owners."""
     problems: list[Problem] = []
-    root_manifest = root / "pyproject.toml"
     agent_manifest = root / "agents/python/pyproject.toml"
     root_mise_path = root / "mise.toml"
     root_mise = read_toml(root_mise_path)
@@ -2108,7 +2109,7 @@ def check_web_client() -> list[Problem]:
     return problems
 
 
-def rendered_source(relative: str) -> pathlib.PurePosixPath | None:
+def rendered_source(relative: str) -> pathlib.Path | None:
     """Return the content file a rendered page came from, or None for a generated page.
 
     Reverses the slugging: ``0-overview/0-0-course/index.html`` came from

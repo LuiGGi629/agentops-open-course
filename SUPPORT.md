@@ -19,14 +19,14 @@ This table is the course's single capacity-planning authority. **Total RAM** is 
 
 <!-- local-platform-capacity: total-ram-gib=14 free-disk-gib=15 -->
 
-| Work tier               | Install/profile                                   | Capacity contract                                                                                                                                                     |
-| ----------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Read the course         | No install                                        | No measured minimum beyond a browser or Markdown reader.                                                                                                              |
-| Offline engineering     | `install`; `doctor`; `check:core`; `test`         | No measured RAM or disk minimum. The two locked Python environments and repository checkout must fit; the gates are authoritative.                                    |
-| Local model             | Offline tier plus `doctor:model`                  | No measured host minimum. The Qwen3 download and runtime consume additional disk and available RAM; model speed is hardware-dependent.                                |
-| Host gateway            | Local-model tier plus `doctor:gateway`            | No separate measured minimum. A working container engine and enough available RAM for Ollama, the agent, and the gateway are required.                                |
-| Complete local platform | `install:platform`; `doctor:platform`             | Conservative planning value: **14 GiB total RAM** and **15 GiB free disk** for the model, images, one k3d cluster, and observability running at once.                 |
-| Optional GKE laboratory | `install:gcp`; `doctor:gcp`; reviewed `tofu plan` | Local capacity is not the cloud quota. The canonical billable resource shape and dated estimate live only in [7.3. Costs](./docs/7.%20Observability/7.3.%20Costs.md). |
+| Work tier               | Install/profile                                   | Capacity contract                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Read the course         | No install                                        | No measured minimum beyond a browser or Markdown reader.                                                                                                                 |
+| Offline engineering     | `install`; `doctor`; `check:core`; `test`         | No measured RAM or disk minimum. The two locked Python environments and repository checkout must fit; the gates are authoritative.                                       |
+| Local model             | Offline tier plus `doctor:model`                  | No measured host minimum. The Qwen3 download and runtime consume additional disk and available RAM; model speed is hardware-dependent.                                   |
+| Host gateway            | Local-model tier plus `doctor:gateway`            | No separate measured minimum. A working container engine and enough available RAM for Ollama, the agent, and the gateway are required.                                   |
+| Complete local platform | `install:platform`; `doctor:platform`             | Conservative planning value: **14 GiB total RAM** and **15 GiB free disk** for the model, images, one k3d cluster, and observability running at once.                    |
+| Optional GKE laboratory | `install:gcp`; `doctor:gcp`; reviewed `tofu plan` | Local capacity is not the cloud quota. The canonical billable resource shape and dated estimate live only in [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md). |
 
 The local-platform numbers are conservative planning values, not measured minima or performance guarantees. `doctor:*` can verify tools, services, credentials, cgroup mode, and some free-disk boundaries; portable measurement of “enough available RAM” is not reliable across supported systems, so it does not pretend to certify that property.
 

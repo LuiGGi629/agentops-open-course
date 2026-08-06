@@ -24,7 +24,7 @@ tofu -chdir=infra/gcp plan -out=tfplan
 
 Every inventory command must succeed: an authentication or authorization error is not an empty result. Before applying with empty state, also prove that the exact cluster, network, subnet, repository, bucket, and three service-account names in the plan do not already exist. Review the plan and current GCP prices before a later, explicitly approved `tofu -chdir=infra/gcp apply tfplan`. `../scripts/render-gke.sh` resolves the Workload Identity service accounts, MLflow bucket, and Vertex project from OpenTofu outputs; the committed manifests contain fail-visible placeholders instead of a project ID.
 
-Spot VMs can stop at any time. The GKE overlay uses zonal standard persistent disks for the small PersistentVolumeClaims, while the GCS bucket preserves MLflow artifacts. [7.3. Costs](../../docs/7.%20Observability/7.3.%20Costs.md) owns the dated estimate and its assumptions; refresh every linked provider price immediately before applying.
+Spot VMs can stop at any time. The GKE overlay uses zonal standard persistent disks for the small PersistentVolumeClaims, while the GCS bucket preserves MLflow artifacts. [7.3. Costs](../../content/7.%20Observability/7.3.%20Costs.md) owns the dated estimate and its assumptions; refresh every linked provider price immediately before applying.
 
 ## How do you isolate an approved deployment?
 

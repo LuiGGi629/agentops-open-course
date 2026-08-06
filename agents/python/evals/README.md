@@ -1,6 +1,6 @@
 # AgentOps Agent Evaluations
 
-The harness behind the `eval:*` tasks. [4.4. Evaluations](../../../docs/4.%20Quality/4.4.%20Evaluations.md) owns the policy — which layer proves what, the required floors, the model and judge configuration, and how an evaluation can lie to you. [7.0. Reproducibility](../../../docs/7.%20Observability/7.0.%20Reproducibility.md) owns the provenance contract. This file owns only what a directory listing cannot tell you: which file does what.
+The harness behind the `eval:*` tasks. [4.4. Evaluations](../../../content/4.%20Quality/4.4.%20Evaluations.md) owns the policy — which layer proves what, the required floors, the model and judge configuration, and how an evaluation can lie to you. [7.0. Reproducibility](../../../content/7.%20Observability/7.0.%20Reproducibility.md) owns the provenance contract. This file owns only what a directory listing cannot tell you: which file does what.
 
 Every task here calls a configured model except `eval:validate`, which is the offline gate and the only one CI runs.
 

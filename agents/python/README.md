@@ -1,6 +1,6 @@
 # AgentOps Reference Agent (Python)
 
-The **AgentOps Agent** is the executable reference for the [AgentOps Open Course](../../docs/index.md). It uses Google ADK for the agent runtime, Pydantic for trusted boundaries, MCP and A2A for interoperability, SQLite for deterministic local state, and OpenTelemetry for runtime signals.
+The **AgentOps Agent** is the executable reference for the [AgentOps Open Course](../../content/_index.md). It uses Google ADK for the agent runtime, Pydantic for trusted boundaries, MCP and A2A for interoperability, SQLite for deterministic local state, and OpenTelemetry for runtime signals.
 
 ## Quickstart
 

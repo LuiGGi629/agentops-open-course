@@ -17,7 +17,7 @@ This installs every pinned tool and locked environment used by the complete cont
 ## What should a contribution preserve?
 
 - Keep documentation examples synchronized with the implementation in `agents/` and `infra/`.
-- Keep every `docs/**/*.md` page FAQ-oriented and start it with `description:` front matter.
+- Keep every `content/**/*.md` page FAQ-oriented and start it with `description:` front matter.
 - Keep the page frame: an `!!! abstract "In one glance"` block (**You will** / **You need** / **Time**) directly under the H1, and a closing `## What proves this page worked?` section with a **You are done when:** list and a `Continue to …` line. `mise run check:docs` enforces it; `AGENTS.md` documents the full contract.
 - Put depth a first-time reader can skip in a `??? note "Deeper: …"` collapsible rather than deleting it.
 - Give every new or changed Mermaid diagram adjacent prose that communicates the same actors, relationships, and sequence. Never rely on color alone, and link dense unfamiliar terms to glossary anchors; see [ACCESSIBILITY.md](./ACCESSIBILITY.md).

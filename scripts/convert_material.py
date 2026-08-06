@@ -60,7 +60,7 @@ def slugify(name: str) -> str:
 def page_url(page: pathlib.Path) -> str:
     """Return the published URL for one content file."""
     relative = page.relative_to(CONTENT)
-    chapter = f"{slugify(relative.parent.name)}/" if relative.parent != pathlib.Path(".") else ""
+    chapter = f"{slugify(relative.parent.name)}/" if relative.parent != pathlib.Path() else ""
     if page.name == "_index.md":
         return f"/{chapter}" if chapter else "/"
     return f"/{chapter}{slugify(page.stem)}/"

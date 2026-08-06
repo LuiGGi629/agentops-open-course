@@ -8,8 +8,7 @@ url: "/8-community/"
 
 - **You will:** Start the capstone directly and know which optional page to use when you maintain an open-source project.
 - **You need:** Chapters 1-7 finished and the learner gates passing.
-- **Time:** about 6 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 6 minutes, orientation. {{% /admonition %}}
 
 ## What should you do after Chapter 7?
 
@@ -29,8 +28,8 @@ flowchart LR
 
 Use this table as a lookup rather than a second linear syllabus:
 
-| Optional page                                                | Open it when you need to…                                                           |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Optional page                                                                           | Open it when you need to…                                                           |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | [8.0. Repository]({{< relref "/8. Community/8.0. Repository.md" >}}) _(reference)_      | Map the top-level layout and separate human from agent guidance.                    |
 | [8.1. License]({{< relref "/8. Community/8.1. License.md" >}}) _(reference)_            | Reuse or distribute prose and code under the correct license.                       |
 | [8.2. Releases]({{< relref "/8. Community/8.2. Releases.md" >}}) _(reference)_          | Cut a deliberate SemVer release with changelog and gate evidence.                   |

@@ -1,6 +1,6 @@
 # AgentOps Open Course
 
-[![CI](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml) [![Docs](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml) [![Security](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml) [![GitHub stars](https://img.shields.io/github/stars/MLOps-Courses/agentops-open-course?style=flat)](https://github.com/MLOps-Courses/agentops-open-course/stargazers) [![Course license: CC BY 4.0](https://img.shields.io/badge/course-CC_BY_4.0-blue.svg)](./docs/LICENSE.txt) [![Software license: MIT](https://img.shields.io/badge/software-MIT-green.svg)](./LICENSE)
+[![CI](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml) [![Docs](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml) [![Security](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml) [![GitHub stars](https://img.shields.io/github/stars/MLOps-Courses/agentops-open-course?style=flat)](https://github.com/MLOps-Courses/agentops-open-course/stargazers) [![Course license: CC BY 4.0](https://img.shields.io/badge/course-CC_BY_4.0-blue.svg)](./static/LICENSE.txt) [![Software license: MIT](https://img.shields.io/badge/software-MIT-green.svg)](./LICENSE)
 
 Learn the complete lifecycle of a production-shaped AI agent, from a first local model call to an observable Kubernetes workload. The course uses [Google ADK](https://google.github.io/adk-docs/), [agentgateway](https://agentgateway.dev/), [kagent](https://kagent.dev/), [MLflow](https://mlflow.org/), and [OpenTelemetry](https://opentelemetry.io/) with runnable Python, tests, policies, and infrastructure.
 
@@ -107,13 +107,13 @@ Later, Chapter 3 compares the same conversational agent with `mise run workflow`
 
 The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](https://agentops-open-course.fmind.dev/0.%20Overview/0.6.%20Troubleshooting.html).
 
-That is the first complete loop. [1. Setup](./docs/1.%20Setup/index.md) stages later prerequisites only when the corresponding chapter needs them.
+That is the first complete loop. [1. Setup](./content/1.%20Setup/_index.md) stages later prerequisites only when the corresponding chapter needs them.
 
 ## Run and tear down the full local stack
 
 The gateway, Kubernetes, and observability tiers stay out of first-run setup. `mise run install:platform` adds that toolchain; the optional GKE path adds `mise run install:gcp`.
 
-Their exact start order, verification, and every teardown belong to the chapters that own them: [5. Gateway](./docs/5.%20Gateway/index.md) for the host agentgateway process order and its smoke check, [6. Platform](./docs/6.%20Platform/index.md) for the Ollama bridge, the k3d deployment, backup, and the guarded cluster and cloud teardowns.
+Their exact start order, verification, and every teardown belong to the chapters that own them: [5. Gateway](./content/5.%20Gateway/_index.md) for the host agentgateway process order and its smoke check, [6. Platform](./content/6.%20Platform/_index.md) for the Ollama bridge, the k3d deployment, backup, and the guarded cluster and cloud teardowns.
 
 Follow those pages instead of a second infrastructure runbook here. Teardown deletes PersistentVolumeClaims and their data, and a duplicated copy of a destructive command is the copy that goes stale.
 
@@ -126,22 +126,22 @@ Follow those pages instead of a second infrastructure runbook here. Teardown del
 | Optional provider   | Gemini               | Host process       | Comparing ADK's native provider integration after the local path works |
 | Optional cloud lab  | Gemini on Vertex AI  | Zonal GKE Standard | Workload Identity, GCS artifacts, and production-shaped cloud delivery |
 
-The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available, and it bills real money — [7.3. Costs](./docs/7.%20Observability/7.3.%20Costs.md) owns the current estimate and the date it was checked. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
+The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available, and it bills real money — [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md) owns the current estimate and the date it was checked. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
 
 ## Course map
 
-| Chapter                                                   | Outcome                                                                            |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [0. Overview](./docs/0.%20Overview/index.md)              | Choose the right agent architecture, stack, and learning path.                     |
-| [1. Setup](./docs/1.%20Setup/index.md)                    | Install the staged prerequisites for the checkpoint you are running.               |
-| [2. Agents](./docs/2.%20Agents/index.md)                  | Run and understand the ADK reference agent on local Qwen3.                         |
-| [3. Capabilities](./docs/3.%20Capabilities/index.md)      | Inspect typed tools, skills, MCP, memory, workflows, and A2A.                      |
-| [4. Quality](./docs/4.%20Quality/index.md)                | Enforce typing, tests, evaluations, guardrails, and adversarial regressions.       |
-| [5. Gateway](./docs/5.%20Gateway/index.md)                | Move the stable model contract behind agentgateway and govern MCP and A2A traffic. |
-| [6. Platform](./docs/6.%20Platform/index.md)              | Deliver the same image to local k3d and an optional GKE lab with kagent.           |
-| [7. Observability](./docs/7.%20Observability/index.md)    | Trace, measure, evaluate, and audit the running system with OSS backends.          |
-| [8. Community](./docs/8.%20Community/index.md)            | Maintain, release, and document an open-source agent project.                      |
-| [8.7. Capstone](./docs/8.%20Community/8.7.%20Capstone.md) | Transform the completed reference into your own evidence-backed agent platform.    |
+| Chapter                                                      | Outcome                                                                            |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| [0. Overview](./content/0.%20Overview/_index.md)             | Choose the right agent architecture, stack, and learning path.                     |
+| [1. Setup](./content/1.%20Setup/_index.md)                   | Install the staged prerequisites for the checkpoint you are running.               |
+| [2. Agents](./content/2.%20Agents/_index.md)                 | Run and understand the ADK reference agent on local Qwen3.                         |
+| [3. Capabilities](./content/3.%20Capabilities/_index.md)     | Inspect typed tools, skills, MCP, memory, workflows, and A2A.                      |
+| [4. Quality](./content/4.%20Quality/_index.md)               | Enforce typing, tests, evaluations, guardrails, and adversarial regressions.       |
+| [5. Gateway](./content/5.%20Gateway/_index.md)               | Move the stable model contract behind agentgateway and govern MCP and A2A traffic. |
+| [6. Platform](./content/6.%20Platform/_index.md)             | Deliver the same image to local k3d and an optional GKE lab with kagent.           |
+| [7. Observability](./content/7.%20Observability/_index.md)   | Trace, measure, evaluate, and audit the running system with OSS backends.          |
+| [8. Community](./content/8.%20Community/_index.md)           | Maintain, release, and document an open-source agent project.                      |
+| [8.7. Capstone](./content/8.%20Community/8.7.%20Capstone.md) | Transform the completed reference into your own evidence-backed agent platform.    |
 
 ## Repository layout
 
@@ -186,6 +186,6 @@ To reset only the agent's local writable state, run `cd agents/python && mise ru
 
 ## Contributing and reuse
 
-Course prose is [CC BY 4.0](./docs/LICENSE.txt); software and repository automation are [MIT](./LICENSE). See [SUPPORT.md](./SUPPORT.md), [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), [SECURITY.md](./SECURITY.md), and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before opening a change. Release-facing changes are tracked in [CHANGELOG.md](./CHANGELOG.md), and academic/technical citations are available in [CITATION.cff](./CITATION.cff).
+Course prose is [CC BY 4.0](./static/LICENSE.txt); software and repository automation are [MIT](./LICENSE). See [SUPPORT.md](./SUPPORT.md), [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), [SECURITY.md](./SECURITY.md), and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before opening a change. Release-facing changes are tracked in [CHANGELOG.md](./CHANGELOG.md), and academic/technical citations are available in [CITATION.cff](./CITATION.cff).
 
 The rendered course is published at [agentops-open-course.fmind.dev](https://agentops-open-course.fmind.dev/). The source remains the verification surface: every critical excerpt, command, policy, and deployment contract is checked from this repository.

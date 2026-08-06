@@ -8,8 +8,7 @@ url: "/3-capabilities/"
 
 - **You will:** Map the eight capabilities this chapter bolts onto the agent you already ran, and learn which one to reach for when.
 - **You need:** Chapter 2 finished, with `mise run test` green in `agents/python`.
-- **Time:** about 8 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 8 minutes, orientation. {{% /admonition %}}
 
 ## Which capabilities will you add?
 
@@ -84,8 +83,8 @@ Each box names the page that owns its option. The ranking of the orchestration t
 
 Each capability has exactly one owner, so a failure has one place to look. This chapter's pages map onto the reference package like this:
 
-| Sub-page                                  | What it adds                                                                 | Owning module(s)                                              |
-| ----------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Sub-page                                                                  | What it adds                                                                 | Owning module(s)                                              |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})     | The uv package and lazy `root_agent` discovery                               | `pyproject.toml`, `__init__.py`                               |
 | [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})             | Typed read tools over validated, resettable incident state                   | `tools.py`, `data.py`                                         |
 | [3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})           | Progressive-disclosure procedures via `skill_toolset()`                      | `skills.py`                                                   |
@@ -105,8 +104,7 @@ mise run workflow
 mise run coordinator
 ```
 
-All three tasks resolve the lazy `root_agent` from `src/agent`. The task aliases set the validated `AGENT_ENTRYPOINT`; implementations remain in `agent/workflow.py` and `agent/delegation.py`, with no sibling discovery packages to maintain.
-{{% /collapsible %}}
+All three tasks resolve the lazy `root_agent` from `src/agent`. The task aliases set the validated `AGENT_ENTRYPOINT`; implementations remain in `agent/workflow.py` and `agent/delegation.py`, with no sibling discovery packages to maintain. {{% /collapsible %}}
 
 ## Which switches change this chapter's behavior?
 
@@ -124,7 +122,7 @@ The task aliases set the composition selector. Every capability switch defaults 
 | `AGENT_MCP_URL`            | unset   | `_read_tools()` swaps the local read tools for the governed MCP toolset           | 3.3       |
 | `AGENT_SEMANTIC_RETRIEVAL` | `false` | Runbook search uses local-embedding vector retrieval, falling back to keywords    | 3.4       |
 | `AGENT_A2A_STREAMING`      | `false` | The A2A server emits partial per-token events, at the redaction cost 3.6 explains | 3.6       |
-{{% /collapsible %}}
+| {{% /collapsible %}}       |         |                                                                                   |           |
 
 ## What proves this chapter worked?
 

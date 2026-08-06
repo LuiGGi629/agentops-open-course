@@ -8,8 +8,7 @@ url: "/4-quality/"
 
 - **You will:** See how the chapter's seven quality layers fit together and which page owns each check.
 - **You need:** Chapter 3 finished and `mise run test` passing.
-- **Time:** about 5 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 5 minutes, orientation. {{% /admonition %}}
 
 ## How will you make the agent trustworthy?
 

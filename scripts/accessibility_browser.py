@@ -16,7 +16,6 @@ import functools
 import http.server
 import json
 import pathlib
-import re
 import subprocess
 import sys
 import threading
@@ -30,14 +29,22 @@ from playwright.sync_api import Error as PlaywrightError  # ty: ignore[unresolve
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 CLIENT = ROOT / "clients/web"
+# Hugo publishes clean directory URLs, so these are site paths rather than output file
+# names. They are the same five representative surfaces the Zensical gate exercised.
 DOCUMENT_SURFACES = (
-    ("index.html", "homepage"),
-    ("0. Overview/0.3. Ecosystem.html", "dense diagram page"),
-    ("3. Capabilities/3.6. A2A.html", "A2A page"),
-    ("4. Quality/4.6. Security.html", "security page"),
-    ("8. Community/8.7. Capstone.html", "capstone page"),
-    ("404.html", "404 recovery page"),
+    ("/", "homepage"),
+    ("/0-overview/0-3-ecosystem/", "dense diagram page"),
+    ("/3-capabilities/3-6-a2a/", "A2A page"),
+    ("/4-quality/4-6-security/", "security page"),
+    ("/8-community/8-7-capstone/", "capstone page"),
+    ("/404.html", "404 recovery page"),
 )
+
+# Theme DOM the gate binds to. Material's `.md-*` classes are gone; these are Hextra's, kept
+# in one place so a theme bump has a single obvious thing to revalidate.
+SKIP_LINK = "body > a[href='#content']"
+NAVBAR_HOME = ".hextra-max-navbar-width a[href='/']"
+CONTENT_ROOT = "main#content .content"
 CONTRAST_COLORS = """
 selector => {
   const element = document.querySelector(selector);
@@ -182,34 +189,38 @@ def accessibility_tree_smoke(context: BrowserContext, page: Page, url: str, labe
 
 
 def search_smoke(page: Page, url: str) -> None:
-    """Exercise the hydrated Zensical search semantics and recovery results."""
+    """Exercise the FlexSearch combobox semantics and recovery results.
+
+    Hextra renders a bare labelled input with a detached results list. The combobox wiring
+    this asserts comes from assets/js/search-a11y.js, which is the Hugo replacement for the
+    Zensical search shim — the semantics are the same, the DOM underneath is not.
+    """
     open_page(page, url)
-    search_button = page.get_by_role("button", name=re.compile(r"^Search"))
-    require(search_button.count() >= 1, f"{url}: search trigger is missing")
-    search_button.first.click()
-    search_input = page.get_by_role("combobox", name="Search")
+    # Hextra renders the box twice; the sidebar copy is hidden at desktop width.
+    search_input = page.locator(".hextra-search-wrapper input[type='search']:visible").first
     search_input.wait_for(state="visible")
+    require(bool(search_input.get_attribute("aria-label")), f"{url}: search input needs an accessible name")
+    require(search_input.get_attribute("role") == "combobox", f"{url}: search input must expose the combobox role")
     require(search_input.get_attribute("aria-autocomplete") == "list", f"{url}: search must autocomplete a list")
     controls = search_input.get_attribute("aria-controls")
     require(bool(controls), f"{url}: search must identify its result list")
     require(
-        search_input.evaluate("(element, id) => Boolean(element.getRootNode().getElementById(id))", controls),
+        page.locator(f"#{controls}").count() == 1,
         f"{url}: search result list {controls!r} is missing",
     )
-    button_labels = search_input.evaluate(
-        "element => [...element.getRootNode().querySelectorAll('button')]"
-        ".map(button => button.getAttribute('aria-label'))"
-    )
-    require(
-        button_labels == ["Close search", "Filter search results"],
-        f"{url}: search buttons need stable accessible names, got {button_labels}",
-    )
-    search_input.fill("A2A")
+    # Scoped to the wrapper under test: the navbar and sidebar boxes each carry their own
+    # status region, so a document-wide count would read 2 and say nothing useful.
+    status = ".hextra-search-wrapper:has(input[type='search']:visible) .hextra-search-status[aria-live='polite']"
+    require(page.locator(status).count() == 1, f"{url}: search needs a polite status region to announce results")
+    # Typed, not filled: Hextra loads the index on focus and searches on keyup, so a
+    # programmatic value assignment would set the text without ever running a query.
+    search_input.click()
+    search_input.press_sequentially("A2A", delay=40)
     handle = search_input.element_handle()
     require(handle is not None, f"{url}: search input disappeared")
     page.wait_for_function("element => element.getAttribute('aria-expanded') === 'true'", arg=handle)
     require(
-        search_input.evaluate("element => element.getRootNode().querySelectorAll('ol a').length") > 0,
+        page.locator(f"#{controls} a").count() > 0,
         f"{url}: search did not return a recovery route for A2A",
     )
 
@@ -217,12 +228,25 @@ def search_smoke(page: Page, url: str) -> None:
 def content_controls_smoke(page: Page, url: str) -> None:
     """Exercise a dense diagram inventory, table semantics, and a keyboard copy control."""
     open_page(page, url)
-    diagrams = page.locator("article pre > code").evaluate_all(
-        "nodes => nodes.filter(node => /^(flowchart|sequenceDiagram|graph)\\b/.test(node.textContent.trim())).length"
+    # Under Material the diagrams stayed as text in a <code> block. Hugo has no Mermaid
+    # support at all, so this now asserts the whole self-hosted pipeline: the vendored bundle
+    # loads with external requests blocked, and every diagram actually becomes an SVG. A
+    # diagram that silently failed to render used to be invisible to this gate.
+    diagrams = page.locator("main#content pre.mermaid")
+    require(diagrams.count() >= 3, f"{url}: representative page no longer exercises a dense diagram surface")
+    page.wait_for_function(
+        """() => {
+          const nodes = [...document.querySelectorAll('main#content pre.mermaid')];
+          return nodes.length > 0 && nodes.every(node => node.querySelector('svg') !== null);
+        }"""
     )
-    require(diagrams >= 3, f"{url}: representative page no longer exercises a dense diagram surface")
+    labelled = page.locator("main#content [role='img'][aria-label]:has(pre.mermaid)").count()
+    require(
+        labelled == diagrams.count(),
+        f"{url}: every rendered diagram needs an accessible name, {labelled} of {diagrams.count()} have one",
+    )
     require(page.get_by_role("columnheader").count() > 0, f"{url}: representative table has no column headers")
-    copy_button = page.get_by_role("button", name="Copy to clipboard").first
+    copy_button = page.get_by_role("button", name="Copy code").first
     copy_button.focus()
     require(
         copy_button.evaluate("element => element === document.activeElement && element.matches(':focus-visible')"),
@@ -424,18 +448,18 @@ def run_acceptance() -> None:
             context = browser.new_context(viewport={"width": 1280, "height": 900}, color_scheme="light")
             block_external_requests(context)
             page = context.new_page()
-            homepage = f"{docs}/index.html"
-            keyboard_smoke(page, homepage, ".md-skip", ".md-header__button.md-logo")
+            homepage = f"{docs}/"
+            keyboard_smoke(page, homepage, SKIP_LINK, NAVBAR_HOME)
             search_smoke(page, homepage)
             for path, label in DOCUMENT_SURFACES:
-                accessibility_tree_smoke(context, page, f"{docs}/{quote(path)}", label)
-            dense_page = f"{docs}/{quote('0. Overview/0.3. Ecosystem.html')}"
+                accessibility_tree_smoke(context, page, f"{docs}{quote(path)}", label)
+            dense_page = f"{docs}/0-overview/0-3-ecosystem/"
             content_controls_smoke(page, dense_page)
             reflow_smoke(page, homepage)
-            reflow_smoke(page, f"{docs}/{quote('4. Quality/4.6. Security.html')}")
+            reflow_smoke(page, f"{docs}/4-quality/4-6-security/")
             open_page(page, homepage)
-            contrast_smoke(page, ".md-content__inner > p", "documentation body text")
-            contrast_smoke(page, ".md-content__inner p a", "documentation content link")
+            contrast_smoke(page, f"{CONTENT_ROOT} > p", "documentation body text")
+            contrast_smoke(page, f"{CONTENT_ROOT} p a", "documentation content link")
 
             web_client = f"{client}/index.html"
             keyboard_smoke(page, web_client, ".skip-link", "#base-url")
@@ -460,7 +484,7 @@ def run_acceptance() -> None:
             reduced = browser.new_context(reduced_motion="reduce", color_scheme="light")
             block_external_requests(reduced)
             reduced_page = reduced.new_page()
-            reduced_motion_smoke(reduced_page, f"{docs}/index.html", stops_animation=False)
+            reduced_motion_smoke(reduced_page, f"{docs}/", stops_animation=False)
             reduced_motion_smoke(reduced_page, f"{client}/index.html", stops_animation=True)
             reduced.close()
 

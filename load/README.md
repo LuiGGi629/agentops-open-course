@@ -1,6 +1,6 @@
 # Load tests
 
-Grafana k6 scenarios that stress the **platform** paths of the AgentOps Agent stack and sample the **model** path. The walkthrough lives in the course page [7.2. Monitoring](../docs/7.%20Observability/7.2.%20Monitoring.md).
+Grafana k6 scenarios that stress the **platform** paths of the AgentOps Agent stack and sample the **model** path. The walkthrough lives in the course page [7.2. Monitoring](../content/7.%20Observability/7.2.%20Monitoring.md).
 
 Run them through the repository tasks, from the repository root. Each scenario reads its knobs from the environment, so overrides go in front of the task:
 

@@ -10,8 +10,7 @@ Learn from one completed **AgentOps Agent**, from its first local model call to 
 
 - **You will:** Build, test, secure, deploy, and operate one production-shaped AI agent, then replace its domain with your own.
 - **You need:** Linux x86_64 with cgroup v2, git, and basic Python for the fully supported path. Linux arm64, macOS, and WSL2 are best-effort. No account, API key, or cloud project is required.
-- **Time:** about 12 to 19 focused hours to read the course and clear each chapter's checkpoint.
-{{% /admonition %}}
+- **Time:** about 12 to 19 focused hours to read the course and clear each chapter's checkpoint. {{% /admonition %}}
 
 ## How should you start?
 
@@ -34,8 +33,7 @@ You need [mise](https://mise.jdx.dev/) and [Ollama](https://ollama.com/download)
 
 {{% admonition warning "This is an unverified preview" %}}
 
-This shortest path omits `mise run doctor`, `mise run check:core`, and `mise run test`. Use the guarded sequence in [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when any command fails or before trusting the checkout.
-{{% /admonition %}}
+This shortest path omits `mise run doctor`, `mise run check:core`, and `mise run test`. Use the guarded sequence in [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when any command fails or before trusting the checkout. {{% /admonition %}}
 
 ```bash
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
@@ -104,8 +102,8 @@ flowchart LR
 
 New to agent systems? Read the chapters in order. Already shipping LLM applications? Use the outcomes below as a map:
 
-| Chapter                                   | You will leave with                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------------ |
+| Chapter                                                          | You will leave with                                                      |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | [0. Overview]({{< relref "/0. Overview/_index.md" >}})           | A clear AgentOps lifecycle, architecture, and provider choice.           |
 | [1. Setup]({{< relref "/1. Setup/_index.md" >}})                 | A pinned local workspace and a model-free verification checkpoint.       |
 | [2. Agents]({{< relref "/2. Agents/_index.md" >}})               | A first ADK agent with explicit configuration and session semantics.     |

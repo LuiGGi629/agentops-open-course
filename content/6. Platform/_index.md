@@ -8,8 +8,7 @@ url: "/6-platform/"
 
 - **You will:** See where each piece of the Kubernetes deployment lives, and prove both environments render before you install anything.
 - **You need:** Chapter 5 finished and `mise run doctor:platform` passing.
-- **Time:** about 12 minutes, orientation.
-{{% /admonition %}}
+- **Time:** about 12 minutes, orientation. {{% /admonition %}}
 
 ## Where will you run the agent?
 
@@ -75,8 +74,8 @@ This chapter covers:
 
 Each page also owns the manifests below, so a symptom maps to one file:
 
-| Sub-page                                                        | What it adds                                                  | Owning manifest(s)                                             |
-| --------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| Sub-page                                                                                    | What it adds                                                  | Owning manifest(s)                                             |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
 | [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}})                             | Agents as Kubernetes workloads; the shared base and overlays  | `infra/k8s/base/kustomization.yaml`                            |
 | [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})                         | The multi-stage, digest-pinned agent image                    | `agents/python/Dockerfile`                                     |
 | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}})             | Cluster/registry, kagent, and the Skaffold development loop   | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
@@ -114,8 +113,7 @@ Two of those rows are a `patches:` entry in exactly one overlay's `kustomization
 1. The model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`; `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`.
 1. The MLflow GCS placeholder lives only in `overlays/gke`; `render-gke.sh` resolves it from OpenTofu, while `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`.
 
-The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}}) explains and `scripts/check-infra.sh` asserts.
-{{% /collapsible %}}
+The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}}) explains and `scripts/check-infra.sh` asserts. {{% /collapsible %}}
 
 ## What breaks first, and where do you look?
 
@@ -123,13 +121,13 @@ The same handful of failures recur across this chapter and the next. Every one i
 
 Each row below is a symptom you can observe, the misconfiguration that usually causes it, and the page that owns the fix:
 
-| Symptom                                               | Likely cause                                                                                                                              | Where to look                                                                                                     |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector" >}})                |
+| Symptom                                               | Likely cause                                                                                                                              | Where to look                                                                                                                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector" >}})                             |
 | Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL                       | [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds" >}}) |
 | Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                                                | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
 | Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                                                     | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
-| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees                          | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination" >}})      |
+| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees                          | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination" >}})                   |
 | Pods stay `Pending`, or a container dies with `137`   | The machine is out of memory: host Compose and the in-cluster stack are running together, or the model plus k3s exceeds what the host has | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#what-do-you-do-when-the-machine-runs-out-of-memory" >}})            |
 
 ## What proves this chapter worked?

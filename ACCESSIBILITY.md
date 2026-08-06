@@ -14,7 +14,7 @@ The AgentOps Open Course should be usable without a mouse, without color percept
 
 `mise run check:docs` enforces the structural floor before a change can publish:
 
-- Every new or changed Mermaid block needs adjacent `**Diagram in words:**` prose. `docs/diagram-legacy.txt` stores exact hashes for previously reviewed diagrams, so changing one cannot inherit a broad exemption and deleting one removes its hash.
+- Every new or changed Mermaid block needs adjacent `**Diagram in words:**` prose. `scripts/diagram-legacy.txt` stores exact hashes for previously reviewed diagrams, so changing one cannot inherit a broad exemption and deleting one removes its hash.
 - The rendered site must give the document a language, exactly one main landmark and H1 per page, and accessible names to non-fragment links.
 - The homepage must expose its existing description through Open Graph, Twitter, canonical URL, and Course structured metadata; the custom 404 must provide a named recovery route.
 - The dependency-free client must retain native labels, one main landmark and H1, polite status announcements, visible focus, narrow-layout reflow, forced-colors behavior, and a reduced-motion fallback.

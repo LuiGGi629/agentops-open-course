@@ -21,6 +21,12 @@
 <meta name="twitter:image" content="{{ $image }}">
 <meta name="twitter:image:alt" content="{{ $alt }}">
 
+{{- /* Search accessibility shim; see assets/js/search-a11y.js for why it is needed. */ -}}
+{{- with resources.Get "js/search-a11y.js" }}
+  {{- $script := . | js.Build (dict "minify" hugo.IsProduction) | fingerprint -}}
+  <script defer src="{{ $script.RelPermalink }}" integrity="{{ $script.Data.Integrity }}"></script>
+{{- end }}
+
 {{- if .IsHome }}
   <script type="application/ld+json">
     {{ dict
