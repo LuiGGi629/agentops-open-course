@@ -15,4 +15,4 @@ package = false
 # Force the patched GitPython through MLflow's transitive pin: 3.1.50 carries 8
 # HIGH advisories (command injection / clone-option-guard bypass, GHSA-*), all
 # fixed by 3.1.54. Trivy fails the release image scan on them until we upgrade.
-constraint-dependencies = ["gitpython>=3.1.54"]
+override-dependencies = ["gitpython>=3.1.54", "cryptography>=50.0.0"]

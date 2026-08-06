@@ -3,7 +3,7 @@
 
 [project]
 name = "agentops-agent"
-version = "0.6.0"
+version = "0.7.0"
 description = "The AgentOps Open Course reference agent, built with Google ADK 2.x."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -27,7 +27,7 @@ dependencies = [
   "spacy>=3.8,<3.9", # Presidio's NLP engine; pinned to match the en_core_web_sm model below
   "en-core-web-sm", # small English spaCy model for Presidio (URL-pinned in [tool.uv.sources])
   "tldextract>=5.3.1,<6", # offline email recognition uses its bundled public-suffix snapshot directly
-  "cryptography>=48.0.1,<49", # latest Presidio-compatible line and floor for GHSA-537c-gmf6-5ccf
+  "cryptography>=50.0.0,<51", # security floor for PYSEC-2026-3552/3553/3554
   "sqlite-vec>=0.1.6",
   "sqlalchemy[asyncio]>=2.0.51,<2.1", # persistent SQLite sessions/tasks without cloud database adapters
 ]
@@ -74,6 +74,7 @@ eval = [
 [tool.uv]
 # `uv sync` must not pull the eval chain; `mise run install:eval` adds it explicitly.
 default-groups = ["dev"]
+override-dependencies = ["cryptography>=50.0.0"]
 
 [[tool.agentops.compatibility-holds]]
 package = "mcp"
@@ -91,7 +92,7 @@ validation = "telemetry unit tests + Platform"
 
 [[tool.agentops.compatibility-holds]]
 package = "cryptography"
-constraint = "<49"
+constraint = "<51"
 owner = "presidio-anonymizer"
 owner-constraints = ["cryptography<49.0.0"]
 validation = "privacy tests + vulnerability audit"
