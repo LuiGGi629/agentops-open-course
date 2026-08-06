@@ -1,0 +1,34 @@
+{{- /*
+  include — the Hugo replacement for `pymdownx.snippets`.
+
+      include "agents/python/src/agent/model.py" "build-model"
+      include "infra/helmfile.yaml" "kagent-crds-release" lang="yaml"
+
+  (wrapped in the usual shortcode delimiters; they are omitted here because a nested
+  shortcode comment would close this Go template comment early.)
+
+  It reproduces the three guarantees the course relied on:
+
+  1. `check_paths` — a missing file or a missing region raises a build error, so the site
+     never renders an empty block. Losing this means shipping learners code that no longer
+     exists, which is the one failure this migration must not introduce.
+  2. Named regions — the quoted sources keep their `--8<-- [start:x]` / `[end:x]` markers
+     exactly as they are; those files are out of scope and are never edited.
+  3. `dedent_subsections` — an indented region is shifted left so it quotes as top-level code.
+
+  Sources are read with `resources.Get` over the `assets/source/**` mounts declared in
+  hugo.toml, not `os.ReadFile`, so `hugo server` watches them and rebuilds the page when the
+  code it quotes changes.
+*/ -}}
+
+{{- $path := .Get 0 -}}
+{{- $code := partial "include/extract.html" (dict
+  "path" $path
+  "region" (.Get 1)
+  "position" .Position
+) -}}
+
+{{- with $code -}}
+  {{- $language := $.Get "lang" | default (partial "include/language.html" $path) -}}
+  {{- transform.Highlight . $language -}}
+{{- end -}}
