@@ -7,8 +7,8 @@ infra/scripts/test_platform_backup_drill.py
 load/fake_model.py
 scripts/accessibility_browser.py
 scripts/check_conventions.py
+scripts/convert_material.py
 scripts/course_evidence.py
-scripts/docs_routes.py
 scripts/freshness_report.py
 scripts/release_attestation.py
 scripts/release_evidence.py
@@ -18,6 +18,6 @@ scripts/test_check_conventions.py
 scripts/test_freshness_report.py
 scripts/test_release_attestation.py
 scripts/test_release_evidence.py
-scripts/test_release_promote.py
 scripts/test_release_freshness.py
+scripts/test_release_promote.py
 scripts/test_release_reconcile.py

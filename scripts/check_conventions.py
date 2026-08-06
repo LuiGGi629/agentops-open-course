@@ -30,7 +30,7 @@ import tomllib
 from collections.abc import Iterator
 from html.parser import HTMLParser
 from typing import Final
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 ROOT: Final = pathlib.Path(__file__).resolve().parent.parent
 
@@ -38,7 +38,7 @@ ROOT: Final = pathlib.Path(__file__).resolve().parent.parent
 
 # The page frame. Every page opens with this block so a learner can decide in ten seconds whether
 # to read it now, skim it, or come back later.
-GLANCE_OPEN: Final = '!!! abstract "In one glance"'
+GLANCE_OPEN: Final = '{{% admonition abstract "In one glance" %}}'
 GLANCE_FIELDS: Final = ("**You will:**", "**You need:**", "**Time:**")
 
 # One closing landmark, spelled the same way everywhere, so "am I done?" is answered in the same
@@ -48,13 +48,13 @@ CLOSING_HEADINGS: Final = (
     "## What proves this chapter worked?",
     "## How should you use this page later?",
 )
-LANDING_PAGE: Final = "docs/index.md"
+LANDING_PAGE: Final = "content/_index.md"
 
 # Material's footer follows the flattened nav order. These adjacent pairs keep the
 # rendered "Next" link aligned with the course's staged prerequisite handoffs.
 NAV_SUCCESSORS: Final = {
     "1. Setup/1.1. Python.md": "1. Setup/1.4. Providers.md",
-    "1. Setup/1.5. Workspace.md": "2. Agents/index.md",
+    "1. Setup/1.5. Workspace.md": "2. Agents/_index.md",
     "5. Gateway/5.0. Gateway.md": "1. Setup/1.2. Containers.md",
     "1. Setup/1.2. Containers.md": "5. Gateway/5.1. Gateway Setup.md",
     "6. Platform/6.0. Platform.md": "1. Setup/1.3. Kubernetes.md",
@@ -71,17 +71,17 @@ MAX_COLLAPSIBLES: Final = 3
 # Chapters 2 and 3 quote the reference agent on nearly every page, so a hand-written Python block
 # there is the excerpt that rots. Each one must either include the real file or open with a comment
 # telling the reader it is deliberately not the source.
-SNIPPET_CHAPTERS: Final = ("docs/2. ", "docs/3. ")
+SNIPPET_CHAPTERS: Final = ("content/2. ", "content/3. ")
 SNIPPET_DECLARATIONS: Final = ("# simplified", "# illustrative", "# pseudocode")
-SNIPPET_INCLUDE: Final = re.compile(r'--8<--\s+"([^"]+)"')
+SNIPPET_INCLUDE: Final = re.compile(r'\{\{< include path="([^"]+)" region="([^"]+)"')
 SOURCE_SNIPPET_SURFACES: Final = {
-    "TOML": ("docs/1. Setup/1.1. Python.md", "agents/python/pyproject.toml:runtime-dependencies"),
-    "YAML": ("docs/5. Gateway/5.0. Gateway.md", "infra/agentgateway/host/config.yaml:host-mcp-bind"),
-    "shell": ("docs/5. Gateway/5.1. Gateway Setup.md", "infra/scripts/gateway-host.sh:hardened-container-args"),
-    "Dockerfile": ("docs/6. Platform/6.1. Containers.md", "agents/python/Dockerfile:runtime-base"),
-    "Helm": ("docs/6. Platform/6.2. Platform Install.md", "infra/helmfile.yaml:kagent-crds-release"),
+    "TOML": ("content/1. Setup/1.1. Python.md", "agents/python/pyproject.toml:runtime-dependencies"),
+    "YAML": ("content/5. Gateway/5.0. Gateway.md", "infra/agentgateway/host/config.yaml:host-mcp-bind"),
+    "shell": ("content/5. Gateway/5.1. Gateway Setup.md", "infra/scripts/gateway-host.sh:hardened-container-args"),
+    "Dockerfile": ("content/6. Platform/6.1. Containers.md", "agents/python/Dockerfile:runtime-base"),
+    "Helm": ("content/6. Platform/6.2. Platform Install.md", "infra/helmfile.yaml:kagent-crds-release"),
     "workflow": (
-        "docs/8. Community/8.2. Releases.md",
+        "content/8. Community/8.2. Releases.md",
         ".github/workflows/release.yml:release-dispatch-authority",
     ),
 }
@@ -89,13 +89,13 @@ SOURCE_SNIPPET_SURFACES: Final = {
 FRONT_MATTER: Final = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 FENCE: Final = re.compile(r"^\s*(`{3,}|~{3,})\s*(\S*)")
 MACHINE_PATH: Final = re.compile(r"/home/[^ /]+|file:///|k3d-registry\.localhost")
-COLLAPSIBLE: Final = re.compile(r'^\s*\?\?\? \w+ "([^"]*)"')
+COLLAPSIBLE: Final = re.compile(r'^\{\{% collapsible \w+ "([^"]*)" %\}\}')
 BARE_NUMBER_LABEL: Final = re.compile(r"\[(\d+(?:\.\d+)*)\]\(")
 INDEX_KIND_LABEL: Final = re.compile(r"\[(\d+\.\d+\.[^\]]+)\][^\n]*?_\(([a-z-]+)[^)]*\)_")
-TIME_LINE: Final = re.compile(r"^ {4}- \*\*Time:\*\* (.+)$", re.MULTILINE)
-ADMONITION: Final = re.compile(r'^\s*(?:!!!|\?\?\?)\s+([a-z-]+)(?:\s+"[^"]*")?\s*$')
+TIME_LINE: Final = re.compile(r"^- \*\*Time:\*\* (.+)$", re.MULTILINE)
+ADMONITION: Final = re.compile(r'^\{\{% (?:admonition|collapsible) ([a-z-]+)(?: "[^"]*")? %\}\}$')
 ORDERED_ITEM: Final = re.compile(r"^(\s*)(\d+)\.\s")
-FULL_PAGE_LINK: Final = re.compile(r"\[([0-8]\.\d+\.\s+[^\]]+)\]\(([^)#]+)")
+FULL_PAGE_LINK: Final = re.compile(r'\[([0-8]\.\d+\.\s+[^\]]+)\]\(\{\{< relref "([^"#]+)')
 DOCUMENTED_TASK: Final = re.compile(r"\bmise run ([A-Za-z0-9][A-Za-z0-9:_*-]*(?:<[^>]+>)?)")
 TASK_TABLE_ROW: Final = re.compile(r"^\| `mise run ([^`]+)`\s+\| `([^`]+)`\s+\|", re.MULTILINE)
 TOOL_TABLE_ROW: Final = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([v\d][^|]*?)\s*\|", re.MULTILINE)
@@ -117,9 +117,10 @@ EXERCISE_FIELDS: Final = (
     ("**Gate that proves completion**:", "**Proof of completion**:"),
     "**Final state**:",
 )
-DIAGRAM_LEGACY: Final = ROOT / "docs/diagram-legacy.txt"
-ROUTE_MANIFEST: Final = ROOT / "docs/released-urls.json"
+DIAGRAM_LEGACY: Final = ROOT / "scripts/diagram-legacy.txt"
+NAVIGATION: Final = ROOT / "data/nav.yaml"
 REPOSITORY_PYTHON_FILES: Final = ROOT / "scripts/repository-python-files.txt"
+EDIT_BASE: Final = "https://github.com/MLOps-Courses/agentops-open-course-go/edit/main/content"
 PORT_CONTRACT: Final = {
     3000: ("infra/agentgateway/host/config.yaml", r"(?m)^\s*-\s+port:\s+3000$"),
     3001: ("infra/agentgateway/host/config.yaml", r"(?m)^\s*-\s+port:\s+3001$"),
@@ -195,6 +196,17 @@ def outside_fences(text: str) -> Iterator[tuple[int, str]]:
             yield number, line
 
 
+def inside_fences(text: str) -> Iterator[tuple[int, str]]:
+    """Yield (line number, line) for every line that *is* inside a fenced code block."""
+    fenced = False
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if fenced:
+            yield number, line
+
+
 def fenced_blocks(text: str, language: str) -> Iterator[tuple[int, list[str]]]:
     """Yield (opening line number, body lines) for every fenced block in one language.
 
@@ -241,10 +253,24 @@ def section_after(lines: list[str], start: int) -> list[str]:
     return lines[start:end]
 
 
+def page_slug(name: str) -> str:
+    """Return the URL segment for one chapter directory or page file name."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
 def page_url(page: pathlib.Path) -> str:
-    """Return the deployed path emitted by use_directory_urls=false."""
-    relative = page.relative_to(ROOT / "docs")
-    return relative.with_suffix(".html").as_posix()
+    """Return the published URL Hugo must emit for one content file.
+
+    Material published ``0. Overview/0.0. Course.html`` because ``use_directory_urls`` was
+    false. Hugo publishes directory URLs, and its own urlize would turn ``0. Overview`` into
+    ``0.-overview``, so every page declares an explicit ``url`` front-matter field instead.
+    This function is the authority that ``check_page_urls`` holds those fields to.
+    """
+    relative = page.relative_to(ROOT / "content")
+    chapter = f"{page_slug(relative.parent.name)}/" if relative.parent != pathlib.Path(".") else ""
+    if page.name == "_index.md":
+        return f"/{chapter}" if chapter else "/"
+    return f"/{chapter}{page_slug(page.stem)}/"
 
 
 def sha256_lines(lines: list[str]) -> str:
@@ -298,6 +324,31 @@ def check_front_matter(page: pathlib.Path, text: str) -> list[Problem]:
     return []
 
 
+def check_page_urls(page: pathlib.Path, text: str, *, root: pathlib.Path = ROOT) -> list[Problem]:
+    """Every page declares the title and the exact URL its file name implies.
+
+    Hugo derives a page's URL from its file name, and this course's file names carry the
+    numbering in spaces and dots, which urlize would publish as ``/0.-overview/``. Every page
+    therefore states its URL, and this check is what keeps those 76 hand-held strings honest:
+    rename a file without updating its ``url`` and the gate fails instead of the site quietly
+    publishing two different addresses for the same page.
+    """
+    name = page.as_posix()
+    meta, _ = parse_front_matter(text)
+    if meta is None:
+        return []  # check_front_matter already reported it
+    problems: list[Problem] = []
+    title = meta.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return [(name, "front matter must define a non-empty title (Hextra renders it as the page <h1>)")]
+    expected = page_url(root / page)
+    if meta.get("url") != expected:
+        problems.append((name, f"front matter url must be {expected!r}, found {meta.get('url')!r}"))
+    if any(line.startswith("# ") for _, line in outside_fences(text)):
+        problems.append((name, "the page title lives in front matter; a Markdown H1 would publish a second <h1>"))
+    return problems
+
+
 def check_headings(page: pathlib.Path, text: str) -> list[Problem]:
     """Every page is an FAQ: at least one H2, and every H2 phrased as a question."""
     name = page.as_posix()
@@ -323,7 +374,7 @@ def check_glance(page: pathlib.Path, text: str) -> list[Problem]:
             inside = True
             continue
         if inside:
-            seen.update(field for field in GLANCE_FIELDS if line.startswith(f"    - {field}"))
+            seen.update(field for field in GLANCE_FIELDS if line.startswith(f"- {field}"))
     if not inside or len(seen) != len(GLANCE_FIELDS):
         missing = ", ".join(field for field in GLANCE_FIELDS if field not in seen)
         return [
@@ -372,16 +423,26 @@ def check_link_labels(page: pathlib.Path, text: str) -> list[Problem]:
 
 
 def check_snippets(page: pathlib.Path, text: str) -> list[Problem]:
-    """A snippet include belongs inside a fence.
+    """A snippet include stands on its own, outside every fence.
 
-    Outside one it is rendered as Markdown, so a leading ``#`` comment in the included region
-    becomes an <h1> on the published page.
+    The rule inverted with the generator. Under ``pymdownx.snippets`` the include had to sit
+    *inside* a fence, or a leading ``#`` comment in the quoted region rendered as an <h1>. The
+    `include` shortcode emits its own highlighted block, so the fence is now the hazard: inside
+    one, the shortcode is published verbatim as literal text and the learner sees markup where
+    the code should be. Both spellings of the old syntax are rejected outright.
     """
-    return [
-        (page.as_posix(), f"line {number}: snippet include must sit inside a fenced code block")
+    name = page.as_posix()
+    problems = [
+        (name, f"line {number}: include shortcode must not sit inside a fenced code block")
+        for number, line in inside_fences(text)
+        if line.strip().startswith("{{< include")
+    ]
+    problems += [
+        (name, f"line {number}: Material snippet syntax is retired; use the include shortcode")
         for number, line in outside_fences(text)
         if line.strip().startswith("--8<--")
     ]
+    return problems
 
 
 def check_snippet_targets(
@@ -390,11 +451,16 @@ def check_snippet_targets(
     *,
     root: pathlib.Path = ROOT,
 ) -> list[Problem]:
-    """Every checked include resolves to one bounded repository source region."""
+    """Every checked include resolves to one bounded repository source region.
+
+    This is the static half of the guarantee ``pymdownx.snippets`` gave through
+    ``check_paths``. The other half lives in layouts/_partials/include/region.html, which
+    raises the same four failures at build time. Both exist on purpose: the build catches a
+    source that moved, and this catches it without needing Hugo.
+    """
     problems: list[Problem] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        for specification in SNIPPET_INCLUDE.findall(line):
-            relative, separator, region = specification.partition(":")
+        for relative, region in SNIPPET_INCLUDE.findall(line):
             path = pathlib.PurePosixPath(relative)
             where = page.as_posix()
             if path.is_absolute() or ".." in path.parts:
@@ -404,8 +470,8 @@ def check_snippet_targets(
             if not source.is_file():
                 problems.append((where, f"line {number}: snippet source does not exist: {relative!r}"))
                 continue
-            if not separator or not region:
-                problems.append((where, f"line {number}: trusted snippet must name a source region: {specification!r}"))
+            if not region:
+                problems.append((where, f"line {number}: trusted snippet must name a source region: {relative!r}"))
                 continue
             source_text = source.read_text(encoding="utf-8")
             start = f"--8<-- [start:{region}]"
@@ -429,18 +495,24 @@ def check_source_snippet_coverage(pages: dict[pathlib.Path, str]) -> list[Proble
     """Ratchet the non-Python source formats learners are invited to trust."""
     problems: list[Problem] = []
     for format_name, (relative, specification) in SOURCE_SNIPPET_SURFACES.items():
+        source_path, _, region = specification.partition(":")
         text = pages.get(ROOT / relative, "")
-        if f'--8<-- "{specification}"' not in text:
+        if f'{{{{< include path="{source_path}" region="{region}"' not in text:
             problems.append((relative, f"source-backed {format_name} example must include {specification!r}"))
     return problems
 
 
 def sourced(body: list[str]) -> bool:
-    """True when a code block pulls its source in, or admits it is not the source."""
+    """True when a code block admits it is not the source.
+
+    Under Material a block could satisfy this by *containing* an include. The `include`
+    shortcode replaces the fence rather than living inside one, so a surviving ``python``
+    fence in these chapters is by definition hand-written and must say so.
+    """
     lines = [line.strip() for line in body if line.strip()]
     if not lines:
         return False
-    return lines[0].startswith(SNIPPET_DECLARATIONS) or any(line.startswith("--8<--") for line in lines)
+    return lines[0].startswith(SNIPPET_DECLARATIONS)
 
 
 def check_python_blocks(page: pathlib.Path, text: str) -> list[Problem]:
@@ -631,62 +703,54 @@ def check_index_kinds(pages: dict[pathlib.Path, str]) -> list[Problem]:
 
 
 def nav_paths(value: object) -> Iterator[str]:
-    """Yield Markdown targets in Material's flattened footer order."""
-    if isinstance(value, str):
-        if value.endswith(".md"):
-            yield value
-        return
+    """Yield the page targets of data/nav.yaml in learning-path order."""
     if isinstance(value, list):
         for item in value:
             yield from nav_paths(item)
         return
     if isinstance(value, dict):
-        for item in value.values():
-            yield from nav_paths(item)
+        page = value.get("page")
+        if isinstance(page, str):
+            yield page
+        yield from nav_paths(value.get("children"))
 
 
 def check_navigation(pages: dict[pathlib.Path, str]) -> list[Problem]:
-    """Every page appears once, and staged handoffs match the rendered footer."""
+    """Every page appears once in the explicit nav, and staged handoffs stay in order.
+
+    MkDocs got this from ``strict: true`` plus an explicit ``nav:``; Hugo has no equivalent,
+    so the nav is data/nav.yaml and this check is what makes it binding. Without it, a new
+    page would build and publish while being unreachable from the learning path.
+    """
     import yaml
 
-    config_path = ROOT / "mkdocs.yml"
-
-    class _NavigationLoader(yaml.SafeLoader):
-        """Keep Python-name extension tags inert while reading only the nav."""
-
-    _NavigationLoader.add_multi_constructor(
-        "tag:yaml.org,2002:python/name:",
-        lambda _loader, suffix, _node: suffix,
-    )
+    manifest = NAVIGATION
+    where = manifest.relative_to(ROOT).as_posix()
     try:
-        loader = _NavigationLoader(config_path.read_text(encoding="utf-8"))
-        try:
-            config = loader.get_single_data()
-        finally:
-            loader.dispose()
+        entries = yaml.safe_load(manifest.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as error:
-        return [("mkdocs.yml", f"could not read navigation: {error}")]
-    if not isinstance(config, dict) or "nav" not in config:
-        return [("mkdocs.yml", "expected an explicit nav list")]
+        return [(where, f"could not read navigation: {error}")]
+    if not isinstance(entries, list):
+        return [(where, "expected an explicit list of navigation entries")]
 
-    targets = list(nav_paths(config["nav"]))
+    targets = list(nav_paths(entries))
     duplicates = sorted(target for target in set(targets) if targets.count(target) > 1)
-    expected = {page.relative_to(ROOT / "docs").as_posix() for page in pages}
+    expected = {page.relative_to(ROOT / "content").as_posix() for page in pages}
     missing = sorted(expected - set(targets))
     extra = sorted(set(targets) - expected)
     problems: list[Problem] = []
     if duplicates:
-        problems.append(("mkdocs.yml", f"navigation repeats pages: {', '.join(duplicates)}"))
+        problems.append((where, f"navigation repeats pages: {', '.join(duplicates)}"))
     if missing:
-        problems.append(("mkdocs.yml", f"navigation omits pages: {', '.join(missing)}"))
+        problems.append((where, f"navigation omits pages: {', '.join(missing)}"))
     if extra:
-        problems.append(("mkdocs.yml", f"navigation references unknown pages: {', '.join(extra)}"))
+        problems.append((where, f"navigation references unknown pages: {', '.join(extra)}"))
 
     positions = {target: index for index, target in enumerate(targets)}
     for current, successor in NAV_SUCCESSORS.items():
         position = positions.get(current)
         if position is None or position + 1 >= len(targets) or targets[position + 1] != successor:
-            problems.append(("mkdocs.yml", f"rendered footer after {current} must continue to {successor}"))
+            problems.append((where, f"navigation after {current} must continue to {successor}"))
     return problems
 
 
@@ -780,7 +844,7 @@ def check_documented_tasks(pages: dict[pathlib.Path, str]) -> list[Problem]:
 
 def check_task_expansions(pages: dict[pathlib.Path, str]) -> list[Problem]:
     """The packaging task table must show the exact command mise executes."""
-    page = ROOT / "docs/3. Capabilities/3.0. Packaging.md"
+    page = ROOT / "content/3. Capabilities/3.0. Packaging.md"
     text = pages.get(page, "")
     documented = dict(TASK_TABLE_ROW.findall(text))
     public = ("run", "workflow", "coordinator", "web", "mcp", "mcp:http", "a2a", "data:reset")
@@ -835,6 +899,34 @@ def check_copied_version_inventory(
     return problems
 
 
+def check_theme_pin(root: pathlib.Path = ROOT) -> list[Problem]:
+    """The theme and the vendored front-end bundles are pinned to exact versions.
+
+    Hugo Modules put the theme in go.mod, which is the upgrade this migration buys over an
+    alpha package pin. The two browser bundles are not modules, so their versions are
+    recorded next to them and checked here — a CDN would have made this unnecessary and the
+    course self-hosts its assets on purpose.
+    """
+    problems: list[Problem] = []
+    modules = (root / "go.mod").read_text(encoding="utf-8")
+    if not re.search(r"^require github\.com/imfing/hextra v\d+\.\d+\.\d+", modules, re.MULTILINE):
+        problems.append(("go.mod", "the Hextra theme must be pinned to an exact version"))
+    manifest = root / "assets/js/vendor/versions.json"
+    try:
+        pinned = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [*problems, ("assets/js/vendor/versions.json", f"could not read vendored bundle versions: {error}")]
+    for name, entry in sorted(pinned.items()):
+        bundle = root / "assets/js/vendor" / name
+        if not bundle.is_file():
+            problems.append(("assets/js/vendor/versions.json", f"pinned bundle is missing: {name}"))
+            continue
+        digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+        if digest != entry.get("sha256"):
+            problems.append((f"assets/js/vendor/{name}", f"bundle does not match its pinned digest ({entry.get('version')})"))
+    return problems
+
+
 def check_source_versions(
     pages: dict[pathlib.Path, str],
     *,
@@ -850,17 +942,12 @@ def check_source_versions(
     tools = root_mise.get("tools")
     tool_versions = tools if isinstance(tools, dict) else {}
 
-    shim = root / "docs/javascripts/accessibility.js"
-    shim_text = shim.read_text(encoding="utf-8")
-    shim_match = re.search(r'const SEARCH_SHIM_ZENSICAL = "([^"]+)";', shim_text)
-    problems += compare_contract(
-        shim.relative_to(root).as_posix(),
-        "Zensical search-shim version",
-        exact_dependency(root_manifest, "zensical"),
-        shim_match.group(1) if shim_match else None,
-    )
+    # The Zensical search-shim version contract retired with the shim itself: that JavaScript
+    # repaired Zensical's shadow-root search UI and self-gated on the generator meta tag, so
+    # it was dead code under Hugo. The theme and bundle pins moved to check_theme_pin, which
+    # check_docs calls directly — they are build-system pins, not versions copied into prose.
 
-    table = root / "docs/1. Setup/1.3. Kubernetes.md"
+    table = root / "content/1. Setup/1.3. Kubernetes.md"
     rows = {name.strip().lower(): version.strip() for name, version in TOOL_TABLE_ROW.findall(pages.get(table, ""))}
     table_names = {
         "k3d": "k3d",
@@ -881,14 +968,14 @@ def check_source_versions(
             rows.get(label),
         )
 
-    packaging = pages.get(root / "docs/3. Capabilities/3.0. Packaging.md", "")
-    security = pages.get(root / "docs/4. Quality/4.6. Security.md", "")
+    packaging = pages.get(root / "content/3. Capabilities/3.0. Packaging.md", "")
+    security = pages.get(root / "content/4. Quality/4.6. Security.md", "")
     for component, authority, surfaces in (
-        ("ty", dependency_spec(agent_manifest, "ty"), (root / "docs/4. Quality/4.0. Typing.md",)),
+        ("ty", dependency_spec(agent_manifest, "ty"), (root / "content/4. Quality/4.0. Typing.md",)),
         (
             "presidio-analyzer",
             exact_dependency(agent_manifest, "presidio-analyzer"),
-            (root / "docs/3. Capabilities/3.0. Packaging.md", root / "docs/4. Quality/4.6. Security.md"),
+            (root / "content/3. Capabilities/3.0. Packaging.md", root / "content/4. Quality/4.6. Security.md"),
         ),
     ):
         for surface in surfaces:
@@ -914,7 +1001,7 @@ def check_source_versions(
             )
         )
 
-    feedback_path = root / "docs/7. Observability/7.4. Feedback.md"
+    feedback_path = root / "content/7. Observability/7.4. Feedback.md"
     for number, line in enumerate(pages.get(feedback_path, "").splitlines(), start=1):
         if "agentops-mlflow" in line and re.search(r"\b\d+\.\d+\.\d+\b", line):
             problems.append(
@@ -960,13 +1047,13 @@ def check_source_versions(
             "agentgateway",
             parsed_owners["agentgateway"],
             {
-                "docs/1. Setup/1.3. Kubernetes.md": 1,
-                "docs/5. Gateway/5.1. Gateway Setup.md": 1,
-                "docs/5. Gateway/5.2. MCP Gateway.md": 1,
-                "docs/5. Gateway/5.6. Gateway Observability.md": 1,
-                "docs/6. Platform/6.5. Platform Gateway.md": 1,
-                "docs/8. Community/8.3. Templates.md": 1,
-                "docs/8. Community/8.6. AAIF.md": 1,
+                "content/1. Setup/1.3. Kubernetes.md": 1,
+                "content/5. Gateway/5.1. Gateway Setup.md": 1,
+                "content/5. Gateway/5.2. MCP Gateway.md": 1,
+                "content/5. Gateway/5.6. Gateway Observability.md": 1,
+                "content/6. Platform/6.5. Platform Gateway.md": 1,
+                "content/8. Community/8.3. Templates.md": 1,
+                "content/8. Community/8.6. AAIF.md": 1,
             },
             re.compile(r"(?:agentgateway|pinned gateway)[^\n]{0,160}?v?(\d+\.\d+\.\d+)", re.IGNORECASE),
         ),
@@ -974,11 +1061,11 @@ def check_source_versions(
             "kagent chart",
             parsed_owners["kagent"],
             {
-                "docs/6. Platform/6.0. Platform.md": 1,
-                "docs/6. Platform/6.2. Platform Install.md": 3,
-                "docs/7. Observability/7.0. Reproducibility.md": 1,
-                "docs/8. Community/8.3. Templates.md": 1,
-                "docs/8. Community/8.6. AAIF.md": 1,
+                "content/6. Platform/6.0. Platform.md": 1,
+                "content/6. Platform/6.2. Platform Install.md": 3,
+                "content/7. Observability/7.0. Reproducibility.md": 1,
+                "content/8. Community/8.3. Templates.md": 1,
+                "content/8. Community/8.6. AAIF.md": 1,
             },
             re.compile(
                 r"(?:pinned to|pinned stable chart|chart version|at exactly)\s+`?v?(\d+\.\d+\.\d+)",
@@ -989,24 +1076,24 @@ def check_source_versions(
             "helm-diff",
             parsed_owners["helm-diff"],
             {
-                "docs/1. Setup/1.3. Kubernetes.md": 2,
-                "docs/6. Platform/6.2. Platform Install.md": 1,
+                "content/1. Setup/1.3. Kubernetes.md": 2,
+                "content/6. Platform/6.2. Platform Install.md": 1,
             },
             re.compile(r"helm-diff[^\n]{0,80}?(\d+\.\d+\.\d+)", re.IGNORECASE),
         ),
         (
             "k6",
             parsed_owners["k6"],
-            {"docs/7. Observability/7.2. Monitoring.md": 4},
+            {"content/7. Observability/7.2. Monitoring.md": 4},
             re.compile(r"k6@(\d+\.\d+\.\d+)", re.IGNORECASE),
         ),
         (
             "Python build image",
             parsed_owners["Python build image"],
             {
-                "docs/1. Setup/1.1. Python.md": 1,
-                "docs/3. Capabilities/3.0. Packaging.md": 1,
-                "docs/6. Platform/6.1. Containers.md": 4,
+                "content/1. Setup/1.1. Python.md": 1,
+                "content/3. Capabilities/3.0. Packaging.md": 1,
+                "content/6. Platform/6.1. Containers.md": 4,
             },
             re.compile(r"python:([0-9]+\.[0-9]+\.[0-9]+-slim-[a-z]+)", re.IGNORECASE),
         ),
@@ -1014,15 +1101,15 @@ def check_source_versions(
             "Wolfi Python",
             parsed_owners["Wolfi Python"],
             {
-                "docs/3. Capabilities/3.0. Packaging.md": 1,
-                "docs/6. Platform/6.1. Containers.md": 2,
+                "content/3. Capabilities/3.0. Packaging.md": 1,
+                "content/6. Platform/6.1. Containers.md": 2,
             },
             re.compile(r"(python-3\.13=\d+\.\d+\.\d+-r\d+)", re.IGNORECASE),
         ),
         (
             "Wolfi libstdc++",
             parsed_owners["Wolfi libstdc++"],
-            {"docs/3. Capabilities/3.0. Packaging.md": 1},
+            {"content/3. Capabilities/3.0. Packaging.md": 1},
             re.compile(r"(libstdc\+\+=\d+\.\d+\.\d+-r\d+)", re.IGNORECASE),
         ),
     )
@@ -1097,7 +1184,7 @@ def check_python_profile_contracts(
     dependency_groups = set(groups) if isinstance(groups, dict) else set()
     problems: list[Problem] = []
 
-    python_page = "docs/1. Setup/1.1. Python.md"
+    python_page = "content/1. Setup/1.1. Python.md"
     python_text = contract_page(pages, root, python_page)
     if not isinstance(requires_python, str):
         problems.append((manifest_path.relative_to(root).as_posix(), "project.requires-python must be a string"))
@@ -1109,10 +1196,10 @@ def check_python_profile_contracts(
         )
 
     profile_pages = (
-        "docs/1. Setup/1.0. System.md",
+        "content/1. Setup/1.0. System.md",
         python_page,
-        "docs/1. Setup/index.md",
-        "docs/4. Quality/4.4. Evaluations.md",
+        "content/1. Setup/_index.md",
+        "content/4. Quality/4.4. Evaluations.md",
     )
     if "eval" in dependency_groups and "eval" not in default_groups:
         for relative in profile_pages:
@@ -1124,7 +1211,7 @@ def check_python_profile_contracts(
         combined = "\n".join(contract_page(pages, root, relative) for relative in profile_pages)
         if re.search(r"one complete development/evaluation|one dev/eval group", combined, re.IGNORECASE):
             problems.append(
-                ("docs/1. Setup", "optional eval group is described as part of the base development install")
+                ("content/1. Setup", "optional eval group is described as part of the base development install")
             )
         expansion = task_expansion(root / "agents/python/mise.toml", "install:eval")
         if expansion is None or "--group eval" not in expansion:
@@ -1144,7 +1231,7 @@ def check_state_course_contracts(
     root: pathlib.Path = ROOT,
 ) -> list[Problem]:
     """The restore lesson follows the shared manifest-bound state CLI."""
-    relative = "docs/6. Platform/6.6. Platform Delivery.md"
+    relative = "content/6. Platform/6.6. Platform Delivery.md"
     text = contract_page(pages, root, relative)
     state_source = (root / "agents/python/src/agent/state.py").read_text(encoding="utf-8")
     manifest_match = re.search(r'^_MANIFEST_NAME\s*=\s*"([^"]+)"$', state_source, re.MULTILINE)
@@ -1210,7 +1297,7 @@ def check_dependency_audit_course_contracts(
             )
         )
 
-    license_page = "docs/8. Community/8.1. License.md"
+    license_page = "content/8. Community/8.1. License.md"
     license_text = contract_page(pages, root, license_page)
     problems += require_contract_tokens(license_page, license_text, tuple(dict.fromkeys(license_profiles)))
     problems += require_contract_tokens(
@@ -1226,7 +1313,7 @@ def check_dependency_audit_course_contracts(
     if re.search(r"\b(?:all )?three locked environments\b|\binventory 3 locked envs\b", license_text, re.IGNORECASE):
         problems.append((license_page, "documents the retired three-environment audit instead of five profiles"))
 
-    linting_page = "docs/4. Quality/4.1. Linting.md"
+    linting_page = "content/4. Quality/4.1. Linting.md"
     linting_text = contract_page(pages, root, linting_page)
     problems += require_contract_tokens(
         linting_page,
@@ -1290,7 +1377,7 @@ def check_retrieval_course_contracts(
     """The memory lesson inventories every stored semantic-index provenance field."""
     source = root / "agents/python/src/agent/retrieval.py"
     metadata = assigned_string_tuple(source, "_metadata", "keys")
-    relative = "docs/3. Capabilities/3.4. Memory.md"
+    relative = "content/3. Capabilities/3.4. Memory.md"
     text = contract_page(pages, root, relative)
     problems: list[Problem] = []
     if not metadata:
@@ -1310,7 +1397,7 @@ def check_domain_course_contracts(
     """The Capstone describes the production vocabulary and its test adapter."""
     source = root / "agents/python/src/agent/domain.py"
     fields = class_annotation_names(source, "DomainVocabulary")
-    relative = "docs/8. Community/8.7. Capstone.md"
+    relative = "content/8. Community/8.7. Capstone.md"
     text = contract_page(pages, root, relative)
     problems: list[Problem] = []
     if not fields:
@@ -1341,8 +1428,8 @@ def check_outcome_evidence_contracts(
     root: pathlib.Path = ROOT,
 ) -> list[Problem]:
     """The outcome matrix cannot promise assessment actions absent from the exercise."""
-    overview_relative = "docs/0. Overview/0.0. Course.md"
-    evaluation_relative = "docs/4. Quality/4.4. Evaluations.md"
+    overview_relative = "content/0. Overview/0.0. Course.md"
+    evaluation_relative = "content/4. Quality/4.4. Evaluations.md"
     overview = contract_page(pages, root, overview_relative)
     evaluation = contract_page(pages, root, evaluation_relative)
     matrix_row = next(
@@ -1411,7 +1498,7 @@ def check_project_neutral_provider_contracts(
 ) -> list[Problem]:
     """Learner provider examples never target the maintainer-owned GCP project."""
     env_relative = ".env.example"
-    provider_page = "docs/1. Setup/1.4. Providers.md"
+    provider_page = "content/1. Setup/1.4. Providers.md"
     env = (root / env_relative).read_text(encoding="utf-8")
     page = contract_page(pages, root, provider_page)
     problems = require_contract_tokens(
@@ -1443,7 +1530,7 @@ def check_release_freshness_course_contracts(
     """Every release carries one recent audit or protected reviewed waiver."""
     workflow_relative = ".github/workflows/release.yml"
     workflow = (root / workflow_relative).read_text(encoding="utf-8")
-    release_page = "docs/8. Community/8.2. Releases.md"
+    release_page = "content/8. Community/8.2. Releases.md"
     text = contract_page(pages, root, release_page)
     problems = require_contract_tokens(
         workflow_relative,
@@ -1500,7 +1587,7 @@ def check_actions_artifact_retention_contracts(
             if days > limit
         )
 
-    release_page = "docs/8. Community/8.2. Releases.md"
+    release_page = "content/8. Community/8.2. Releases.md"
     problems += require_contract_tokens(
         release_page,
         contract_page(pages, root, release_page),
@@ -1546,9 +1633,9 @@ def check_port_contracts(pages: dict[pathlib.Path, str]) -> list[Problem]:
         if not re.search(pattern, source):
             problems.append((relative, f"authoritative pattern for stable port :{port} is missing"))
 
-    ecosystem_path = ROOT / "docs/0. Overview/0.3. Ecosystem.md"
+    ecosystem_path = ROOT / "content/0. Overview/0.3. Ecosystem.md"
     ecosystem = pages.get(ecosystem_path, "")
-    heading = '??? note "Deeper: every port the course binds"'
+    heading = '{{% collapsible note "Deeper: every port the course binds" %}}'
     section = ecosystem.partition(heading)[2].partition("\n## ")[0]
     documented = {int(value) for value in re.findall(r"`:(\d+)`", section)}
     if documented != expected:
@@ -1574,7 +1661,7 @@ def check_port_contracts(pages: dict[pathlib.Path, str]) -> list[Problem]:
 
 def check_cost_owner(pages: dict[pathlib.Path, str]) -> list[Problem]:
     """Only the canonical cost page may own a dated GKE currency estimate."""
-    owner = ROOT / "docs/7. Observability/7.3. Costs.md"
+    owner = ROOT / "content/7. Observability/7.3. Costs.md"
     problems: list[Problem] = []
     for page, text in pages.items():
         if page == owner:
@@ -1623,18 +1710,18 @@ def check_quickstarts(
     )
     surfaces = {
         "README.md": root.joinpath("README.md").read_text(encoding="utf-8"),
-        "docs/1. Setup/1.0. System.md": pages.get(root / "docs/1. Setup/1.0. System.md", ""),
+        "content/1. Setup/1.0. System.md": pages.get(root / "content/1. Setup/1.0. System.md", ""),
     }
     problems = [
         (name, "guarded quickstart must contain the canonical install → doctor → check → test sequence")
         for name, text in surfaces.items()
         if not contains_in_order(text, guarded)
     ]
-    landing = pages.get(root / "docs/index.md", "")
+    landing = pages.get(root / "content/_index.md", "")
     if "<!-- quickstart: unverified-preview -->" not in landing or "unverified preview" not in landing.lower():
         problems.append(
             (
-                "docs/index.md",
+                "content/_index.md",
                 "shorter model-first quickstart must be marked as an unverified preview",
             )
         )
@@ -1652,11 +1739,11 @@ def check_quickstarts(
                 "CI must execute install, the learner base doctor, check, and test in order",
             )
         )
-    linting_page = pages.get(root / "docs/4. Quality/4.1. Linting.md", "")
+    linting_page = pages.get(root / "content/4. Quality/4.1. Linting.md", "")
     if linting_page.count("install:validation") != 2 or "install:maintainer" in linting_page:
         problems.append(
             (
-                "docs/4. Quality/4.1. Linting.md",
+                "content/4. Quality/4.1. Linting.md",
                 "CI prose must name the narrow install:validation profile at both workflow descriptions",
             )
         )
@@ -1713,14 +1800,14 @@ def check_maintainer_drift_contracts(
     marker = f"<!-- lefthook-tasks: {hook_task_contract(hook)} -->"
     problems += [
         (relative, "lefthook task description drifted from lefthook.yml")
-        for relative in ("docs/1. Setup/1.5. Workspace.md", "docs/4. Quality/4.1. Linting.md")
+        for relative in ("content/1. Setup/1.5. Workspace.md", "content/4. Quality/4.1. Linting.md")
         if marker not in pages.get(root / relative, "")
     ]
 
     doctor = root.joinpath("scripts/doctor.sh").read_text(encoding="utf-8")
-    system_relative = "docs/1. Setup/1.0. System.md"
+    system_relative = "content/1. Setup/1.0. System.md"
     system = pages.get(root / system_relative, "")
-    if '--8<-- "scripts/doctor.sh:doctor-tool-tiers"' not in system:
+    if '{{< include path="scripts/doctor.sh" region="doctor-tool-tiers"' not in system:
         problems.append((system_relative, "doctor tool tiers must include the source-owned arrays"))
     arrays = doctor_tool_arrays(doctor)
     expected_additions = {
@@ -1756,9 +1843,9 @@ def check_maintainer_drift_contracts(
     else:
         install_task = install_match.group(1)
         ci_docs = (
-            "docs/1. Setup/1.5. Workspace.md",
-            "docs/4. Quality/4.1. Linting.md",
-            "docs/8. Community/8.5. Contributions.md",
+            "content/1. Setup/1.5. Workspace.md",
+            "content/4. Quality/4.1. Linting.md",
+            "content/8. Community/8.5. Contributions.md",
         )
         problems.extend(
             (relative, f"CI prose must name `{install_task}` from ci.yml")
@@ -1766,7 +1853,7 @@ def check_maintainer_drift_contracts(
             if install_task not in pages.get(root / relative, "")
         )
 
-    metrics_relative = "docs/4. Quality/4.3. Metrics.md"
+    metrics_relative = "content/4. Quality/4.3. Metrics.md"
     metrics_page = pages.get(root / metrics_relative, "")
     inventory = metrics_page.split("## Which metrics does the agent actually emit today?", 1)[-1].split("\n## ", 1)[0]
     documented_metrics = set(re.findall(r"(?m)^1\. `([^`]+)`", inventory))
@@ -1852,119 +1939,11 @@ def check_eval_runtime_baseline(*, root: pathlib.Path = ROOT) -> list[Problem]:
     ]
 
 
-def safe_course_route(route: str) -> bool:
-    """Return whether a route is a normalized relative HTML path."""
-    path = pathlib.PurePosixPath(route)
-    return (
-        bool(route)
-        and route == route.strip()
-        and route.endswith(".html")
-        and "\\" not in route
-        and ":" not in route
-        and "?" not in route
-        and "#" not in route
-        and not path.is_absolute()
-        and ".." not in path.parts
-        and path.as_posix() == route
-    )
-
-
-def changelog_release_versions(changelog: str) -> set[str]:
-    """Return every dated stable release recorded by the changelog."""
-    return set(re.findall(r"^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$", changelog, re.MULTILINE))
-
-
-def validate_route_manifest(
-    current: set[str],
-    manifest: object,
-    *,
-    expected_releases: set[str] | None = None,
-) -> list[str]:
-    """Return route-manifest errors; exposed for seeded rename/loop tests."""
-    if not isinstance(manifest, dict):
-        return ["manifest must be a JSON object"]
-    releases = manifest.get("releases")
-    redirects = manifest.get("redirects")
-    if manifest.get("format") != 1 or not isinstance(releases, dict) or not isinstance(redirects, dict):
-        return ["manifest needs format=1 plus releases and redirects objects"]
-    errors: list[str] = []
-    if expected_releases is not None:
-        actual_releases = {version for version in releases if isinstance(version, str)}
-        missing_releases = sorted(expected_releases - actual_releases)
-        unexpected_releases = sorted(actual_releases - expected_releases)
-        if missing_releases:
-            errors.append("release inventory is missing changelog versions: " + ", ".join(missing_releases))
-        if unexpected_releases:
-            errors.append("release inventory has versions absent from the changelog: " + ", ".join(unexpected_releases))
-    historical: set[str] = set()
-    for version, values in releases.items():
-        if (
-            not isinstance(version, str)
-            or not isinstance(values, list)
-            or not all(isinstance(value, str) for value in values)
-        ):
-            errors.append(f"release {version!r} must contain a list of URL strings")
-            continue
-        string_values = [value for value in values if isinstance(value, str)]
-        if string_values != sorted(set(string_values)):
-            errors.append(f"release {version} URLs must be sorted and unique")
-        for route in string_values:
-            if safe_course_route(route):
-                historical.add(route)
-            else:
-                errors.append(f"release {version} contains unsafe course route {route!r}")
-    valid_redirects: dict[str, str] = {}
-    for old, target in redirects.items():
-        if not isinstance(old, str) or not isinstance(target, str):
-            errors.append("redirect keys and targets must be strings")
-            continue
-        if not safe_course_route(old):
-            errors.append(f"redirect source is an unsafe course route: {old!r}")
-            continue
-        if not safe_course_route(target):
-            errors.append(f"redirect target is an unsafe course route: {target!r}")
-            continue
-        valid_redirects[old] = target
-    errors.extend(
-        f"released URL {old!r} is missing a redirect" for old in historical - current if old not in valid_redirects
-    )
-    for old, initial_target in valid_redirects.items():
-        seen = {old}
-        target = initial_target
-        while target in valid_redirects:
-            if target in seen:
-                errors.append(f"redirect loop includes {target!r}")
-                break
-            seen.add(target)
-            target = valid_redirects[target]
-        else:
-            if target not in current:
-                errors.append(f"redirect {old!r} terminates at missing URL {target!r}")
-    return sorted(set(errors))
-
-
-def check_routes(pages: dict[pathlib.Path, str]) -> list[Problem]:
-    """Every released URL is still current or has a loop-free terminal redirect."""
-    try:
-        manifest = json.loads(ROUTE_MANIFEST.read_text(encoding="utf-8"))
-        changelog = ROOT.joinpath("CHANGELOG.md").read_text(encoding="utf-8")
-    except (OSError, json.JSONDecodeError) as error:
-        return [(ROUTE_MANIFEST.relative_to(ROOT).as_posix(), f"could not read route manifest: {error}")]
-    expected_releases = changelog_release_versions(changelog)
-    if not expected_releases:
-        return [("CHANGELOG.md", "expected at least one dated stable release for the URL inventory")]
-    current = {page_url(page) for page in pages}
-    return [
-        (ROUTE_MANIFEST.relative_to(ROOT).as_posix(), error)
-        for error in validate_route_manifest(current, manifest, expected_releases=expected_releases)
-    ]
-
-
 def check_docs() -> list[Problem]:
-    """Run every page rule over docs/."""
-    pages = {page: page.read_text(encoding="utf-8") for page in sorted(ROOT.joinpath("docs").rglob("*.md"))}
+    """Run every page rule over content/."""
+    pages = {page: page.read_text(encoding="utf-8") for page in sorted(ROOT.joinpath("content").rglob("*.md"))}
     if not pages:
-        return [("docs", "no Markdown pages found")]
+        return [("content", "no Markdown pages found")]
     try:
         legacy = {
             line
@@ -1978,6 +1957,7 @@ def check_docs() -> list[Problem]:
     for page, text in pages.items():
         relative = page.relative_to(ROOT)
         problems += check_front_matter(relative, text)
+        problems += check_page_urls(relative, text)
         problems += check_headings(relative, text)
         problems += check_glance(relative, text)
         problems += check_collapsibles(relative, text)
@@ -2015,6 +1995,7 @@ def check_docs() -> list[Problem]:
     problems += check_documented_tasks(pages)
     problems += check_task_expansions(pages)
     problems += check_source_versions(pages)
+    problems += check_theme_pin()
     problems += check_course_source_contracts(pages)
     problems += check_port_contracts(pages)
     problems += check_cost_owner(pages)
@@ -2023,7 +2004,6 @@ def check_docs() -> list[Problem]:
     problems += check_gcp_runbook()
     problems += check_skaffold_runbooks()
     problems += check_eval_runtime_baseline()
-    problems += check_routes(pages)
     return problems
 
 
@@ -2128,6 +2108,22 @@ def check_web_client() -> list[Problem]:
     return problems
 
 
+def rendered_source(relative: str) -> pathlib.PurePosixPath | None:
+    """Return the content file a rendered page came from, or None for a generated page.
+
+    Reverses the slugging: ``0-overview/0-0-course/index.html`` came from
+    ``0. Overview/0.0. Course.md``. It matches on the slug rather than reconstructing the
+    name, because the original spacing and capitalisation are not recoverable from the URL.
+    """
+    if not relative.endswith("index.html"):
+        return None
+    segments = [segment for segment in pathlib.PurePosixPath(relative).parent.parts if segment]
+    for candidate in sorted((ROOT / "content").rglob("*.md")):
+        if page_url(candidate).strip("/").split("/") == (segments or [""]):
+            return candidate.relative_to(ROOT / "content")
+    return None
+
+
 def check_rendered_link(site_dir: pathlib.Path, page: pathlib.Path, href: str) -> str | None:
     """Reject local links that cannot be served from the generated site alone."""
     parsed = urlsplit(href)
@@ -2172,13 +2168,13 @@ def check_rendered(site_dir: pathlib.Path) -> list[Problem]:
             for href, _ in parsed.links
             if (message := check_rendered_link(site_dir, page, href)) is not None
         )
-        source_relative = pathlib.PurePosixPath(relative).with_suffix(".md")
-        if ROOT.joinpath("docs", source_relative).is_file():
-            expected_source = (
-                f"https://github.com/MLOps-Courses/agentops-open-course/raw/main/docs/{source_relative.as_posix()}"
-            )
-            if not any(href == expected_source for href, _ in parsed.links):
-                problems.append((relative, "rendered page is missing its anonymous source action"))
+        # Material's `content.action.edit` published a link to each page's own Markdown.
+        # Hugo publishes directory URLs, so the source path is recovered from the URL rather
+        # than from the output file name, and the link is Hextra's editURL.
+        if (source := rendered_source(relative)) is not None:
+            expected = f"{EDIT_BASE}/{quote(source.as_posix())}"
+            if not any(unquote(href) == unquote(expected) for href, _ in parsed.links):
+                problems.append((relative, "rendered page is missing its source-edit action"))
 
     homepage_path = site_dir / "index.html"
     if homepage_path.is_file():

@@ -28,16 +28,16 @@ You install one staged CLI toolchain, two locked Python environments, and the lo
 
 The base agent venv contains runtime plus development/offline-test packages. Chapter 4 adds the heavier full-MLflow profile to that same locked environment with `cd agents/python && mise run install:eval`; the separate MLflow server environment and platform/cloud CLIs wait for `mise run install:platform`. The runtime image stays lean by installing with `--no-dev`.
 
-When a command in this chapter fails, match the symptom in [0.6. Troubleshooting](../0. Overview/0.6. Troubleshooting.md) or re-run the `doctor` for your tier. New to a term along the way? The [0.7. Glossary](../0. Overview/0.7. Glossary.md) defines every course term and links each back to where it is introduced.
+When a command in this chapter fails, match the symptom in [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md" >}}) or re-run the `doctor` for your tier. New to a term along the way? The [0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md" >}}) defines every course term and links each back to where it is introduced.
 
 The six pages and the stage that owns each one:
 
-- **[1.0. System](./1.0. System.md)** _(hands-on)_: supported systems, hardware, network needs, and the pinned mise toolchain.
-- **[1.1. Python](./1.1. Python.md)** _(hands-on)_: the pinned Python and uv environment, runtime dependencies, and the model-free quality checkpoint.
-- **[1.2. Containers](./1.2. Containers.md)** _(hands-on)_: the Docker-compatible runtime the Chapter 5 gateway wrapper needs, and the five engine capabilities it depends on — skip until Chapter 5.
-- **[1.3. Kubernetes](./1.3. Kubernetes.md)** _(reference)_: the Chapter 6 platform tools, validated without creating a cluster yet — skip until Chapter 6.
-- **[1.4. Providers](./1.4. Providers.md)** _(hands-on)_: local Qwen3 through Ollama by default, or optional native Gemini, configured without leaking credentials.
-- **[1.5. Workspace](./1.5. Workspace.md)** _(hands-on)_: the repository, editor-neutral workflow, `AGENTS.md` guidance, git hooks, and your first full validation gate.
+- **[1.0. System]({{< relref "/1. Setup/1.0. System.md" >}})** _(hands-on)_: supported systems, hardware, network needs, and the pinned mise toolchain.
+- **[1.1. Python]({{< relref "/1. Setup/1.1. Python.md" >}})** _(hands-on)_: the pinned Python and uv environment, runtime dependencies, and the model-free quality checkpoint.
+- **[1.2. Containers]({{< relref "/1. Setup/1.2. Containers.md" >}})** _(hands-on)_: the Docker-compatible runtime the Chapter 5 gateway wrapper needs, and the five engine capabilities it depends on — skip until Chapter 5.
+- **[1.3. Kubernetes]({{< relref "/1. Setup/1.3. Kubernetes.md" >}})** _(reference)_: the Chapter 6 platform tools, validated without creating a cluster yet — skip until Chapter 6.
+- **[1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}})** _(hands-on)_: local Qwen3 through Ollama by default, or optional native Gemini, configured without leaking credentials.
+- **[1.5. Workspace]({{< relref "/1. Setup/1.5. Workspace.md" >}})** _(hands-on)_: the repository, editor-neutral workflow, `AGENTS.md` guidance, git hooks, and your first full validation gate.
 
 ## Why are the prerequisites staged instead of installed up front?
 

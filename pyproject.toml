@@ -1,8 +1,8 @@
 # https://docs.astral.sh/uv/reference/settings/
 # https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
 #
-# This project builds the COURSE DOCUMENTATION only (Zensical). The agent code
-# lives in `agents/python`, a self-contained project.
+# This project holds the COURSE DOCUMENTATION gates only. The site is built by Hugo
+# (see hugo.toml); the agent code lives in `agents/python`, a self-contained project.
 
 [project]
 name = "agentops-open-course"
@@ -13,9 +13,10 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = [
-  "zensical==0.0.52", # alpha: pin exactly and re-verify the generated site on every upgrade
-]
+# The site itself is built by Hugo, a single static binary pinned in mise.toml. Python
+# remains only for the documentation gates: scripts/check_conventions.py parses front
+# matter, and scripts/accessibility_browser.py drives a real browser.
+dependencies = []
 
 [dependency-groups]
 dev = [

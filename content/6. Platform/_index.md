@@ -24,7 +24,7 @@ Chapters 1-5 ran the reference agent as host processes behind agentgateway. This
 1. **Persistent state**: a volume that outlives the pod using it.
 1. **Rollout ownership**: the cluster restarts and replaces pods, so you stop doing it by hand.
 
-[6.0. Platform](./6.0. Platform.md) owns that "what changes when you move to Kubernetes" argument — read it first.
+[6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}}) owns that "what changes when you move to Kubernetes" argument — read it first.
 
 This page applies nothing and creates no cluster. [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}}) creates the cluster, installs kagent, and starts the workloads before the following pages inspect them.
 
@@ -64,27 +64,27 @@ Every platform concern has one owning manifest, so a broken rollout has one plac
 
 This chapter covers:
 
-- **[6.0. Platform](./6.0. Platform.md)** _(hands-on)_: Understand process-to-cluster ownership and prove base-versus-overlay render propagation.
-- **[6.1. Containers](./6.1. Containers.md)** _(hands-on)_: Build the non-root agent image, then scan the exact artifact you built.
-- **[6.2. Platform Install](./6.2. Platform Install.md)** _(hands-on)_: Create the tracked cluster, install kagent, and start the workloads with Skaffold.
-- **[6.3. Platform Agents](./6.3. Platform Agents.md)** _(reference)_: Read the hardened BYO `Agent` and the `ModelConfig` that points it at the gateway.
-- **[6.4. Platform Tools](./6.4. Platform Tools.md)** _(reference)_: Move the six read-only tools into their own in-cluster MCP deployment.
-- **[6.5. Platform Gateway](./6.5. Platform Gateway.md)** _(reference)_: Keep agentgateway private behind network policy, and keep its secrets encrypted in git.
-- **[6.6. Platform Delivery](./6.6. Platform Delivery.md)** _(hands-on)_: Back up the state, drill a restore, plan optional GKE, and tear down safely.
-- **[6.7. Promotion and Rollback](./6.7. Promotion and Rollback.md)** _(hands-on)_: Review source evidence before promotion, then use an immutable image digest as the rollback surface.
+- **[6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}})** _(hands-on)_: Understand process-to-cluster ownership and prove base-versus-overlay render propagation.
+- **[6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})** _(hands-on)_: Build the non-root agent image, then scan the exact artifact you built.
+- **[6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}})** _(hands-on)_: Create the tracked cluster, install kagent, and start the workloads with Skaffold.
+- **[6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md" >}})** _(reference)_: Read the hardened BYO `Agent` and the `ModelConfig` that points it at the gateway.
+- **[6.4. Platform Tools]({{< relref "/6. Platform/6.4. Platform Tools.md" >}})** _(reference)_: Move the six read-only tools into their own in-cluster MCP deployment.
+- **[6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}})** _(reference)_: Keep agentgateway private behind network policy, and keep its secrets encrypted in git.
+- **[6.6. Platform Delivery]({{< relref "/6. Platform/6.6. Platform Delivery.md" >}})** _(hands-on)_: Back up the state, drill a restore, plan optional GKE, and tear down safely.
+- **[6.7. Promotion and Rollback]({{< relref "/6. Platform/6.7. Promotion and Rollback.md" >}})** _(hands-on)_: Review source evidence before promotion, then use an immutable image digest as the rollback surface.
 
 Each page also owns the manifests below, so a symptom maps to one file:
 
 | Sub-page                                                        | What it adds                                                  | Owning manifest(s)                                             |
 | --------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
-| [6.0. Platform](./6.0. Platform.md)                             | Agents as Kubernetes workloads; the shared base and overlays  | `infra/k8s/base/kustomization.yaml`                            |
-| [6.1. Containers](./6.1. Containers.md)                         | The multi-stage, digest-pinned agent image                    | `agents/python/Dockerfile`                                     |
-| [6.2. Platform Install](./6.2. Platform Install.md)             | Cluster/registry, kagent, and the Skaffold development loop   | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
-| [6.3. Platform Agents](./6.3. Platform Agents.md)               | The hardened BYO `Agent` and gateway `ModelConfig`            | `infra/kagent/agent.yaml`, `modelconfig.yaml`                  |
-| [6.4. Platform Tools](./6.4. Platform Tools.md)                 | The read-only MCP server and its governed `RemoteMCPServer`   | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`      |
-| [6.5. Platform Gateway](./6.5. Platform Gateway.md)             | The private data plane, network policy, and workload identity | `infra/k8s/base/network-policies.yaml` + overlays              |
-| [6.6. Platform Delivery](./6.6. Platform Delivery.md)           | State recovery, the OpenTofu GKE plan, and teardown           | `infra/scripts/`, `infra/gcp/`                                 |
-| [6.7. Promotion and Rollback](./6.7. Promotion and Rollback.md) | Source evaluation before the image build/deploy handoff       | `scripts/promote.sh`                                           |
+| [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}})                             | Agents as Kubernetes workloads; the shared base and overlays  | `infra/k8s/base/kustomization.yaml`                            |
+| [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})                         | The multi-stage, digest-pinned agent image                    | `agents/python/Dockerfile`                                     |
+| [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}})             | Cluster/registry, kagent, and the Skaffold development loop   | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
+| [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md" >}})               | The hardened BYO `Agent` and gateway `ModelConfig`            | `infra/kagent/agent.yaml`, `modelconfig.yaml`                  |
+| [6.4. Platform Tools]({{< relref "/6. Platform/6.4. Platform Tools.md" >}})                 | The read-only MCP server and its governed `RemoteMCPServer`   | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`      |
+| [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}})             | The private data plane, network policy, and workload identity | `infra/k8s/base/network-policies.yaml` + overlays              |
+| [6.6. Platform Delivery]({{< relref "/6. Platform/6.6. Platform Delivery.md" >}})           | State recovery, the OpenTofu GKE plan, and teardown           | `infra/scripts/`, `infra/gcp/`                                 |
+| [6.7. Promotion and Rollback]({{< relref "/6. Platform/6.7. Promotion and Rollback.md" >}}) | Source evaluation before the image build/deploy handoff       | `scripts/promote.sh`                                           |
 
 ## What changes between the local and GKE overlays?
 
@@ -114,7 +114,7 @@ Two of those rows are a `patches:` entry in exactly one overlay's `kustomization
 1. The model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`; `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`.
 1. The MLflow GCS placeholder lives only in `overlays/gke`; `render-gke.sh` resolves it from OpenTofu, while `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`.
 
-The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway](./6.5. Platform Gateway.md) explains and `scripts/check-infra.sh` asserts.
+The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}}) explains and `scripts/check-infra.sh` asserts.
 {{% /collapsible %}}
 
 ## What breaks first, and where do you look?
@@ -125,12 +125,12 @@ Each row below is a symptom you can observe, the misconfiguration that usually c
 
 | Symptom                                               | Likely cause                                                                                                                              | Where to look                                                                                                     |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing](../7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector)                |
-| Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL                       | [6.3. Platform Agents](./6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds) |
-| Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                                                | [6.2. Platform Install](./6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads)               |
-| Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                                                     | [6.2. Platform Install](./6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads)               |
-| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees                          | [7.0. Reproducibility](../7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination)      |
-| Pods stay `Pending`, or a container dies with `137`   | The machine is out of memory: host Compose and the in-cluster stack are running together, or the model plus k3s exceeds what the host has | [6.2. Platform Install](./6.2. Platform Install.md#what-do-you-do-when-the-machine-runs-out-of-memory)            |
+| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector" >}})                |
+| Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL                       | [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds" >}}) |
+| Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                                                | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
+| Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                                                     | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
+| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees                          | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination" >}})      |
+| Pods stay `Pending`, or a container dies with `137`   | The machine is out of memory: host Compose and the in-cluster stack are running together, or the model plus k3s exceeds what the host has | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#what-do-you-do-when-the-machine-runs-out-of-memory" >}})            |
 
 ## What proves this chapter worked?
 
@@ -144,9 +144,9 @@ It runs `scripts/check-infra.sh`. That script builds each overlay with `kubectl 
 
 The script also runs `tflint` on that plan, so it needs the `opentofu` and `tflint` binaries pinned in `mise.toml`. `mise run doctor:platform` checks for neither, so this gate can fail on a machine whose doctor is green.
 
-For a faster spot check, render each overlay the way [6.0. Platform](./6.0. Platform.md) does and diff the output; its checkpoint owns those two commands. The local overlay also adds the Prometheus/Alertmanager stack the GKE overlay omits.
+For a faster spot check, render each overlay the way [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}}) does and diff the output; its checkpoint owns those two commands. The local overlay also adds the Prometheus/Alertmanager stack the GKE overlay omits.
 
-The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platform Delivery](./6.6. Platform Delivery.md) walks the plan and the teardown, and no cloud resource is created without a later, explicit approval.
+The chapter's required outcome is local. GCP stays at `tofu plan`: [6.6. Platform Delivery]({{< relref "/6. Platform/6.6. Platform Delivery.md" >}}) walks the plan and the teardown, and no cloud resource is created without a later, explicit approval.
 
 **You are done when:**
 

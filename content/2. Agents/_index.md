@@ -21,17 +21,17 @@ That object is the **AgentOps Agent**, the single reference agent carried throug
 
 Every later chapter instruments _this same object_: Chapter 3 hangs capabilities off it, Chapter 4 wraps it in quality gates, Chapters 5 and 6 put it behind a gateway and onto Kubernetes, and Chapter 7 observes it in production.
 
-[Chapter 3](../3. Capabilities/) deepens its tools, knowledge, workflows, and delegation; [Chapter 8.7]({{< relref "/8. Community/8.7. Capstone.md" >}}) asks you to adapt these boundaries to your own domain.
+[Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) deepens its tools, knowledge, workflows, and delegation; [Chapter 8.7]({{< relref "/8. Community/8.7. Capstone.md" >}}) asks you to adapt these boundaries to your own domain.
 {{% /collapsible %}}
 
 Read the sections by their kind, not just their order. **2.0 is conceptual**: the mental model you need before code makes sense. **2.1 and 2.5 are hands-on**: you run commands and see output. **2.2, 2.3, and 2.4 are reference**: the model, instruction, and runtime pieces you consult as you build.
 
-- **[2.0. Concepts](./2.0. Concepts.md)** _(concept)_: The ADK 2.x building blocks — Agent, Runner, Session, Events, Tools, and the graph Workflow.
-- **[2.1. First Agent](./2.1. First Agent.md)** _(hands-on)_: Inspect and run the AgentOps Agent end to end on local Qwen3.
-- **[2.2. Models](./2.2. Models.md)** _(reference)_: The default Ollama contract and the optional native Gemini branch.
-- **[2.3. Instructions](./2.3. Instructions.md)** _(hands-on)_: The system instruction, its enforcement map, and a deterministic red/green trajectory contract.
-- **[2.4. Sessions](./2.4. Sessions.md)** _(reference)_: Persistent ADK sessions, **A2A** tasks (units of work exchanged between agents across process boundaries), lifecycle ownership, and resettable runtime state.
-- **[2.5. Dev Loop](./2.5. Dev Loop.md)** _(hands-on)_: Offline gates, interactive modes, model-backed evaluations, and failure diagnosis.
+- **[2.0. Concepts]({{< relref "/2. Agents/2.0. Concepts.md" >}})** _(concept)_: The ADK 2.x building blocks — Agent, Runner, Session, Events, Tools, and the graph Workflow.
+- **[2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}})** _(hands-on)_: Inspect and run the AgentOps Agent end to end on local Qwen3.
+- **[2.2. Models]({{< relref "/2. Agents/2.2. Models.md" >}})** _(reference)_: The default Ollama contract and the optional native Gemini branch.
+- **[2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md" >}})** _(hands-on)_: The system instruction, its enforcement map, and a deterministic red/green trajectory contract.
+- **[2.4. Sessions]({{< relref "/2. Agents/2.4. Sessions.md" >}})** _(reference)_: Persistent ADK sessions, **A2A** tasks (units of work exchanged between agents across process boundaries), lifecycle ownership, and resettable runtime state.
+- **[2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})** _(hands-on)_: Offline gates, interactive modes, model-backed evaluations, and failure diagnosis.
 
 By the end you will have run the agent on a model on your own laptop. You will know which file picks the model, which string sets its behavior, where a conversation is stored, and which command proves it all works without a model.
 
@@ -43,14 +43,14 @@ Concretely, each field of `root_agent` traces to one owner:
 
 | Sub-page                                    | What it teaches                                | Owning module / symbol                                        |
 | ------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
-| [2.0. Concepts](./2.0. Concepts.md)         | The ADK runtime loop and its object vocabulary | `google.adk` (framework)                                      |
-| [2.1. First Agent](./2.1. First Agent.md)   | Composing and running `root_agent`             | `composition.py` (composition root)                           |
-| [2.2. Models](./2.2. Models.md)             | Provider selection behind `model=`             | `model.py` `build_model`, `config.py` `ModelProvider`         |
-| [2.3. Instructions](./2.3. Instructions.md) | The persona and rules behind `instruction=`    | `composition.py` `INSTRUCTION` / `_instruction`               |
-| [2.4. Sessions](./2.4. Sessions.md)         | Persistent sessions and A2A task state         | `server.py` `DatabaseSessionService`, `config.py` `state_dir` |
-| [2.5. Dev Loop](./2.5. Dev Loop.md)         | The offline gates and interactive run modes    | `mise.toml` tasks                                             |
+| [2.0. Concepts]({{< relref "/2. Agents/2.0. Concepts.md" >}})         | The ADK runtime loop and its object vocabulary | `google.adk` (framework)                                      |
+| [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}})   | Composing and running `root_agent`             | `composition.py` (composition root)                           |
+| [2.2. Models]({{< relref "/2. Agents/2.2. Models.md" >}})             | Provider selection behind `model=`             | `model.py` `build_model`, `config.py` `ModelProvider`         |
+| [2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md" >}}) | The persona and rules behind `instruction=`    | `composition.py` `INSTRUCTION` / `_instruction`               |
+| [2.4. Sessions]({{< relref "/2. Agents/2.4. Sessions.md" >}})         | Persistent sessions and A2A task state         | `server.py` `DatabaseSessionService`, `config.py` `state_dir` |
+| [2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})         | The offline gates and interactive run modes    | `mise.toml` tasks                                             |
 
-Tools and policy hooks are named here, not taught here. Owned by [Chapter 3](../3. Capabilities/) and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}).
+Tools and policy hooks are named here, not taught here. Owned by [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}).
 
 {{% collapsible note "Deeper: the same map as a diagram, and who owns tools and policy" %}}
 
@@ -73,7 +73,7 @@ flowchart TD
 
 **Diagram in words:** Runtime concepts lead to one agent assembled from a model, instruction, tools, and an app-level policy plugin; persistent runtime and the dev loop surround it.
 
-The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3](../3. Capabilities/) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams.
+The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams.
 {{% /collapsible %}}
 
 ## What proves this chapter worked?
@@ -89,7 +89,7 @@ That is the offline test suite. The required drill in [2.3. Instructions]({{< re
 
 The whole run can take several minutes depending on the machine and cache state. It ends with a coverage total checked against the enforced 95% threshold, then a pytest `passed` line. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
 
-A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate evidence lane, owned by [2.5. Dev Loop](./2.5. Dev Loop.md).
+A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate evidence lane, owned by [2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}}).
 
 {{% collapsible note "Deeper: can you test the model and config wiring on its own?" %}}
 
@@ -101,7 +101,7 @@ uv run pytest tests/test_model.py tests/test_config.py
 
 That focused subset exits cleanly and gives fast feedback. The repository-wide 95% branch-coverage gate belongs to `mise run test`, which adds the coverage flags around the complete suite.
 
-Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop](./2.5. Dev Loop.md)'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
+Those cover provider resolution and the fail-fast cross-field checks in `config.py` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well.
 {{% /collapsible %}}
 
 **You are done when:**

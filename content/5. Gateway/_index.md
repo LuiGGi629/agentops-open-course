@@ -28,19 +28,19 @@ chapter uses it as the connectivity and traffic-policy layer while keeping appli
 
 Read the sections by their kind, not just their order. **5.0 is conceptual** — the case for the extra hop. The six pages after it are hands-on, and each ends with something you can see:
 
-- **[5.0. Gateway](./5.0. Gateway.md)** _(concept)_: The connectivity and security problem agents face, and an agentgateway overview.
-- **[5.1. Gateway Setup](./5.1. Gateway Setup.md)** _(hands-on)_: Start the whole stack on your laptop, through a wrapper that keeps every listener on loopback.
-- **[5.2. MCP Gateway](./5.2. MCP Gateway.md)** _(hands-on)_: Watch the gateway allow exactly six read tools, refuse a seventh, and fail closed when the tool server is down.
-- **[5.3. A2A Gateway](./5.3. A2A Gateway.md)** _(hands-on)_: Chat with the agent from a browser through the gateway, and approve a service restart.
-- **[5.4. Model Gateway](./5.4. Model Gateway.md)** _(hands-on)_: Move the agent onto one model endpoint by changing a single variable, with local Qwen3 or GKE Vertex Gemini behind it.
-- **[5.5. Gateway Security](./5.5. Gateway Security.md)** _(hands-on)_: Trip the prompt guard, review the allowlists and limits already active, then add tokens and TLS in an opt-in profile.
-- **[5.6. Gateway Observability](./5.6. Gateway Observability.md)** _(hands-on)_: Read the gateway's own logs, metrics, and traces for a single request, and see what stays out of them.
+- **[5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}})** _(concept)_: The connectivity and security problem agents face, and an agentgateway overview.
+- **[5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}})** _(hands-on)_: Start the whole stack on your laptop, through a wrapper that keeps every listener on loopback.
+- **[5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md" >}})** _(hands-on)_: Watch the gateway allow exactly six read tools, refuse a seventh, and fail closed when the tool server is down.
+- **[5.3. A2A Gateway]({{< relref "/5. Gateway/5.3. A2A Gateway.md" >}})** _(hands-on)_: Chat with the agent from a browser through the gateway, and approve a service restart.
+- **[5.4. Model Gateway]({{< relref "/5. Gateway/5.4. Model Gateway.md" >}})** _(hands-on)_: Move the agent onto one model endpoint by changing a single variable, with local Qwen3 or GKE Vertex Gemini behind it.
+- **[5.5. Gateway Security]({{< relref "/5. Gateway/5.5. Gateway Security.md" >}})** _(hands-on)_: Trip the prompt guard, review the allowlists and limits already active, then add tokens and TLS in an opt-in profile.
+- **[5.6. Gateway Observability]({{< relref "/5. Gateway/5.6. Gateway Observability.md" >}})** _(hands-on)_: Read the gateway's own logs, metrics, and traces for a single request, and see what stays out of them.
 
 ## How does the chapter fit together?
 
-Read [5.0. Gateway](./5.0. Gateway.md) for the conceptual contract. Then stand the gateway up in [5.1. Gateway Setup](./5.1. Gateway Setup.md) and govern each boundary in turn.
+Read [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}) for the conceptual contract. Then stand the gateway up in [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) and govern each boundary in turn.
 
-Security ([5.5. Gateway Security](./5.5. Gateway Security.md)) and observability ([5.6. Gateway Observability](./5.6. Gateway Observability.md)) are cross-cutting rather than a fourth plane: their policies attach per-listener to MCP, A2A, and model traffic alike.
+Security ([5.5. Gateway Security]({{< relref "/5. Gateway/5.5. Gateway Security.md" >}})) and observability ([5.6. Gateway Observability]({{< relref "/5. Gateway/5.6. Gateway Observability.md" >}})) are cross-cutting rather than a fourth plane: their policies attach per-listener to MCP, A2A, and model traffic alike.
 
 ```mermaid
 flowchart TD
@@ -79,6 +79,6 @@ The chapter checkpoint tests fail-closed MCP, A2A discovery, local model transla
 - You know where to find the listener map and the gateway-versus-ADK responsibility boundary.
 - Without reopening Chapter 4: you can name the callback that hardens a tool result before the model reads it, and say why the gateway's prompt guard does not replace it.
 
-[Chapter 6](../6. Platform/) moves the same listener contract to **k3d**, a Kubernetes cluster that runs on your own machine, and to optional GKE overlays.
+[Chapter 6]({{< relref "/6. Platform/_index.md" >}}) moves the same listener contract to **k3d**, a Kubernetes cluster that runs on your own machine, and to optional GKE overlays.
 
 Continue to [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}) when you can explain the chapter order from the map above.

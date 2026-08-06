@@ -30,12 +30,17 @@ from urllib.parse import unquote
 
 ROOT: Final = pathlib.Path(__file__).resolve().parent.parent
 CONTENT: Final = ROOT / "content"
+STATIC: Final = ROOT / "static"
 
 FRONT_MATTER: Final = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 FENCE: Final = re.compile(r"^(\s*)(`{3,}|~{3,})\s*(\S*)")
 ADMONITION: Final = re.compile(r'^(!!!|\?\?\?)\s+([a-z-]+)(?:\s+"([^"]*)")?\s*$')
 SNIPPET: Final = re.compile(r'^--8<--\s+"([^":]+):([^"]+)"\s*$')
-MARKDOWN_LINK: Final = re.compile(r"\]\(([^)\s]+?)\)")
+# The destination may contain unencoded spaces — the course writes both `./2.0. Concepts.md`
+# and `./2.0.%20Concepts.md`. Python-Markdown accepted the first form; Goldmark does not parse
+# it as a link at all, so missing these would silently publish 257 links as literal text.
+# Anything that does not resolve to a real page is handed back untouched by resolve_link.
+MARKDOWN_LINK: Final = re.compile(r"\]\(([^)]+)\)")
 
 # Material indents an admonition body by exactly four spaces. Goldmark would read that same
 # indentation as a code block, so the body is dedented by exactly four — never by its own
@@ -202,6 +207,17 @@ def resolve_link(page: pathlib.Path, target: str) -> str | None:
     if resolved.name == "index.md":
         # Chapter indexes became Hugo branch bundles; the links still say `index.md`.
         resolved = resolved.with_name("_index.md")
+
+    # Files that used to sit under docs/ now live in static/ and are served from the site
+    # root. Their relative links must become absolute: clean directory URLs add a path
+    # segment, so "../assets/x" that resolved from "8. Community/8.1. License.html" no longer
+    # resolves from "/8-community/8-1-license/".
+    try:
+        served = STATIC / resolved.relative_to(CONTENT)
+    except ValueError:
+        served = None
+    if served is not None and served.is_file():
+        return f"static:/{resolved.relative_to(CONTENT).as_posix()}"
     if resolved.suffix != ".md" or not resolved.is_file():
         return None
     try:
@@ -226,6 +242,8 @@ def convert_links(page: pathlib.Path, body: str) -> tuple[str, list[str]]:
     def rewrite(match: re.Match[str]) -> str:
         target = match.group(1)
         reference = resolve_link(page, target)
+        if reference is not None and reference.startswith("static:"):
+            return f"]({reference.removeprefix('static:')})"
         if reference is None:
             # Only a *relative* link that still names a page is a migration defect; the
             # course links to its own GitHub blobs by absolute URL on purpose.

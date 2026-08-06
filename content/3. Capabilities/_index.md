@@ -13,16 +13,16 @@ url: "/3-capabilities/"
 
 ## Which capabilities will you add?
 
-Your agent can now hold a conversation ([Chapter 2](../2. Agents/)). This chapter gives it things it can do — one capability per page, in reading order:
+Your agent can now hold a conversation ([Chapter 2]({{< relref "/2. Agents/_index.md" >}})). This chapter gives it things it can do — one capability per page, in reading order:
 
-- **[3.0. Packaging](./3.0. Packaging.md)** _(reference)_: The uv package, the lazy ADK import, and the entrypoints every later page depends on.
-- **[3.1. Tools](./3.1. Tools.md)** _(hands-on)_: Typed reads, guarded writes, and a bounded local capability prototype.
-- **[3.2. Skills](./3.2. Skills.md)** _(reference)_: Written procedures the agent loads only when the task needs them.
-- **[3.3. MCP](./3.3. MCP.md)** _(hands-on)_: Those same read tools served over a protocol, and the server you can call yourself.
-- **[3.4. Memory](./3.4. Memory.md)** _(reference)_: What the agent keeps between turns and sessions, and how it looks a runbook up.
-- **[3.5. Workflows](./3.5. Workflows.md)** _(hands-on)_: A bounded `plan → investigate → evidence_review → recommend` graph.
-- **[3.6. A2A](./3.6. A2A.md)** _(hands-on)_: The network endpoint that lets a separate agent send this one a task.
-- **[3.7. Multi-Agent](./3.7. Multi-Agent.md)** _(concept)_: A coordinator that hands work to specialists holding fewer tools than it does.
+- **[3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})** _(reference)_: The uv package, the lazy ADK import, and the entrypoints every later page depends on.
+- **[3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})** _(hands-on)_: Typed reads, guarded writes, and a bounded local capability prototype.
+- **[3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})** _(reference)_: Written procedures the agent loads only when the task needs them.
+- **[3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}})** _(hands-on)_: Those same read tools served over a protocol, and the server you can call yourself.
+- **[3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}})** _(reference)_: What the agent keeps between turns and sessions, and how it looks a runbook up.
+- **[3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})** _(hands-on)_: A bounded `plan → investigate → evidence_review → recommend` graph.
+- **[3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})** _(hands-on)_: The network endpoint that lets a separate agent send this one a task.
+- **[3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}})** _(concept)_: A coordinator that hands work to specialists holding fewer tools than it does.
 
 Each is a small, single-purpose unit that composes cleanly.
 
@@ -36,7 +36,7 @@ Read only the `tools=` line for now. Cross-cutting policy is attached separately
 
 That one assignment is the map for the whole chapter. One branch, `_read_tools()`, decides whether reads run locally or over the governed MCP toolset. **MCP** is the Model Context Protocol: one contract for serving a tool to any agent that speaks it ([0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md#mcp" >}})).
 
-The guarded writes, long-term memory, and skills always stay in-process, and [3.6. A2A](./3.6. A2A.md) wraps the finished agent for the network:
+The guarded writes, long-term memory, and skills always stay in-process, and [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}}) wraps the finished agent for the network:
 
 ```mermaid
 flowchart TD
@@ -78,7 +78,7 @@ flowchart TD
 
 The dashed edge marks MCP as orthogonal to the ladder: it is about publishing a capability outward, not about which composition runs your own work.
 
-Each box names the page that owns its option. The ranking of the orchestration technology itself — plain Python, ADK `Workflow`, a graph library, a durable engine — is owned by [3.5. Workflows](./3.5. Workflows.md#what-is-a-workflow).
+Each box names the page that owns its option. The ranking of the orchestration technology itself — plain Python, ADK `Workflow`, a graph library, a durable engine — is owned by [3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md#what-is-a-workflow" >}}).
 
 ## Which capability lives in which module?
 
@@ -86,14 +86,14 @@ Each capability has exactly one owner, so a failure has one place to look. This 
 
 | Sub-page                                  | What it adds                                                                 | Owning module(s)                                              |
 | ----------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| [3.0. Packaging](./3.0. Packaging.md)     | The uv package and lazy `root_agent` discovery                               | `pyproject.toml`, `__init__.py`                               |
-| [3.1. Tools](./3.1. Tools.md)             | Typed read tools over validated, resettable incident state                   | `tools.py`, `data.py`                                         |
-| [3.2. Skills](./3.2. Skills.md)           | Progressive-disclosure procedures via `skill_toolset()`                      | `skills.py`                                                   |
-| [3.3. MCP](./3.3. MCP.md)                 | The governed MCP server and client for the read tools                        | `mcp_server.py`, `mcp_client.py`                              |
-| [3.4. Memory](./3.4. Memory.md)           | Conversation, notes, history compaction, and deterministic runbook retrieval | `memory.py`, `longterm.py`, `compaction.py`, `retrieval.py`   |
-| [3.5. Workflows](./3.5. Workflows.md)     | The bounded planning and evidence-review graph                               | `workflow.py`, selected with `AGENT_ENTRYPOINT=workflow`      |
-| [3.6. A2A](./3.6. A2A.md)                 | The persistent A2A server, card, and task store                              | `server.py`                                                   |
-| [3.7. Multi-Agent](./3.7. Multi-Agent.md) | A coordinator with least-privilege specialists                               | `delegation.py`, selected with `AGENT_ENTRYPOINT=coordinator` |
+| [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})     | The uv package and lazy `root_agent` discovery                               | `pyproject.toml`, `__init__.py`                               |
+| [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})             | Typed read tools over validated, resettable incident state                   | `tools.py`, `data.py`                                         |
+| [3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})           | Progressive-disclosure procedures via `skill_toolset()`                      | `skills.py`                                                   |
+| [3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}})                 | The governed MCP server and client for the read tools                        | `mcp_server.py`, `mcp_client.py`                              |
+| [3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}})           | Conversation, notes, history compaction, and deterministic runbook retrieval | `memory.py`, `longterm.py`, `compaction.py`, `retrieval.py`   |
+| [3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})     | The bounded planning and evidence-review graph                               | `workflow.py`, selected with `AGENT_ENTRYPOINT=workflow`      |
+| [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})                 | The persistent A2A server, card, and task store                              | `server.py`                                                   |
+| [3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}}) | A coordinator with least-privilege specialists                               | `delegation.py`, selected with `AGENT_ENTRYPOINT=coordinator` |
 
 {{% collapsible note "Deeper: how 3.5 and 3.7 share one package boundary" %}}
 
@@ -135,7 +135,7 @@ cd agents/python
 mise run test
 ```
 
-That is the umbrella gate (`uv run pytest` over the full suite). Each sub-page also has a scoped checkpoint you can run in isolation, so you can verify one capability at a time as you build it. Two examples: `uv run pytest tests/test_tools.py tests/test_data.py` for [3.1. Tools](./3.1. Tools.md), and `uv run pytest tests/test_server.py tests/test_delegation.py` for [3.6. A2A](./3.6. A2A.md).
+That is the umbrella gate (`uv run pytest` over the full suite). Each sub-page also has a scoped checkpoint you can run in isolation, so you can verify one capability at a time as you build it. Two examples: `uv run pytest tests/test_tools.py tests/test_data.py` for [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}}), and `uv run pytest tests/test_server.py tests/test_delegation.py` for [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}}).
 
 Model-backed behavior remains separate because a green offline suite proves wiring, not reasoning. `mise run eval` exercises the default agent; `mise run eval:workflow` exercises the bounded workflow's read-only evidence path.
 

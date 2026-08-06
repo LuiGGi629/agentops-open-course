@@ -1,0 +1,43 @@
+{{- /*
+  Render one level of data/nav.yaml. Calls itself for the nested groups.
+
+  Input: dict entries (the nav list) / current (the page being rendered)
+
+  Groups are native <details>, open when they contain the current page: the disclosure works
+  without JavaScript, is keyboard-operable, and is announced as expandable. The current page
+  carries aria-current="page" rather than only a colour, so the position in the learning path
+  is available to a screen reader too.
+*/ -}}
+
+{{- $current := .current -}}
+<ul class="course-nav__list">
+  {{- range .entries -}}
+    {{- if .children -}}
+      {{- /* A group is open when the current page is inside it — computed by rendering the
+             child links once into a string and testing for the active marker. */ -}}
+      {{- $inner := partial "nav/items.html" (dict "entries" .children "current" $current) -}}
+      <li class="course-nav__group">
+        <details {{ if strings.Contains $inner "aria-current" }}open{{ end }}>
+          <summary>{{ .label }}</summary>
+          {{ $inner }}
+        </details>
+      </li>
+    {{- else -}}
+      {{- $target := site.GetPage (printf "/%s" .page) -}}
+      {{- if not $target -}}
+        {{- errorf "data/nav.yaml names a page that does not exist: %q" .page -}}
+      {{- else -}}
+        {{- $active := eq $target.RelPermalink $current.RelPermalink -}}
+        <li class="course-nav__item">
+          <a
+            href="{{ $target.RelPermalink }}"
+            {{ if $active }}aria-current="page"{{ end }}
+            class="course-nav__link{{ if $active }} course-nav__link--active{{ end }}"
+          >
+            {{- .label | default $target.Title -}}
+          </a>
+        </li>
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+</ul>

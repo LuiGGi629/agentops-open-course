@@ -7,15 +7,15 @@ url: "/7-observability/"
 {{% admonition abstract "In one glance" %}}
 
 - **You will:** See how one agent turn becomes a trace, a metric, and a log line, and know which page owns which signal.
-- **You need:** Chapter 5 finished and Docker running. Only [7.6. Governance](./7.6. Governance.md) also needs the Chapter 6 cluster.
+- **You need:** Chapter 5 finished and Docker running. Only [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) also needs the Chapter 6 cluster.
 - **Time:** about 6 minutes, orientation.
 {{% /admonition %}}
 
 ## How will you operate the agent after deployment?
 
-Your AgentOps Agent runs behind agentgateway ([Chapter 5](../5. Gateway/)), and optionally as a Kubernetes workload ([Chapter 6](../6. Platform/)). This chapter closes the [AgentOps loop](../0. Overview/0.2. AgentOps.md) with evidence: seeing what the agent does, proving what it did, and reacting when it breaks.
+Your AgentOps Agent runs behind agentgateway ([Chapter 5]({{< relref "/5. Gateway/_index.md" >}})), and optionally as a Kubernetes workload ([Chapter 6]({{< relref "/6. Platform/_index.md" >}})). This chapter closes the [AgentOps loop]({{< relref "/0. Overview/0.2. AgentOps.md" >}}) with evidence: seeing what the agent does, proving what it did, and reacting when it breaks.
 
-The telemetry stack is a Docker Compose stack, not a cluster feature. Seven of the eight pages below run entirely on it; [7.6. Governance](./7.6. Governance.md) is the single page that reads its evidence off the deployed workload and therefore needs `mise run install:platform` and a running k3d cluster. Read the rest whenever Chapter 5 is behind you.
+The telemetry stack is a Docker Compose stack, not a cluster feature. Seven of the eight pages below run entirely on it; [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) is the single page that reads its evidence off the deployed workload and therefore needs `mise run install:platform` and a running k3d cluster. Read the rest whenever Chapter 5 is behind you.
 
 {{% admonition tip "Start the stack before you read further" %}}
 
@@ -26,7 +26,7 @@ mise run doctor:gateway    # checks Docker, Compose, and the other container pre
 mise run observability:up  # MLflow, the collector, Prometheus, Alertmanager, Loki, Grafana
 ```
 
-Then open MLflow at `http://localhost:5000` and Grafana at `http://localhost:3002`, and keep both tabs open for the rest of the chapter. Your own turns only appear there once the agent exports to the collector, which [7.1. Tracing](./7.1. Tracing.md) _(hands-on)_ sets up.
+Then open MLflow at `http://localhost:5000` and Grafana at `http://localhost:3002`, and keep both tabs open for the rest of the chapter. Your own turns only appear there once the agent exports to the collector, which [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}}) _(hands-on)_ sets up.
 {{% /admonition %}}
 
 Every later page assumes one telemetry topology and one set of ports. This landing page is the map: which signal answers which question, what runs where, and which port each piece listens on.
@@ -37,20 +37,20 @@ Traces, metrics, logs, assessments, and audit rows each answer a different opera
 
 | When you ask...                            | Signal to read                        | Where it lives                      | Page                                                                        |
 | ------------------------------------------ | ------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
-| Can I rebuild this exact release?          | code/image/model/prompt/data lineage  | git, registry, MLflow               | [7.0. Reproducibility](./7.0. Reproducibility.md) _(hands-on)_              |
-| What happened inside one turn?             | ADK/gateway trace                     | MLflow `:5000`                      | [7.1. Tracing](./7.1. Tracing.md)                                           |
-| Is the service healthy right now?          | RED + gateway metrics, alerts         | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring](./7.2. Monitoring.md) _(hands-on)_                        |
-| What did the work cost?                    | token counters + stated assumptions   | Prometheus, docs                    | [7.3. Costs](./7.3. Costs.md) _(hands-on)_                                  |
-| Was this answer any good?                  | human MLflow assessment               | MLflow                              | [7.4. Feedback](./7.4. Feedback.md) _(hands-on)_                            |
-| Are answers drifting at scale?             | sampled trace scoring (design)        | MLflow                              | [7.5. Online Evaluation](./7.5. Online Evaluation.md) _(optional hands-on)_ |
-| Who approved this write, and what changed? | append-only audit row                 | SQLite audit table                  | [7.6. Governance](./7.6. Governance.md) _(hands-on, needs the cluster)_     |
-| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent | every signal above, joined          | [7.7. Incident Response](./7.7. Incident Response.md) _(hands-on)_          |
+| Can I rebuild this exact release?          | code/image/model/prompt/data lineage  | git, registry, MLflow               | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md" >}}) _(hands-on)_              |
+| What happened inside one turn?             | ADK/gateway trace                     | MLflow `:5000`                      | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}})                                           |
+| Is the service healthy right now?          | RED + gateway metrics, alerts         | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md" >}}) _(hands-on)_                        |
+| What did the work cost?                    | token counters + stated assumptions   | Prometheus, docs                    | [7.3. Costs]({{< relref "/7. Observability/7.3. Costs.md" >}}) _(hands-on)_                                  |
+| Was this answer any good?                  | human MLflow assessment               | MLflow                              | [7.4. Feedback]({{< relref "/7. Observability/7.4. Feedback.md" >}}) _(hands-on)_                            |
+| Are answers drifting at scale?             | sampled trace scoring (design)        | MLflow                              | [7.5. Online Evaluation]({{< relref "/7. Observability/7.5. Online Evaluation.md" >}}) _(optional hands-on)_ |
+| Who approved this write, and what changed? | append-only audit row                 | SQLite audit table                  | [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) _(hands-on, needs the cluster)_     |
+| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent | every signal above, joined          | [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}) _(hands-on)_          |
 
 Each of those pages is also explicit about where the shipped stack stops.
 
 {{% collapsible note "Deeper: what this chapter deliberately does not ship" %}}
 
-Pages separate implemented signals from desired production extensions, and each boundary is documented on the page where it bites: there is no fake dollar-cost panel ([7.3. Costs](./7.3. Costs.md)), no automatic live judge ([7.5. Online Evaluation](./7.5. Online Evaluation.md)), no external paging — alerts stop at the local Alertmanager ([7.2. Monitoring](./7.2. Monitoring.md)) — and no cryptographically immutable audit store or HA claim ([7.6. Governance](./7.6. Governance.md)).
+Pages separate implemented signals from desired production extensions, and each boundary is documented on the page where it bites: there is no fake dollar-cost panel ([7.3. Costs]({{< relref "/7. Observability/7.3. Costs.md" >}})), no automatic live judge ([7.5. Online Evaluation]({{< relref "/7. Observability/7.5. Online Evaluation.md" >}})), no external paging — alerts stop at the local Alertmanager ([7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md" >}})) — and no cryptographically immutable audit store or HA claim ([7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}})).
 {{% /collapsible %}}
 
 ## What does the shipped telemetry stack look like end to end?

@@ -32,17 +32,17 @@ def contract_pages(root: pathlib.Path, relative_paths: tuple[str, ...]) -> dict[
 class SourceContractTests(unittest.TestCase):
     def test_maintainer_drift_contracts_cover_the_current_tree(self) -> None:
         pages = {
-            page: page.read_text(encoding="utf-8") for page in check_conventions.ROOT.joinpath("docs").rglob("*.md")
+            page: page.read_text(encoding="utf-8") for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
         }
         assert check_conventions.check_maintainer_drift_contracts(pages) == []
 
     def test_maintainer_drift_contract_rejects_hook_and_metric_changes(self) -> None:
         docs = (
-            "docs/1. Setup/1.0. System.md",
-            "docs/1. Setup/1.5. Workspace.md",
-            "docs/4. Quality/4.1. Linting.md",
-            "docs/4. Quality/4.3. Metrics.md",
-            "docs/8. Community/8.5. Contributions.md",
+            "content/1. Setup/1.0. System.md",
+            "content/1. Setup/1.5. Workspace.md",
+            "content/4. Quality/4.1. Linting.md",
+            "content/4. Quality/4.3. Metrics.md",
+            "content/8. Community/8.5. Contributions.md",
         )
         owners = ("lefthook.yml", "scripts/doctor.sh", ".github/workflows/ci.yml", "agents/python/src/agent/budget.py")
         with tempfile.TemporaryDirectory() as directory:
@@ -51,7 +51,7 @@ class SourceContractTests(unittest.TestCase):
             budget = root / "agents/python/src/agent/budget.py"
             text = budget.read_text(encoding="utf-8")
             budget.write_text(text.replace('"agentops.tokens"', '"agentops.tokens.changed"', 1), encoding="utf-8")
-            workspace = root / "docs/1. Setup/1.5. Workspace.md"
+            workspace = root / "content/1. Setup/1.5. Workspace.md"
             text = workspace.read_text(encoding="utf-8")
             workspace.write_text(text.replace("secure:staged; pre-push", "secure; pre-push", 1), encoding="utf-8")
             problems = check_conventions.check_maintainer_drift_contracts(contract_pages(root, docs), root=root)
@@ -62,14 +62,14 @@ class SourceContractTests(unittest.TestCase):
     def test_exact_line_test_and_module_counts_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            page = root / "docs/example.md"
+            page = root / "content/example.md"
             problems = check_conventions.check_exact_count_claims(
                 {page: "Exactly 16 tests pass.\n```text\nExactly 4 tests pass.\n```\n"},
                 root=root,
             )
         assert problems == [
             (
-                "docs/example.md",
+                "content/example.md",
                 "line 1: replace brittle exact line/test/module count with derived or count-free evidence",
             )
         ]
@@ -93,11 +93,11 @@ class SourceContractTests(unittest.TestCase):
                 "# --8<-- [start:trusted]\nvalue: 1\n# --8<-- [end:trusted]\n",
                 encoding="utf-8",
             )
-            text = '```yaml\n--8<-- "infra/example.yaml:trusted"\n```\n'
-            assert check_conventions.check_snippet_targets(pathlib.Path("docs/example.md"), text, root=root) == []
+            text = '{{< include path="infra/example.yaml" region="trusted" lang="yaml" >}}\n'
+            assert check_conventions.check_snippet_targets(pathlib.Path("content/example.md"), text, root=root) == []
 
             source.write_text("# --8<-- [start:trusted]\nvalue: 1\n", encoding="utf-8")
-            problems = check_conventions.check_snippet_targets(pathlib.Path("docs/example.md"), text, root=root)
+            problems = check_conventions.check_snippet_targets(pathlib.Path("content/example.md"), text, root=root)
         assert any("exactly one start and end marker" in message for _, message in problems)
 
     def test_source_snippet_ratchet_covers_every_non_python_source_format(self) -> None:
@@ -108,23 +108,23 @@ class SourceContractTests(unittest.TestCase):
         assert check_conventions.check_source_snippet_coverage(pages) == []
 
     def test_mlflow_point_version_copy_is_rejected_from_feedback_prose(self) -> None:
-        feedback = check_conventions.ROOT / "docs/7. Observability/7.4. Feedback.md"
+        feedback = check_conventions.ROOT / "content/7. Observability/7.4. Feedback.md"
         pages = {feedback: "The `agentops-mlflow` image (`99.99.99`) stores assessments.\n"}
         problems = check_conventions.check_source_versions(pages)
         assert any("MLflow version belongs" in message for _, message in problems)
 
     def test_changed_authoritative_pin_rejects_stale_copy(self) -> None:
         problems = check_conventions.compare_contract(
-            "docs/example.md",
+            "content/example.md",
             "tool pin",
             "2.0.0",
             "1.9.0",
         )
-        assert problems == [("docs/example.md", "tool pin drifted: expected '2.0.0', found '1.9.0'")]
+        assert problems == [("content/example.md", "tool pin drifted: expected '2.0.0', found '1.9.0'")]
 
     def test_changed_task_expansion_rejects_stale_command(self) -> None:
         problems = check_conventions.compare_contract(
-            "docs/example.md",
+            "content/example.md",
             "mise run web expansion",
             "uv run adk web src --port 8002",
             "uv run adk web src",
@@ -133,7 +133,7 @@ class SourceContractTests(unittest.TestCase):
 
     def test_changed_port_rejects_stale_documented_port(self) -> None:
         problems = check_conventions.compare_contract(
-            "docs/example.md",
+            "content/example.md",
             "ADK web port",
             "8002",
             "8000",
@@ -142,7 +142,7 @@ class SourceContractTests(unittest.TestCase):
 
     def test_changed_manifest_resource_rejects_stale_documented_name(self) -> None:
         problems = check_conventions.compare_contract(
-            "docs/example.md",
+            "content/example.md",
             "NetworkPolicy resource name",
             "otel-collector-ingress-v2",
             "otel-collector-ingress",
@@ -151,10 +151,10 @@ class SourceContractTests(unittest.TestCase):
 
     def test_real_python_owner_change_rejects_stale_support_prose(self) -> None:
         docs = (
-            "docs/1. Setup/1.0. System.md",
-            "docs/1. Setup/1.1. Python.md",
-            "docs/1. Setup/index.md",
-            "docs/4. Quality/4.4. Evaluations.md",
+            "content/1. Setup/1.0. System.md",
+            "content/1. Setup/1.1. Python.md",
+            "content/1. Setup/_index.md",
+            "content/4. Quality/4.4. Evaluations.md",
         )
         owners = ("agents/python/pyproject.toml", "agents/python/mise.toml")
         with tempfile.TemporaryDirectory() as directory:
@@ -179,13 +179,12 @@ class SourceContractTests(unittest.TestCase):
     def test_real_agentgateway_owner_change_rejects_every_declared_prose_copy(self) -> None:
         docs = tuple(
             path.relative_to(check_conventions.ROOT).as_posix()
-            for path in check_conventions.ROOT.joinpath("docs").rglob("*.md")
+            for path in check_conventions.ROOT.joinpath("content").rglob("*.md")
         )
         owners = (
             "pyproject.toml",
             "agents/python/pyproject.toml",
             "agents/python/Dockerfile",
-            "docs/javascripts/accessibility.js",
             "infra/helmfile.yaml",
             "infra/mlflow/Dockerfile",
             "mise.toml",
@@ -205,13 +204,12 @@ class SourceContractTests(unittest.TestCase):
     def test_external_course_image_requires_a_digest(self) -> None:
         docs = tuple(
             path.relative_to(check_conventions.ROOT).as_posix()
-            for path in check_conventions.ROOT.joinpath("docs").rglob("*.md")
+            for path in check_conventions.ROOT.joinpath("content").rglob("*.md")
         )
         owners = (
             "pyproject.toml",
             "agents/python/pyproject.toml",
             "agents/python/Dockerfile",
-            "docs/javascripts/accessibility.js",
             "infra/helmfile.yaml",
             "infra/mlflow/Dockerfile",
             "mise.toml",
@@ -220,7 +218,7 @@ class SourceContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             copy_contract_files(root, (*docs, *owners))
-            platform = root / "docs/6. Platform/6.2. Platform Install.md"
+            platform = root / "content/6. Platform/6.2. Platform Install.md"
             text = platform.read_text(encoding="utf-8")
             digest = "@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028"
             assert digest in text
@@ -229,7 +227,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("must include an immutable sha256 digest" in message for _, message in problems)
 
     def test_real_state_owner_change_rejects_stale_drill_result(self) -> None:
-        docs = ("docs/6. Platform/6.6. Platform Delivery.md",)
+        docs = ("content/6. Platform/6.6. Platform Delivery.md",)
         owners = (
             "agents/python/src/agent/state.py",
             "infra/k8s/base/state-backup.yaml",
@@ -250,8 +248,8 @@ class SourceContractTests(unittest.TestCase):
 
     def test_real_audit_owner_change_rejects_profile_mismatch(self) -> None:
         docs = (
-            "docs/8. Community/8.1. License.md",
-            "docs/4. Quality/4.1. Linting.md",
+            "content/8. Community/8.1. License.md",
+            "content/4. Quality/4.1. Linting.md",
         )
         owners = ("scripts/check-licenses.sh", "scripts/check-vulnerabilities.sh")
         with tempfile.TemporaryDirectory() as directory:
@@ -271,7 +269,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("same lock-owned set" in message for _, message in problems)
 
     def test_real_retrieval_owner_change_requires_new_provenance_field(self) -> None:
-        docs = ("docs/3. Capabilities/3.4. Memory.md",)
+        docs = ("content/3. Capabilities/3.4. Memory.md",)
         owners = ("agents/python/src/agent/retrieval.py",)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -288,7 +286,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("`runtime_version`" in message for _, message in problems)
 
     def test_real_domain_owner_change_requires_capstone_review(self) -> None:
-        docs = ("docs/8. Community/8.7. Capstone.md",)
+        docs = ("content/8. Community/8.7. Capstone.md",)
         owners = ("agents/python/src/agent/domain.py",)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -319,7 +317,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("99 GiB total RAM" in message for _, message in problems)
 
     def test_provider_examples_cannot_target_the_maintainer_gcp_project(self) -> None:
-        docs = ("docs/1. Setup/1.4. Providers.md",)
+        docs = ("content/1. Setup/1.4. Providers.md",)
         owners = (".env.example",)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -334,7 +332,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("maintainer-owned project" in message for _, message in problems)
 
     def test_release_workflow_cannot_drop_the_freshness_validator(self) -> None:
-        docs = ("docs/8. Community/8.2. Releases.md",)
+        docs = ("content/8. Community/8.2. Releases.md",)
         owners = (".github/workflows/release.yml",)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -352,7 +350,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("release_freshness.py" in message for _, message in problems)
 
     def test_release_workflow_cannot_replace_rendered_freshness_evidence_with_raw_markdown(self) -> None:
-        docs = ("docs/8. Community/8.2. Releases.md",)
+        docs = ("content/8. Community/8.2. Releases.md",)
         owners = (".github/workflows/release.yml",)
         for required, replacement in (
             ("application/vnd.github.full+json", "application/vnd.github+json"),
@@ -371,7 +369,7 @@ class SourceContractTests(unittest.TestCase):
             assert any(required in message for _, message in problems)
 
     def test_release_page_cannot_hide_the_completed_checklist_requirement(self) -> None:
-        docs = ("docs/8. Community/8.2. Releases.md",)
+        docs = ("content/8. Community/8.2. Releases.md",)
         owners = (".github/workflows/release.yml",)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -386,7 +384,7 @@ class SourceContractTests(unittest.TestCase):
         assert any("every checklist box checked" in message for _, message in problems)
 
     def test_actions_artifacts_cannot_exceed_the_repository_retention_policy(self) -> None:
-        docs = ("docs/8. Community/8.2. Releases.md",)
+        docs = ("content/8. Community/8.2. Releases.md",)
         owners = (
             "AGENTS.md",
             ".github/workflows/eval.yml",
@@ -537,14 +535,14 @@ class SourceContractTests(unittest.TestCase):
         files = (
             ".github/workflows/ci.yml",
             "README.md",
-            "docs/index.md",
-            "docs/1. Setup/1.0. System.md",
-            "docs/4. Quality/4.1. Linting.md",
+            "content/_index.md",
+            "content/1. Setup/1.0. System.md",
+            "content/4. Quality/4.1. Linting.md",
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             copy_contract_files(root, files)
-            linting = root / "docs/4. Quality/4.1. Linting.md"
+            linting = root / "content/4. Quality/4.1. Linting.md"
             text = linting.read_text(encoding="utf-8")
             assert "install:validation" in text
             linting.write_text(text.replace("install:validation", "install:maintainer"), encoding="utf-8")
@@ -556,8 +554,8 @@ class SourceContractTests(unittest.TestCase):
 
     def test_outcome_matrix_cannot_exceed_the_linked_exercise(self) -> None:
         docs = (
-            "docs/0. Overview/0.0. Course.md",
-            "docs/4. Quality/4.4. Evaluations.md",
+            "content/0. Overview/0.0. Course.md",
+            "content/4. Quality/4.4. Evaluations.md",
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -603,7 +601,7 @@ class ExerciseContractTests(unittest.TestCase):
 - **Gate that proves completion**: The test is red.
 - **Final state**: Restore the file.
 """
-        problems = check_conventions.check_exercises(pathlib.Path("docs/example.md"), text)
+        problems = check_conventions.check_exercises(pathlib.Path("content/example.md"), text)
         assert len(problems) == 2
 
     def test_probabilistic_result_cannot_be_a_mandatory_red_state(self) -> None:
@@ -616,7 +614,7 @@ class ExerciseContractTests(unittest.TestCase):
 - **Gate that proves completion**: It fails without the rule, but may pass.
 - **Final state**: Clean.
 """
-        problems = check_conventions.check_exercises(pathlib.Path("docs/example.md"), text)
+        problems = check_conventions.check_exercises(pathlib.Path("content/example.md"), text)
         assert any("probabilistic evidence" in message for _, message in problems)
 
 
@@ -629,85 +627,11 @@ A --> C
 ```
 """
         problems = check_conventions.check_diagram_alternatives(
-            pathlib.Path("docs/example.md"),
+            pathlib.Path("content/example.md"),
             changed,
             {check_conventions.sha256_lines(original)},
         )
         assert len(problems) == 1
-
-
-class RouteContractTests(unittest.TestCase):
-    def test_manifest_covers_every_dated_changelog_release(self) -> None:
-        manifest = json.loads(check_conventions.ROUTE_MANIFEST.read_text(encoding="utf-8"))
-        changelog = check_conventions.ROOT.joinpath("CHANGELOG.md").read_text(encoding="utf-8")
-        expected = check_conventions.changelog_release_versions(changelog)
-        current = {check_conventions.page_url(page) for page in check_conventions.ROOT.joinpath("docs").rglob("*.md")}
-
-        assert (
-            check_conventions.validate_route_manifest(
-                current,
-                manifest,
-                expected_releases=expected,
-            )
-            == []
-        )
-
-    def test_missing_changelog_release_inventory_fails(self) -> None:
-        manifest = {
-            "format": 1,
-            "releases": {"0.2.0": ["index.html"]},
-            "redirects": {},
-        }
-        errors = check_conventions.validate_route_manifest(
-            {"index.html"},
-            manifest,
-            expected_releases={"0.1.0", "0.2.0"},
-        )
-
-        assert errors == ["release inventory is missing changelog versions: 0.1.0"]
-
-    def test_historical_route_inventories_match_published_tag_evidence(self) -> None:
-        manifest = json.loads(check_conventions.ROUTE_MANIFEST.read_text(encoding="utf-8"))
-        expected = {
-            "0.1.0": (74, "58fa85e6214c70502068bb6c545527790fc04ab8e87ccb5175e70e7579946c3b"),
-            "0.1.1": (76, "660266511809d7f0a19a23764d40dc2d6bfb834de9fafb9c194f5ea9e40a5826"),
-            "0.2.0": (76, "660266511809d7f0a19a23764d40dc2d6bfb834de9fafb9c194f5ea9e40a5826"),
-            "0.3.5": (76, "660266511809d7f0a19a23764d40dc2d6bfb834de9fafb9c194f5ea9e40a5826"),
-        }
-
-        for version, (count, digest) in expected.items():
-            routes = manifest["releases"][version]
-            encoded = ("\n".join(routes) + "\n").encode()
-            assert len(routes) == count
-            assert hashlib.sha256(encoded).hexdigest() == digest
-
-    def test_simulated_rename_requires_redirect(self) -> None:
-        manifest = {
-            "format": 1,
-            "releases": {"0.3.5": ["old.html"]},
-            "redirects": {},
-        }
-        assert check_conventions.validate_route_manifest({"new.html"}, manifest) == [
-            "released URL 'old.html' is missing a redirect"
-        ]
-
-    def test_redirect_loop_fails(self) -> None:
-        manifest = {
-            "format": 1,
-            "releases": {"0.3.5": ["old.html"]},
-            "redirects": {"old.html": "older.html", "older.html": "old.html"},
-        }
-        errors = check_conventions.validate_route_manifest({"new.html"}, manifest)
-        assert any("loop" in error for error in errors)
-
-    def test_redirect_traversal_fails_before_generation(self) -> None:
-        manifest = {
-            "format": 1,
-            "releases": {"0.3.5": ["index.html"]},
-            "redirects": {"../escape.html": "index.html"},
-        }
-        errors = check_conventions.validate_route_manifest({"index.html"}, manifest)
-        assert errors == ["redirect source is an unsafe course route: '../escape.html'"]
 
 
 class RenderedContractTests(unittest.TestCase):
@@ -720,7 +644,7 @@ class RenderedContractTests(unittest.TestCase):
             root = pathlib.Path(directory)
             site = root / "site"
             page = site / "chapter/page.html"
-            source_asset = root / "docs/assets/font.txt"
+            source_asset = root / "content/assets/font.txt"
             page.parent.mkdir(parents=True)
             source_asset.parent.mkdir(parents=True)
             source_asset.write_text("source-tree file", encoding="utf-8")
@@ -740,8 +664,81 @@ class RenderedContractTests(unittest.TestCase):
             problems = check_conventions.check_rendered(site)
         messages = "\n".join(message for _, message in problems)
         assert "og:title" in messages
-        assert "anonymous source action" in messages
+        assert "source-edit action" in messages
         assert "route back home" in messages
+
+
+class UrlContractTests(unittest.TestCase):
+    """The clean-URL contract that replaced docs/released-urls.json.
+
+    Material published `0. Overview/0.0. Course.html`; Hugo publishes directory URLs derived
+    from file names that carry spaces and dots. Every page states its own URL, so these are
+    the tests that keep those strings and the file tree from drifting apart.
+    """
+
+    def test_page_url_slugs_spaces_and_dots(self) -> None:
+        root = check_conventions.ROOT / "content"
+        assert check_conventions.page_url(root / "0. Overview/0.7. Glossary.md") == "/0-overview/0-7-glossary/"
+        assert check_conventions.page_url(root / "0. Overview/_index.md") == "/0-overview/"
+        assert check_conventions.page_url(root / "_index.md") == "/"
+        assert check_conventions.page_url(root / "6. Platform/6.7. Promotion and Rollback.md") == (
+            "/6-platform/6-7-promotion-and-rollback/"
+        )
+
+    def test_every_page_declares_the_url_its_file_name_implies(self) -> None:
+        for page in sorted(check_conventions.ROOT.joinpath("content").rglob("*.md")):
+            relative = page.relative_to(check_conventions.ROOT)
+            text = page.read_text(encoding="utf-8")
+            assert check_conventions.check_page_urls(relative, text) == [], relative.as_posix()
+
+    def test_a_wrong_url_is_rejected(self) -> None:
+        page = pathlib.Path("content/0. Overview/0.7. Glossary.md")
+        text = '---\ntitle: "0.7. Glossary"\ndescription: x\nurl: "/wrong/"\n---\n\n## Why?\n'
+        problems = check_conventions.check_page_urls(page, text)
+        assert any("front matter url must be" in message for _, message in problems)
+
+    def test_a_markdown_h1_is_rejected(self) -> None:
+        page = pathlib.Path("content/0. Overview/0.7. Glossary.md")
+        text = (
+            '---\ntitle: "0.7. Glossary"\ndescription: x\nurl: "/0-overview/0-7-glossary/"\n---\n'
+            "\n# 0.7. Glossary\n\n## Why?\n"
+        )
+        problems = check_conventions.check_page_urls(page, text)
+        assert any("would publish a second <h1>" in message for _, message in problems)
+
+
+class NavigationContractTests(unittest.TestCase):
+    """data/nav.yaml is what replaced MkDocs `strict: true` plus an explicit `nav:`."""
+
+    def test_every_page_is_reachable_from_the_learning_path(self) -> None:
+        pages = {
+            page: page.read_text(encoding="utf-8")
+            for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
+        }
+        assert check_conventions.check_navigation(pages) == []
+
+    def test_a_page_missing_from_the_navigation_is_rejected(self) -> None:
+        pages = {
+            page: page.read_text(encoding="utf-8")
+            for page in check_conventions.ROOT.joinpath("content").rglob("*.md")
+        }
+        pages[check_conventions.ROOT / "content/9. Ghost/9.0. Ghost.md"] = "---\ndescription: x\n---\n"
+        problems = check_conventions.check_navigation(pages)
+        assert any("navigation omits pages" in message for _, message in problems)
+
+
+class IncludeContractTests(unittest.TestCase):
+    """The include shortcode replaced pymdownx.snippets; the fence rule inverted with it."""
+
+    def test_an_include_inside_a_fence_is_rejected(self) -> None:
+        text = '```python\n{{< include path="a.py" region="b" >}}\n```\n'
+        problems = check_conventions.check_snippets(pathlib.Path("content/example.md"), text)
+        assert any("must not sit inside a fenced code block" in message for _, message in problems)
+
+    def test_retired_material_snippet_syntax_is_rejected(self) -> None:
+        text = '--8<-- "agents/python/src/agent/model.py:build-model"\n'
+        problems = check_conventions.check_snippets(pathlib.Path("content/example.md"), text)
+        assert any("Material snippet syntax is retired" in message for _, message in problems)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@
 # Git hooks (lefthook.yml) and CI (.github/workflows) call these same tasks.
 
 [tools]
+hugo = "0.164.0"
 uv = "0.12.0"
 dprint = "0.55.2"
 lefthook = "2.1.10"
@@ -32,7 +33,6 @@ gh = "2.97.0"
 gcloud = "578.0.0"
 "github:mikefarah/yq" = "4.53.3"
 "github:agentgateway/agentgateway" = "1.4.1"
-hugo = "0.164.0"
 
 [settings]
 lockfile = true
@@ -64,7 +64,7 @@ run = [
 [tasks."install:tools:core"]
 hide = true # implementation detail of install:*; a learner picks a tier, never a tool list
 description = "Install only the tools used by learner and contributor core tasks"
-run = "mise install uv dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
+run = "mise install hugo uv dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
 
 [tasks."install:platform"]
 description = "Install the separate MLflow server, local platform, and GKE plan dependencies"
@@ -146,11 +146,11 @@ run = "cd agents/python && mise run config:check"
 # `watch` was a byte-identical second task; it stays as an alias so the standard task
 # vocabulary (install, format, check, test, secure, build, watch) still resolves.
 alias = ["s", "w", "watch"]
-description = "Serve the documentation locally with live reload (Zensical) on :8003"
+description = "Serve the documentation locally with live reload (Hugo) on :8003"
 # Not :8000. That port belongs to the raw MCP server in the stable network contract
 # (AGENTS.md), and a docs preview left running would otherwise shadow the ADK web UI a
 # learner opens in Chapter 2.1 — presenting as "the agent did not start".
-run = "uv run zensical serve --dev-addr 127.0.0.1:8003"
+run = "hugo server --bind 127.0.0.1 --port 8003"
 
 [tasks.build]
 # Aggregates like format and check do. Before this, `mise run build` built only the site, so
@@ -161,11 +161,10 @@ description = "Build every release artifact: the documentation site and both con
 depends = ["build:docs", "build:agent-image", "build:mlflow-image"]
 
 [tasks."build:docs"]
-description = "Build the static documentation site (Zensical → site/)"
-run = [
-  "uv run zensical build",
-  "uv run python scripts/docs_routes.py site",
-]
+description = "Build the static documentation site (Hugo → site/)"
+# --panicOnWarning is half of what MkDocs `strict: true` gave for free; the other half is
+# refLinksErrorLevel in hugo.toml plus the nav-completeness gate in check_conventions.py.
+run = "hugo --minify --panicOnWarning --destination site --cleanDestinationDir"
 
 [tasks."build:agent-image"]
 description = "Build the non-root AgentOps Agent image"
@@ -293,8 +292,7 @@ run = [
   "uv run python -m unittest scripts/test_release_promote.py",
   "uv run python -m unittest scripts/test_release_reconcile.py",
   "uv run python scripts/check_conventions.py docs",
-  "uv run zensical build",
-  "uv run python scripts/docs_routes.py site",
+  "hugo --minify --panicOnWarning --destination site --cleanDestinationDir",
   "uv run python scripts/check_conventions.py rendered site",
 ]
 
@@ -319,7 +317,7 @@ run = "./scripts/check-infra.sh"
 
 [tasks."check:links"]
 description = "Check repository-local Markdown links without network access"
-run = "lychee --offline README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'docs/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
+run = "lychee --offline README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'content/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
 
 [tasks."check:skills"]
 description = "Validate the installable Agent Skills under skills/"
