@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml) [![Docs](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml) [![Security](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml) [![GitHub stars](https://img.shields.io/github/stars/MLOps-Courses/agentops-open-course?style=flat)](https://github.com/MLOps-Courses/agentops-open-course/stargazers) [![Course license: CC BY 4.0](https://img.shields.io/badge/course-CC_BY_4.0-blue.svg)](./static/LICENSE.txt) [![Software license: MIT](https://img.shields.io/badge/software-MIT-green.svg)](./LICENSE)
 
-Learn the complete lifecycle of a production-shaped AI agent, from a first local model call to an observable Kubernetes workload. The course uses [Google ADK](https://google.github.io/adk-docs/), [agentgateway](https://agentgateway.dev/), [kagent](https://kagent.dev/), [MLflow](https://mlflow.org/), and [OpenTelemetry](https://opentelemetry.io/) with runnable Python, tests, policies, and infrastructure.
+Learn the complete lifecycle of a production-shaped AI agent, from a first local model call to an observable Kubernetes workload. The course uses [Google ADK](https://google.github.io/adk-docs/), [agentgateway](https://agentgateway.dev/), [kagent](https://kagent.dev/), [OpenTelemetry](https://opentelemetry.io/) into [Grafana Tempo](https://grafana.com/oss/tempo/), and [MLflow](https://mlflow.org/) for offline evaluation, with runnable Python, tests, policies, and infrastructure.
 
 **[Read the course](https://agentops-open-course.fmind.dev/)** | **[Start locally](#local-quickstart)** | **[Build your capstone](https://agentops-open-course.fmind.dev/8.%20Community/8.7.%20Capstone.html)** | **[Contribute](./CONTRIBUTING.md)**
 
@@ -18,7 +18,7 @@ Nine chapters follow the AgentOps lifecycle, from a first local model call to an
 - **Bounded reasoning:** the conversational agent is instructed to plan multi-step work and verify approved actions; a runnable plan → investigate → evidence review → recommend workflow enforces deeper orchestration structurally.
 - **One data plane:** agentgateway routes and governs MCP, A2A, and OpenAI-compatible model traffic.
 - **One local-to-cloud contract:** the same container and Kubernetes base run on k3d and on a small GKE lab; only overlays and model identity change.
-- **Observable end to end:** optional OTLP telemetry flows to a self-hosted MLflow trace UI and Prometheus/Grafana metrics.
+- **Observable end to end:** optional OTLP telemetry flows to self-hosted Tempo traces, Loki logs, and Prometheus metrics, all read through one Grafana.
 - **Verified examples:** critical documentation snippets are included directly from source under `agents/`, while commands and deployable resources mirror `infra/`.
 
 The required host and local Kubernetes path uses open-source software and open-weight model artifacts. Gemini and Google Cloud are optional proprietary integrations; neither is presented as open source or required for completion. Repository and documentation hosting are release concerns, not runtime dependencies.
@@ -53,7 +53,8 @@ flowchart LR
     Gateway -->|GKE profile + WIF| Vertex[Vertex AI Gemini]
     Gateway -->|A2A| Agent
     Agent -->|OTLP :4317/:4318| OTel[OpenTelemetry Collector]
-    OTel --> MLflow[MLflow traces]
+    OTel --> Tempo[Tempo traces]
+    OTel --> Loki[Loki logs]
     OTel --> Prometheus[Prometheus + Grafana]
     Agent --> State[(SQLite state + audit)]
 ```
@@ -153,7 +154,7 @@ load/           k6 load tests and latency budgets for the platform
 content/        FAQ-based course pages, built into site/ by Hugo
 layouts/        Hugo templates: include shortcode, admonitions, sidebar
 data/nav.yaml   The explicit learning path rendered in the sidebar
-infra/          agentgateway, kagent, k3d/GKE, MLflow, and OTel resources
+infra/          agentgateway, kagent, k3d/GKE, and OTel/Tempo/Loki resources
 skills/         Installable Agent Skills packaging the course's patterns
 ```
 
