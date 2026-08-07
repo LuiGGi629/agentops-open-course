@@ -1,0 +1,101 @@
+# https://mise.jdx.dev
+# AgentOps reference agent — Go track tasks.
+# The task vocabulary matches the Python track and the repository root, so
+# learners, git hooks, and CI use the same words on either track.
+# Only configuration/model-backed tasks load the root .env; offline gates load no dotenv.
+
+[env]
+APP_NAME = "agent"
+
+[settings.task]
+run_auto_install = false
+
+[tasks.install]
+alias = "i"
+description = "Install development dependencies (module requirements and git hooks)"
+depends = ["install:go"]
+
+[tasks."install:go"]
+description = "Tidy Go modules and download dependencies"
+run = "go mod tidy"
+
+[tasks.format]
+alias = "f"
+description = "Format Go sources and imports"
+depends = ["format:go"]
+
+[tasks."format:go"]
+description = "Sort imports and format with goimports and gofumpt"
+# Flags mirror .golangci.yml: local-prefixes and extra-rules are format policy,
+# so without them `format` writes a style that `check` then rejects.
+run = [
+  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course-go/agents/go -w .",
+  "go tool gofumpt -extra -w .",
+]
+
+[tasks.check]
+alias = "c"
+description = "Run the offline code checks in parallel"
+# check:vuln is deliberately absent: govulncheck queries the vulnerability
+# database over the network, and this chain runs on every commit. An offline
+# commit must not fail. CI runs check:vuln as its own step.
+depends = ["check:format", "check:lint"]
+
+[tasks."check:format"]
+alias = "cf"
+description = "Check Go formatting without writing"
+run = "golangci-lint fmt --diff"
+
+[tasks."check:lint"]
+alias = "cl"
+description = "Lint Go sources (golangci-lint)"
+run = "golangci-lint run ./..."
+
+[tasks."check:vuln"]
+alias = "ca"
+description = "Audit dependencies for known vulnerabilities (needs network; CI-only gate)"
+run = "go tool govulncheck ./..."
+
+[tasks."config:check"]
+description = "Validate the resolved agent configuration and print it with secrets masked"
+env = { _.file = { path = "../../.env", redact = true } }
+run = "go run ./cmd/agent config:check"
+
+[tasks.test]
+alias = "t"
+description = "Run the offline test suite with coverage"
+run = "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./..."
+
+[tasks.coverage]
+alias = "v"
+description = "View test coverage in the terminal"
+depends = ["test"]
+run = "go tool cover -func=coverage.out"
+
+[tasks.build]
+alias = "b"
+description = "Compile the production binary"
+depends = ["build:go"]
+
+[tasks."build:go"]
+description = "Compile a static, cgo-free production binary"
+sources = ["go.mod", "go.sum", "**/*.go"]
+outputs = ["bin/{{env.APP_NAME}}"]
+# CGO_ENABLED=0 is a course invariant (MIGRATE.md D-4), not an optimization:
+# it is what lets the binary ship distroless and keeps one SQLite implementation.
+env = { CGO_ENABLED = "0" }
+run = "go build -o bin/$APP_NAME ./cmd/agent"
+
+[tasks.watch]
+alias = "w"
+description = "Run the test suite in watch mode"
+run = "gotestsum --watch --format pkgname -- ./..."
+
+[tasks.clean]
+alias = "n"
+description = "Remove caches and build artifacts"
+run = "rm -rf bin/ coverage.out"
+
+[tasks."data:reset"]
+description = "Reset the disposable runtime database from the committed seed"
+run = "rm -rf .state"
