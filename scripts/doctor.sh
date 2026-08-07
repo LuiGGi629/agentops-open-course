@@ -152,11 +152,32 @@ else
 fi
 
 if [[ ${profile} == model ]]; then
+	# The Go agent reaches Ollama through ADK's model/openaimodel, which speaks
+	# only the OpenAI Responses API. Ollama grew /v1/responses in 0.13.3, so an
+	# older daemon 404s every model call however healthy it otherwise looks.
+	# Workstream M ran the tool-calling and human-approval behaviours against
+	# 0.13.3 and confirmed the floor holds there.
+	# --8<-- [start:doctor-ollama-floor]
+	readonly ollama_minimum_version=0.13.3
+
+	ollama_version="$(curl --fail --silent --show-error http://127.0.0.1:11434/api/version |
+		jq -r '.version // empty')" ||
+		fail 'ollama     start Ollama: it is not answering on 127.0.0.1:11434'
+	[[ -n ${ollama_version} ]] || fail 'ollama     /api/version returned no version'
+
+	# sort -V orders versions; the floor stays first only when it is not newer.
+	ollama_versions="$(printf '%s\n%s\n' "${ollama_minimum_version}" "${ollama_version}" | sort -V)"
+	ollama_oldest="${ollama_versions%%$'\n'*}"
+	if [[ ${ollama_oldest} != "${ollama_minimum_version}" ]]; then
+		fail "ollama     ${ollama_version} is older than the ${ollama_minimum_version} floor; the Responses API is missing"
+	fi
+	# --8<-- [end:doctor-ollama-floor]
+
 	if ! curl --fail --silent --show-error http://127.0.0.1:11434/api/tags |
 		jq -e '.models[]?.name | startswith("qwen3:4b-instruct")' >/dev/null; then
 		fail 'ollama     start Ollama and run: ollama pull qwen3:4b-instruct'
 	fi
-	printf 'ollama     qwen3:4b-instruct ready on 127.0.0.1:11434\n'
+	printf 'ollama     %s with qwen3:4b-instruct ready on 127.0.0.1:11434\n' "${ollama_version}"
 fi
 
 case "${profile}" in
