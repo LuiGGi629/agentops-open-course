@@ -1,24 +1,24 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: mlflow
+  name: tempo
   namespace: agentops
   labels:
-    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/name: tempo
     app.kubernetes.io/part-of: agentops-open-course
 spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      storage: 5Gi
+      storage: 2Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mlflow
+  name: tempo
   namespace: agentops
   labels:
-    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/name: tempo
     app.kubernetes.io/part-of: agentops-open-course
 spec:
   replicas: 1
@@ -26,93 +26,98 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: mlflow
+      app.kubernetes.io/name: tempo
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: mlflow
+        app.kubernetes.io/name: tempo
         app.kubernetes.io/part-of: agentops-open-course
     spec:
-      serviceAccountName: mlflow
+      serviceAccountName: tempo
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10002
-        runAsGroup: 10002
-        fsGroup: 10002
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: mlflow
-          image: agentops-mlflow:dev
+        - name: tempo
+          image: grafana/tempo:3.0.2@sha256:cda87c212d8c584dc0b89e337e7ed648a5100feb657e5d528480ee4fa03dbbe3
           imagePullPolicy: IfNotPresent
-          env:
-            - name: MLFLOW_ARTIFACTS_DESTINATION
-              value: /var/lib/mlflow/artifacts
-            - name: MLFLOW_DEFAULT_ARTIFACT_ROOT
-              value: mlflow-artifacts:/
-            - name: MLFLOW_EXPERIMENT_NAME
-              value: agentops-agent
+          args: ["-config.file=/etc/tempo/config.yaml"]
           ports:
             - name: http
-              containerPort: 5000
+              containerPort: 3200
+            - name: otlp-http
+              containerPort: 4318
           startupProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             failureThreshold: 30
             periodSeconds: 2
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             initialDelaySeconds: 20
             periodSeconds: 20
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 100m
+              memory: 256Mi
             limits:
-              cpu: "1"
-              # MLflow's clean import and database startup peaks above 1.5 Gi
-              # after health first succeeds; 2 Gi is the measured safe burst.
-              memory: 2Gi
+              cpu: 500m
+              # Tempo holds the live block and the Parquet write buffers in
+              # memory; 512Mi is enough to start but not to compact.
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
           volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+              readOnly: true
             - name: data
-              mountPath: /var/lib/mlflow
+              mountPath: /var/tempo
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: config
+          configMap:
+            name: tempo-config
         - name: data
           persistentVolumeClaim:
-            claimName: mlflow
+            claimName: tempo
         - name: tmp
           emptyDir:
-            sizeLimit: 256Mi
+            sizeLimit: 64Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: mlflow
+  name: tempo
   namespace: agentops
   labels:
-    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/name: tempo
     app.kubernetes.io/part-of: agentops-open-course
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: mlflow
+    app.kubernetes.io/name: tempo
   ports:
     - name: http
-      port: 5000
+      port: 3200
       targetPort: http
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http

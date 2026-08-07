@@ -274,14 +274,14 @@ jobs:
             3000:3000 3001:3001 4000:4000 15020:15020
           forward mcp service/agentops-mcp 8000:8000
           forward a2a service/agentops-agent 8080:8080
-          forward mlflow service/mlflow 5000:5000
+          forward tempo service/tempo 3200:3200
           forward prometheus service/prometheus 9090:9090
           forward loki service/loki 3100:3100
           timeout 90 bash -c \
             'until curl -fsS http://127.0.0.1:3001/healthz >/dev/null &&
               curl -fsS http://127.0.0.1:8000/healthz >/dev/null &&
               curl -fsS http://127.0.0.1:8080/healthz >/dev/null &&
-              curl -fsS http://127.0.0.1:5000/health >/dev/null &&
+              curl -fsS http://127.0.0.1:3200/ready >/dev/null &&
               curl -fsS http://127.0.0.1:9090/-/ready >/dev/null &&
               curl -fsS http://127.0.0.1:3100/ready >/dev/null; do sleep 1; done'
 
@@ -312,42 +312,41 @@ jobs:
 
       - name: Prove traces, metrics, and logs contain the expected evidence
         run: |
-          mlflow_request="$(
-            jq -cn '{
-              locations: [{
-                type: "MLFLOW_EXPERIMENT",
-                mlflow_experiment: {experiment_id: "0"}
-              }],
-              max_results: 100
-            }'
-          )"
+          # TraceQL `{status = ok}` is the Tempo equivalent of MLflow's
+          # trace-level "OK" state: it matches traces carrying a non-errored span.
+          # Search only sees a trace once its live block is cut (Tempo's
+          # max_block_duration, 30s by default), so poll rather than assert once.
+          search_window_start="$(($(date +%s) - 3600))"
+          search_window_end="$(($(date +%s) + 60))"
           for _ in {1..60}; do
-            curl -fsS \
-              --header 'Content-Type: application/json' \
-              --data "${mlflow_request}" \
-              http://127.0.0.1:5000/api/3.0/mlflow/traces/search \
-              >"${RUNNER_TEMP}/mlflow-traces.json"
+            curl -fsS -G http://127.0.0.1:3200/api/search \
+              --data-urlencode 'q={status = ok}' \
+              --data-urlencode 'limit=100' \
+              --data-urlencode "start=${search_window_start}" \
+              --data-urlencode "end=${search_window_end}" \
+              >"${RUNNER_TEMP}/tempo-traces.json"
             jq -e '.traces | length > 0' \
-              "${RUNNER_TEMP}/mlflow-traces.json" >/dev/null && break
+              "${RUNNER_TEMP}/tempo-traces.json" >/dev/null && break
             sleep 2
           done
-          jq -e '.traces | length > 0 and any(.state == "OK")' \
-            "${RUNNER_TEMP}/mlflow-traces.json" >/dev/null
+          jq -e '.traces | length > 0' \
+            "${RUNNER_TEMP}/tempo-traces.json" >/dev/null
           jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
             'tostring | contains($sentinel) | not' \
-            "${RUNNER_TEMP}/mlflow-traces.json" >/dev/null
+            "${RUNNER_TEMP}/tempo-traces.json" >/dev/null
+          # Tempo strips a trace id's leading zeroes, so read the id back from the
+          # search result instead of reconstructing it.
           trace_id="$(
-            jq -er '.traces | map(select(.state == "OK")) | first | .trace_id' \
-              "${RUNNER_TEMP}/mlflow-traces.json"
+            jq -er '.traces | first | .traceID' \
+              "${RUNNER_TEMP}/tempo-traces.json"
           )"
-          curl -fsS -G http://127.0.0.1:5000/api/3.0/mlflow/traces/get \
-            --data-urlencode "trace_id=${trace_id}" \
-            >"${RUNNER_TEMP}/mlflow-trace.json"
-          jq -e '.trace.spans | length > 0' \
-            "${RUNNER_TEMP}/mlflow-trace.json" >/dev/null
+          curl -fsS "http://127.0.0.1:3200/api/traces/${trace_id}" \
+            >"${RUNNER_TEMP}/tempo-trace.json"
+          jq -e '[.batches[].scopeSpans[].spans[]] | length > 0' \
+            "${RUNNER_TEMP}/tempo-trace.json" >/dev/null
           jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
             'tostring | contains($sentinel) | not' \
-            "${RUNNER_TEMP}/mlflow-trace.json" >/dev/null
+            "${RUNNER_TEMP}/tempo-trace.json" >/dev/null
 
           prometheus_dir="${RUNNER_TEMP}/prometheus"
           mkdir -p "$prometheus_dir"
@@ -469,7 +468,7 @@ jobs:
           )
           cp "${RUNNER_TEMP}"/*-forward.log "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/fake-model.log "${diagnostics}/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}"/mlflow-*.json "${diagnostics}/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}"/tempo-*.json "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/prometheus.json "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/loki.json "${diagnostics}/" 2>/dev/null || true
 
@@ -492,7 +491,7 @@ jobs:
             "${RUNNER_TEMP}/gateway-forward.pid" \
             "${RUNNER_TEMP}/mcp-forward.pid" \
             "${RUNNER_TEMP}/a2a-forward.pid" \
-            "${RUNNER_TEMP}/mlflow-forward.pid" \
+            "${RUNNER_TEMP}/tempo-forward.pid" \
             "${RUNNER_TEMP}/prometheus-forward.pid" \
             "${RUNNER_TEMP}/loki-forward.pid" \
             "${RUNNER_TEMP}/fake-model.pid"; do

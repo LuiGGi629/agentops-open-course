@@ -1,5 +1,5 @@
 # Release authority starts from protected main, never from an arbitrary tag.
-# The workflow qualifies one explicit commit, preflights both images before any
+# The workflow qualifies one explicit commit, preflights every image before any
 # registry write, publishes immutable digest evidence, then creates the tag and
 # release only after independent verification.
 name: Release
@@ -295,39 +295,23 @@ jobs:
           docker load --input "${RUNNER_TEMP}/${NAME}.tar"
           user="$(docker image inspect --format '{{.Config.User}}' "$IMAGE")"
           [[ -n "$user" && "${user%%:*}" != 0 ]]
-          if [[ "$NAME" == agent ]]; then
-            docker run --rm --read-only \
-              --tmpfs /tmp:rw,noexec,nosuid,size=128m \
-              --tmpfs /app/state:rw,noexec,nosuid,size=128m,uid=10001,gid=10001 \
-              --entrypoint python "$IMAGE" -c "$SMOKE"
-          else
-            docker run --rm --read-only \
-              --tmpfs /tmp:rw,noexec,nosuid,size=128m \
-              --entrypoint python "$IMAGE" -c "$SMOKE"
-          fi
+          docker run --rm --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=128m \
+            --tmpfs /app/state:rw,noexec,nosuid,size=128m,uid=10001,gid=10001 \
+            --entrypoint python "$IMAGE" -c "$SMOKE"
 
           container="release-preflight-${NAME}"
           cleanup() {
             docker rm --force "$container" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          if [[ "$NAME" == agent ]]; then
-            container_port=8080
-            health_path=/healthz
-            docker run --detach --name "$container" --read-only \
-              --tmpfs /tmp:rw,noexec,nosuid,size=128m \
-              --tmpfs /app/state:rw,noexec,nosuid,size=128m,uid=10001,gid=10001 \
-              --publish "127.0.0.1::${container_port}" \
-              "$IMAGE" >/dev/null
-          else
-            container_port=5000
-            health_path=/health
-            docker run --detach --name "$container" --read-only \
-              --tmpfs /tmp:rw,noexec,nosuid,size=128m \
-              --tmpfs /var/lib/mlflow:rw,noexec,nosuid,size=512m,uid=10002,gid=10002 \
-              --publish "127.0.0.1::${container_port}" \
-              "$IMAGE" >/dev/null
-          fi
+          container_port=8080
+          health_path=/healthz
+          docker run --detach --name "$container" --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=128m \
+            --tmpfs /app/state:rw,noexec,nosuid,size=128m,uid=10001,gid=10001 \
+            --publish "127.0.0.1::${container_port}" \
+            "$IMAGE" >/dev/null
           host_port="$(
             docker port "$container" "${container_port}/tcp" |
               awk -F: 'NR == 1 { print $NF }'
@@ -350,15 +334,6 @@ jobs:
           fi
           cleanup
           trap - EXIT
-
-      - name: Verify the MLflow runtime matches its dependency authority
-        if: matrix.name == 'mlflow'
-        env:
-          IMAGE: ${{ steps.metadata.outputs.image }}:candidate-${{ inputs.sha }}
-        run: |
-          expected="$(./scripts/mlflow-version.sh)"
-          actual="$(docker run --rm --entrypoint python "$IMAGE" -c 'import mlflow; print(mlflow.__version__)')"
-          test "$actual" = "$expected"
 
       - name: Scan image
         uses: ./.github/actions/scan-image
@@ -398,7 +373,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [agent, mlflow]
+        name: [agent]
     steps:
       - name: Download the preflight artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -493,7 +468,7 @@ jobs:
         with:
           ref: ${{ inputs.sha }}
 
-      - name: Download both qualified digests
+      - name: Download the qualified source digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: "*-source-supply-chain"
@@ -510,7 +485,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Promote both qualified digests
+      - name: Promote the qualified digest
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ inputs.sha }}
@@ -521,9 +496,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-promotion
-          path: |
-            agent.digest.txt
-            mlflow.digest.txt
+          path: agent.digest.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -541,7 +514,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [agent, mlflow]
+        name: [agent]
     steps:
       - name: Download the source digest and SBOM
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -630,7 +603,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [agent, mlflow]
+        name: [agent]
     steps:
       - name: Checkout the qualified index validator
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -860,7 +833,7 @@ jobs:
 
           owner="${GITHUB_REPOSITORY%%/*}"
           repository="${GITHUB_REPOSITORY#*/}"
-          for name in agent mlflow; do
+          for name in agent; do
             source_ref="$(<"assets/${name}.source.digest.txt")"
             image="ghcr.io/${GITHUB_REPOSITORY,,}/${name}"
             source_digest="${source_ref#*@}"
@@ -1068,5 +1041,5 @@ jobs:
             echo
             echo "- Qualified commit: \`${SHA}\`"
             echo "- Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${VERSION}"
-            echo "- Both images: exact digest, signature, SBOM, SLSA provenance, and OCI labels verified"
+            echo "- Every image: exact digest, signature, SBOM, SLSA provenance, and OCI labels verified"
           } >> "$GITHUB_STEP_SUMMARY" || true

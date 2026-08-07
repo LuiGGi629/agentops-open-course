@@ -70,10 +70,9 @@ description = "Install only the tools used by learner and contributor core tasks
 run = "mise install hugo uv dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
 
 [tasks."install:platform"]
-description = "Install the separate MLflow server, local platform, and GKE plan dependencies"
+description = "Install the local platform and GKE plan dependencies"
 run = [
   "mise run install:tools:platform",
-  "uv sync --directory infra/mlflow --locked",
   "./scripts/install-helm-diff.sh",
 ]
 
@@ -157,11 +156,12 @@ run = "hugo server --bind 127.0.0.1 --port 8003"
 
 [tasks.build]
 # Aggregates like format and check do. Before this, `mise run build` built only the site, so
-# building "everything" before a deploy silently shipped a stale agent image. Both image
-# children need Docker; use build:docs for the container-free documentation build.
+# building "everything" before a deploy silently shipped a stale agent image. The image child
+# needs Docker; use build:docs for the container-free documentation build. Tempo, Loki, and the
+# collector are consumed as digest-pinned upstream releases, so nothing here builds them.
 alias = "b"
-description = "Build every release artifact: the documentation site and both container images"
-depends = ["build:docs", "build:agent-image", "build:mlflow-image"]
+description = "Build every release artifact: the documentation site and the agent image"
+depends = ["build:docs", "build:agent-image"]
 
 [tasks."build:docs"]
 description = "Build the static documentation site (Hugo → site/)"
@@ -179,18 +179,6 @@ docker build \
   --file agents/python/Dockerfile \
   --tag agentops-agent:dev \
   agents
-"""
-
-[tasks."build:mlflow-image"]
-description = "Build the locked self-hosted MLflow image"
-run = """
-docker build \
-  --build-arg "AGENT_SOURCE_COMMIT=$(git rev-parse HEAD)" \
-  --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
-  --build-arg "OCI_VERSION=$(uv version --short)" \
-  --file infra/mlflow/Dockerfile \
-  --tag "agentops-mlflow:$(./scripts/mlflow-version.sh)" \
-  infra/mlflow
 """
 
 [tasks.promote]

@@ -14,7 +14,7 @@ output "cluster_zone" {
 }
 
 output "region" {
-  description = "GCP region containing the subnet, registry, and bucket."
+  description = "GCP region containing the subnet and the registry."
   value       = var.region
 }
 
@@ -43,19 +43,9 @@ output "artifact_registry_repository" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.agentops.repository_id}"
 }
 
-output "mlflow_bucket_name" {
-  description = "GCS bucket used by the MLflow artifact proxy."
-  value       = google_storage_bucket.mlflow.name
-}
-
 output "agentgateway_service_account" {
   description = "GSA impersonated by the agentgateway Kubernetes ServiceAccount."
   value       = google_service_account.agentgateway.email
-}
-
-output "mlflow_service_account" {
-  description = "GSA impersonated by the MLflow Kubernetes ServiceAccount."
-  value       = google_service_account.mlflow.email
 }
 
 output "node_service_account" {

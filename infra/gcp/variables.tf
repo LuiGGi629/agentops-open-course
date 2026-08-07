@@ -9,7 +9,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Region for the VPC subnet, registry, and artifact bucket."
+  description = "Region for the VPC subnet and the container registry."
   type        = string
   default     = "europe-west1"
 }
@@ -87,13 +87,6 @@ variable "artifact_repository" {
   description = "Artifact Registry Docker repository name."
   type        = string
   default     = "agentops"
-}
-
-variable "mlflow_bucket_name" {
-  description = "Globally unique MLflow artifact bucket; null derives it from project_id."
-  type        = string
-  default     = null
-  nullable    = true
 }
 
 variable "deletion_protection" {

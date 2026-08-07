@@ -347,9 +347,9 @@ def wolfi_index(fetcher: Fetcher) -> dict[str, set[str]]:
 
 
 def local_wolfi_pins() -> list[tuple[str, str, str]]:
-    """Return source, package, and exact version from both runtime images."""
+    """Return source, package, and exact version from every self-built runtime image."""
     pins: list[tuple[str, str, str]] = []
-    for relative in ("agents/python/Dockerfile", "infra/mlflow/Dockerfile"):
+    for relative in ("agents/python/Dockerfile",):
         text = (ROOT / relative).read_text(encoding="utf-8")
         pins.extend((relative, match.group("package"), match.group("version")) for match in APK_PIN.finditer(text))
     return pins
@@ -423,7 +423,6 @@ def static_image_references() -> dict[str, list[str]]:
     """Inventory static external runtime image references and their source files."""
     candidates = [
         ROOT / "agents/python/Dockerfile",
-        ROOT / "infra/mlflow/Dockerfile",
         ROOT / "infra/k3d.yaml",
         ROOT / "infra/observability/compose.yaml",
         ROOT / "scripts/smoke-host.sh",

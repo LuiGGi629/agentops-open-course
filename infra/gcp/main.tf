@@ -1,5 +1,4 @@
 locals {
-  mlflow_bucket_name = coalesce(var.mlflow_bucket_name, "${var.project_id}-mlflow-artifacts")
   labels = {
     app        = "agentops-open-course"
     managed_by = "opentofu"
@@ -79,27 +78,6 @@ resource "google_artifact_registry_repository" "agentops" {
     most_recent_versions {
       keep_count = 5
     }
-  }
-
-  depends_on = [google_project_service.required]
-}
-
-resource "google_storage_bucket" "mlflow" {
-  name                        = local.mlflow_bucket_name
-  project                     = var.project_id
-  location                    = upper(var.region)
-  storage_class               = "STANDARD"
-  uniform_bucket_level_access = true
-  public_access_prevention    = "enforced"
-  force_destroy               = false
-  labels                      = local.labels
-
-  versioning {
-    enabled = false
-  }
-
-  soft_delete_policy {
-    retention_duration_seconds = 0
   }
 
   depends_on = [google_project_service.required]

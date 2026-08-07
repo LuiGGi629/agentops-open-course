@@ -4,7 +4,7 @@ Guidance for coding agents working in the AgentOps Open Course. Humans should st
 
 ## Repository purpose
 
-The course teaches the complete lifecycle of one **AgentOps Agent** with Google ADK, agentgateway, kagent, MLflow, and OpenTelemetry. `main` is a completed, executable reference that learners inspect and extend; it must not drift into a collection of illustrative snippets. Chapter 8.7 turns that reference into a capstone contract for a learner-owned domain.
+The course teaches the complete lifecycle of one **AgentOps Agent** with Google ADK, agentgateway, kagent, OpenTelemetry into Tempo/Loki/Prometheus, and MLflow for offline evaluation. `main` is a completed, executable reference that learners inspect and extend; it must not drift into a collection of illustrative snippets. Chapter 8.7 turns that reference into a capstone contract for a learner-owned domain.
 
 - `content/` contains FAQ-based course pages, built by **Hugo** (`hugo.toml`, `layouts/`, `data/nav.yaml`).
 - `agents/python/` is the locked Python reference agent, offline tests, and model-backed evaluations.
@@ -15,8 +15,7 @@ The course teaches the complete lifecycle of one **AgentOps Agent** with Google 
 - `infra/agentgateway/{host,k3d,gke}/` contains the three data-plane profiles.
 - `infra/k8s/base` plus `infra/k8s/overlays/{local,gke}` contains the shared Kubernetes deployment.
 - `infra/kagent/` declares the BYO Agent, gateway ModelConfig, and governed RemoteMCPServer.
-- `infra/mlflow/` builds the locked non-root MLflow server.
-- `infra/observability/` contains host Compose and in-cluster OTel/Prometheus/Grafana resources.
+- `infra/observability/` contains host Compose and in-cluster OTel/Tempo/Loki/Prometheus/Grafana resources.
 - `infra/gcp/` is a plan-first OpenTofu module for the optional GKE lab.
 
 ## Course invariants
@@ -30,13 +29,14 @@ The course teaches the complete lifecycle of one **AgentOps Agent** with Google 
 - **Skills and retrieved data have different trust.** The carve-out is keyed on the ADK `LoadSkillTool` **type**, which only the locally built `skill_toolset()` constructs — not on the tool's name, which any MCP server could claim. That result is reviewed repository instruction, so it bypasses injection neutralization and spotlighting while retaining recursive PII/credential redaction. Every other tool result stays data-hardened by default.
 - **Audit is append-only, not immutable.** Every row carries its audit schema version. SQLite triggers block row update/delete through the schema; administrators can still alter the file/schema. Do not overclaim.
 - **Telemetry content stays private by default.** Both ADK/GenAI content-capture variables default to literal `false`. PII callbacks cover outbound model requests, inbound model responses, and tool output, but raw session ingestion occurs earlier.
+- **Online collection and offline evaluation are separate paths.** The agent exports OTLP to the collector, which fans traces to Tempo, span-derived RED metrics to Prometheus, and logs to Loki; Grafana reads all three, and the Tempo/Loki datasources link to each other in both directions (`tracesToLogsV2` and the `trace_id` derived field) because the agent stamps `trace_id`/`span_id` on every log record. MLflow is evaluation-only — prompt registry, run comparison, LLM-judge scorers — run on demand by the evaluation harness. Never reintroduce it into the collection path, the collector config, a runtime manifest, or a deployment gate.
 - **No LiteLLM or garak contract.** Runtime/evaluation uses ADK's OpenAI-compatible client for Ollama/agentgateway or native Gemini when selected explicitly. `mise run redteam` is deterministic offline adversarial regression, not live-model penetration testing.
 - **Planning is bounded.** `root_agent` plans only multi-step investigations and verifies approved actions afterward. `triage_workflow` is the runnable, read-only plan → investigate → evidence review → recommend path; do not replace it with an unbounded reflection loop.
 - **Cost-efficient by default.** Prefer deterministic offline tests and fakes, the smallest model that can validate the behavior, and single-replica resource-bounded local services. Measure before increasing model size, context, RAM, CPU, storage, replicas, or load-test concurrency. Do not start a cluster, observability stack, model server, paid API, or cloud resource unless it materially validates the current boundary; stop temporary processes and tear down disposable resources when the check is complete.
 
 ## Open-source boundary
 
-The required software path is OSS: ADK, agentgateway, kagent, MLflow, OpenTelemetry, Prometheus, Grafana, Ollama, the Apache-2.0 open-weight Qwen3 model, and repository code. It requires no account, no mandatory SaaS, and no usage fee. Gemini, Vertex AI, GKE, GCS, Artifact Registry, and GitHub hosting are optional proprietary services. Never blur that distinction or call an optional cloud environment fully OSS.
+The required software path is OSS: ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, MLflow, Ollama, the Apache-2.0 open-weight Qwen3 model, and repository code. It requires no account, no mandatory SaaS, and no usage fee. Gemini, Vertex AI, GKE, GCS, Artifact Registry, and GitHub hosting are optional proprietary services. Never blur that distinction or call an optional cloud environment fully OSS.
 
 Local Qwen3/Ollama is the default model path from the first Chapter 2 interaction. `AGENT_MODEL_PROVIDER=openai-compatible`, `AGENT_MODEL=qwen3:4b-instruct`, `OPENAI_BASE_URL=http://127.0.0.1:11434/v1`, and the non-secret `local-ollama` marker are the stable defaults. Chapter 5 changes only `OPENAI_BASE_URL` to the agentgateway listener. Native Gemini and the GKE/Vertex path are optional comparisons; the GKE overlay uses Workload Identity Federation and mounts no cloud key.
 
@@ -48,17 +48,17 @@ The optional GKE path compatibility-pins `gemini-3.5-flash`. Do not move that pi
 
 Use the repository files and locks as version authority — never a number copied into prose. The authoritative pin for each component lives in:
 
-- Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution. The MLflow server image has its own `infra/mlflow/pyproject.toml`.
+- Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution.
 - Hugo: `mise.toml` `[tools]`. The Hextra theme is a Hugo Module pinned in `go.mod`/`go.sum`; the self-hosted Mermaid and FlexSearch bundles are pinned by version and sha256 in `assets/js/vendor/versions.json`. The remaining documentation gates (front-matter parsing, browser accessibility) are Python: root `pyproject.toml` and `uv.lock`.
 - CLI tools (agentgateway, k3d, kubectl, helm, helmfile, skaffold, k6, gcloud, …): `mise.toml` `[tools]`, with checksums and provenance in `mise.lock`.
 - Workflow-only Docker Buildx: the explicit `version` inputs in `.github/workflows/release.yml`.
 - kagent Helm charts: `infra/helmfile.yaml`. API resources are `v1alpha2`.
-- Container images (agentgateway, OpenTelemetry Collector, Loki, Prometheus, …): digest-pinned at their use site under `infra/k8s/` and `infra/observability/`.
+- Container images (agentgateway, OpenTelemetry Collector, Tempo, Loki, Prometheus, …): digest-pinned at their use site under `infra/k8s/` and `infra/observability/`.
 - Python interpreter: `.python-version`.
 
 GitHub Actions artifacts are transient handoffs. The organization caps artifact and log retention at **7 days**, so every `upload-artifact` step stays at or below that limit; durable release evidence belongs on the immutable GitHub release and in OCI attestations.
 
-This file owns the stable network inventory, while `scripts/check_conventions.py` maps every entry to its executable owner: MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, web client `:8001`, ADK web UI `:8002`, documentation preview `:8003`, Ollama `:11434`, MLflow `:5000`, OTLP `:4317/:4318`, collector metrics `:8889`, pod-local collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, host Grafana `:3002`, Loki `:3100`, and the local registry `:5050`.
+This file owns the stable network inventory, while `scripts/check_conventions.py` maps every entry to its executable owner: MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, web client `:8001`, ADK web UI `:8002`, documentation preview `:8003`, Ollama `:11434`, Tempo `:3200`, OTLP `:4317/:4318`, collector metrics `:8889`, pod-local collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, host Grafana `:3002`, Loki `:3100`, and the local registry `:5050`.
 
 ## Documentation build (Hugo)
 
@@ -86,7 +86,7 @@ Four things differ from a stock Hugo site and are easy to break:
 Release evidence is commit-scoped. Freeze `main`, dispatch Eval and Platform at the candidate SHA, then dispatch Release with that same SHA and the fresh handoffs. Any push creates a new candidate and restarts the evidence sequence; never combine evidence from different commits.
 
 - **Add repository Python:** add the tracked path to `scripts/repository-python-files.txt`; `mise run check:python` rejects both unlisted and stale entries.
-- **Add a network port:** update this file's inventory, `PORT_CONTRACT` in `scripts/check_conventions.py`, the executable owner, and the table in `docs/0. Overview/0.3. Ecosystem.md`.
+- **Add a network port:** update this file's inventory, `PORT_CONTRACT` in `scripts/check_conventions.py`, the executable owner, and the table in `content/0. Overview/0.3. Ecosystem.md`.
 - **Add a course page:** start from the required FAQ frame, add it to the chapter index and navigation, preserve the closing proof contract, then run the docs and accessibility gates.
 - **Bump a coordinated pin:** update the authority named above, regenerate its lock or digest evidence, search for checked compatibility copies, and run every affected offline profile before changing prose.
 

@@ -39,10 +39,12 @@ connectors:
       - name: error.type
 
 exporters:
-  otlp_http/mlflow:
-    endpoint: http://mlflow:5000
-    headers:
-      x-mlflow-experiment-id: "0"
+  # `otlp_http` is the collector's OTLP-over-HTTP exporter (`otlphttp` is the
+  # same component under its other registered id). It must stay HTTP: Tempo's
+  # Service exposes OTLP/HTTP on :4318, and the plain `otlp` exporter would
+  # speak gRPC at it and silently fail every export.
+  otlp_http/tempo:
+    endpoint: http://tempo:4318
   otlp_http/loki:
     endpoint: http://loki:3100/otlp
   prometheus:
@@ -58,7 +60,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp_http/mlflow, span_metrics]
+      exporters: [otlp_http/tempo, span_metrics]
     metrics:
       receivers: [otlp, prometheus/agentgateway, span_metrics]
       processors: [memory_limiter, batch]

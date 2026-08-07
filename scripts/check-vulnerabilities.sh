@@ -123,4 +123,3 @@ audit_profile "documentation" documentation . development
 audit_profile "agent runtime" agent-runtime agents/python runtime
 audit_profile "agent development" agent-development agents/python development
 audit_profile "agent evaluation" agent-evaluation agents/python evaluation
-audit_profile "MLflow runtime" mlflow-runtime infra/mlflow runtime

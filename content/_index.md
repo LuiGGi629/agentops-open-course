@@ -57,7 +57,7 @@ The first turn on CPU can take tens of seconds while the model loads, and a slow
 - Test behavior offline, evaluate model-backed trajectories, redact PII, and require human approval for writes.
 - Route model, tool, and agent traffic through agentgateway with one stable application contract.
 - Run the same container on local k3d or a small GKE lab managed by kagent.
-- Trace the system in self-hosted MLflow and monitor it with OpenTelemetry, Prometheus, and Grafana.
+- Trace, log, and monitor the system with OpenTelemetry into self-hosted Tempo, Loki, and Prometheus, all read through one Grafana.
 
 You are not expected to recognize those names yet. Each one gets its own chapter, and the glossary defines every one of them in a single line.
 
@@ -72,11 +72,15 @@ flowchart TD
     Gateway --> Agent
     Agent --> State[(SQLite state)]
     Agent --> OTel[OpenTelemetry]
-    OTel --> MLflow[MLflow traces]
-    OTel --> Metrics[Prometheus + Grafana]
+    OTel --> Tempo[Tempo traces]
+    OTel --> Loki[Loki logs]
+    OTel --> Metrics[Prometheus metrics]
+    Tempo --> Grafana
+    Loki --> Grafana
+    Metrics --> Grafana
 ```
 
-**Diagram in words:** An engineer reaches the AgentOps Agent through agentgateway. The gateway brokers the agent's MCP tool and model calls. The agent stores state in SQLite and sends OpenTelemetry to MLflow and to Prometheus/Grafana.
+**Diagram in words:** An engineer reaches the AgentOps Agent through agentgateway. The gateway brokers the agent's MCP tool and model calls. The agent stores state in SQLite and sends OpenTelemetry to three stores — Tempo for traces, Loki for logs, Prometheus for metrics — which Grafana reads together.
 
 The bundled incident, log, runbook, and skill data is immutable. A runtime copy receives mock state changes and append-only audit records, which keeps each exercise resettable and safe.
 
@@ -120,7 +124,7 @@ Those per-page times add up to about 29 hours. That is the figure for running ev
 
 ## What does "open source" mean here?
 
-Google ADK, agentgateway, kagent, MLflow, OpenTelemetry, Prometheus, Grafana, Ollama, the Apache-2.0 open-weight Qwen3 model, and the course code form the required open-source path. The optional Gemini API, Vertex AI, GKE, and repository/site hosting are proprietary services. They are integrations, not hidden requirements.
+Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, MLflow, Ollama, the Apache-2.0 open-weight Qwen3 model, and the course code form the required open-source path. The optional Gemini API, Vertex AI, GKE, and repository/site hosting are proprietary services. They are integrations, not hidden requirements.
 
 ## How do you begin?
 

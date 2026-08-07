@@ -134,7 +134,7 @@ PORT_CONTRACT: Final = {
     8003: ("mise.toml", r"hugo server --bind 127\.0\.0\.1 --port 8003"),
     11434: ("agents/python/src/agent/config.py", r'default="http://127\.0\.0\.1:11434/v1"'),
     13133: ("infra/k8s/base/otel-collector-config.yaml", r"endpoint: 0\.0\.0\.0:13133"),
-    5000: ("infra/observability/compose.yaml", r"MLFLOW_PORT:-5000"),
+    3200: ("infra/observability/compose.yaml", r"TEMPO_PORT:-3200"),
     4317: ("infra/observability/compose.yaml", r"OTEL_GRPC_PORT:-4317"),
     4318: ("infra/observability/compose.yaml", r"OTEL_HTTP_PORT:-4318"),
     8889: ("infra/observability/otel-collector.yaml", r"endpoint: 0\.0\.0\.0:8889"),
@@ -1123,21 +1123,6 @@ def check_source_versions(
             surfaces=surfaces,
             pattern=pattern,
         )
-
-    for dockerfile in (root / "infra/mlflow/Dockerfile",):
-        text = dockerfile.read_text(encoding="utf-8")
-        for label, expected, pattern in (
-            ("Python build image", parsed_owners["Python build image"], r"(?m)^FROM python:([^@\s]+)@sha256:"),
-            ("Wolfi Python", parsed_owners["Wolfi Python"], r"(?m)^\s*(python-3\.13=[^\s\\]+)\s*\\?$"),
-            ("Wolfi libstdc++", parsed_owners["Wolfi libstdc++"], r"(?m)^\s*(libstdc\+\+=[^\s\\]+)\s*\\?$"),
-        ):
-            match = re.search(pattern, text)
-            problems += compare_contract(
-                dockerfile.relative_to(root).as_posix(),
-                f"{label} source pin",
-                expected,
-                match.group(1) if match else None,
-            )
 
     external_image = re.compile(
         r"(?:--image=|^\s*image:\s+)"

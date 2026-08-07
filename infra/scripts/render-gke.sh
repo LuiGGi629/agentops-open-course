@@ -13,20 +13,16 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_dir}" || exit
 template="${1:-}"
 project_id="${GCP_PROJECT_ID:-}"
-bucket_name="${MLFLOW_BUCKET_NAME:-}"
 cluster_dns_ip="${GKE_CLUSTER_DNS_IP:-}"
 
-if [[ -z ${project_id} || -z ${bucket_name} || -z ${cluster_dns_ip} ]]; then
+if [[ -z ${project_id} || -z ${cluster_dns_ip} ]]; then
 	require_cmd tofu gcp
 	project_id="${project_id:-$(tofu -chdir=infra/gcp output -raw project_id)}"
-	bucket_name="${bucket_name:-$(tofu -chdir=infra/gcp output -raw mlflow_bucket_name)}"
 	cluster_dns_ip="${cluster_dns_ip:-$(tofu -chdir=infra/gcp output -raw cluster_dns_ip)}"
 fi
 
 [[ ${project_id} =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] ||
 	fail "GCP_PROJECT_ID must be a valid Google Cloud project ID"
-[[ ${bucket_name} =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]] ||
-	fail "MLFLOW_BUCKET_NAME must be a valid 3-63 character GCS bucket name"
 [[ ${cluster_dns_ip} =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] ||
 	fail "GKE_CLUSTER_DNS_IP must be an IPv4 address"
 
@@ -50,7 +46,6 @@ esac
 
 sed \
 	-e "s/__GCP_PROJECT_ID__/${project_id}/g" \
-	-e "s/__MLFLOW_BUCKET_NAME__/${bucket_name}/g" \
 	-e "s/__GKE_CLUSTER_DNS_IP__/${cluster_dns_ip}/g" \
 	"${template_file}" >"${rendered_file}"
 

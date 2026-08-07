@@ -97,10 +97,7 @@ main() {
 		return 1
 	fi
 
-	local name
-	for name in agent mlflow; do
-		promote_one "${name}" || return 1
-	done
+	promote_one agent || return 1
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then

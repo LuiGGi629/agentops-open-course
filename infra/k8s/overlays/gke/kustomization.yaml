@@ -4,14 +4,7 @@ kind: Kustomization
 resources:
   - ../../base
   - ../../../agentgateway/gke
-  - network-policies.yaml
   - storage-class.yaml
-
-configMapGenerator:
-  - name: gke-overlay-values
-    namespace: agentops
-    literals:
-      - mlflow-artifacts-destination=gs://__MLFLOW_BUCKET_NAME__
 
 patches:
   - path: workload-identity.yaml
@@ -34,15 +27,6 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/cpu
         value: 50m
-  - target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: mlflow
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/requests/cpu
-        value: 100m
   - target:
       group: kagent.dev
       version: v1alpha2
@@ -116,15 +100,3 @@ replacements:
           name: agentops-agent
         fieldPaths:
           - spec.byo.deployment.env.[name=^AGENT_MODEL$].value
-  - source:
-      kind: ConfigMap
-      name: gke-overlay-values
-      fieldPath: data.mlflow-artifacts-destination
-    targets:
-      - select:
-          group: apps
-          version: v1
-          kind: Deployment
-          name: mlflow
-        fieldPaths:
-          - spec.template.spec.containers.[name=^mlflow$].env.[name=^MLFLOW_ARTIFACTS_DESTINATION$].value

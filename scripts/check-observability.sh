@@ -7,6 +7,7 @@ source "${lib_dir}/lib.sh"
 require_cmd docker gateway
 require_cmd curl
 require_cmd jq base
+require_cmd openssl gateway
 
 mode=${1:-ready}
 case "${mode}" in
@@ -30,7 +31,7 @@ if [[ ${mode} == stopped ]]; then
 fi
 
 expected_services=$(
-	printf '%s\n' alertmanager grafana loki mlflow otel-collector prometheus | sort
+	printf '%s\n' alertmanager grafana loki otel-collector prometheus tempo | sort
 )
 running_services=$("${compose[@]}" ps --status running --services | sort)
 if [[ ${running_services} != "${expected_services}" ]]; then
@@ -55,7 +56,7 @@ wait_http() {
 	fail "${label} did not become ready: ${url}"
 }
 
-wait_http MLflow "http://127.0.0.1:${MLFLOW_PORT:-5000}/health"
+wait_http Tempo "http://127.0.0.1:${TEMPO_PORT:-3200}/ready"
 wait_http Loki "http://127.0.0.1:${LOKI_PORT:-3100}/ready"
 wait_http Prometheus "http://127.0.0.1:${PROMETHEUS_PORT:-9090}/-/ready"
 wait_http Alertmanager "http://127.0.0.1:${ALERTMANAGER_PORT:-9093}/-/ready"
@@ -74,6 +75,56 @@ collector_status=$(
 )
 [[ ${collector_status} == 200 ]]
 printf 'OpenTelemetry Collector ready: OTLP/HTTP accepted an empty valid batch\n'
+
+# Accepting a batch only proves the receiver works. A misnamed or misdirected
+# trace exporter drops every span after that 200, with nothing in the collector
+# log, so push one real span and read it back out of Tempo.
+probe_trace_id=$(openssl rand -hex 16)
+probe_span_id=$(openssl rand -hex 8)
+probe_start=$(date +%s)000000000
+probe_end=$(($(date +%s) + 1))000000000
+probe_span=$(
+	jq -nc \
+		--arg trace "${probe_trace_id}" \
+		--arg span "${probe_span_id}" \
+		--arg start "${probe_start}" \
+		--arg end "${probe_end}" \
+		'{
+			resourceSpans: [{
+				resource: {attributes: [{key: "service.name", value: {stringValue: "agentops-observability-check"}}]},
+				scopeSpans: [{spans: [{
+					traceId: $trace,
+					spanId: $span,
+					name: "observability-check",
+					kind: 1,
+					startTimeUnixNano: $start,
+					endTimeUnixNano: $end
+				}]}]
+			}]
+		}'
+)
+curl \
+	--fail \
+	--silent \
+	--show-error \
+	--max-time 5 \
+	--output /dev/null \
+	--header 'Content-Type: application/json' \
+	--data "${probe_span}" \
+	"http://127.0.0.1:${OTEL_HTTP_PORT:-4318}/v1/traces"
+
+trace_url="http://127.0.0.1:${TEMPO_PORT:-3200}/api/traces/${probe_trace_id}"
+trace_visible=false
+for _ in {1..30}; do
+	if curl --fail --silent --show-error --max-time 2 "${trace_url}" >/dev/null 2>&1; then
+		trace_visible=true
+		break
+	fi
+	sleep 1
+done
+[[ ${trace_visible} == true ]] ||
+	fail "collector accepted a span but Tempo never served it: ${trace_url}"
+printf 'trace path verified: agent -> collector -> Tempo (%s)\n' "${probe_trace_id}"
 
 grafana_database=$(
 	curl --fail --silent --show-error \
@@ -103,7 +154,7 @@ while IFS= read -r container_id; do
 done <<<"${container_ids}"
 
 for mapping in \
-	"mlflow 5000" \
+	"tempo 3200" \
 	"loki 3100" \
 	"otel-collector 4317" \
 	"otel-collector 4318" \

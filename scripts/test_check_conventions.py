@@ -185,7 +185,6 @@ class SourceContractTests(unittest.TestCase):
             "agents/python/pyproject.toml",
             "agents/python/Dockerfile",
             "infra/helmfile.yaml",
-            "infra/mlflow/Dockerfile",
             "mise.toml",
             "scripts/install-helm-diff.sh",
         )
@@ -210,7 +209,6 @@ class SourceContractTests(unittest.TestCase):
             "agents/python/pyproject.toml",
             "agents/python/Dockerfile",
             "infra/helmfile.yaml",
-            "infra/mlflow/Dockerfile",
             "mise.toml",
             "scripts/install-helm-diff.sh",
         )

@@ -51,6 +51,48 @@ collector_health_endpoint="$(yq -r '.extensions.health_check.endpoint' infra/k8s
 collector_service_extensions="$(yq -r '.service.extensions | join(",")' infra/k8s/base/otel-collector-config.yaml)"
 assert_eq "collector health extension endpoint" "${collector_health_endpoint}" "0.0.0.0:13133"
 assert_eq "collector enabled extensions" "${collector_service_extensions}" "health_check"
+
+# Traces leave the collector over OTLP/HTTP to Tempo, in both planes. A wrong
+# exporter id is not a startup error the learner sees — the collector accepts
+# `otlp` (gRPC) against Tempo's HTTP port and then drops every batch — so assert
+# the exact exporter, its endpoint, and that the traces pipeline names it.
+for collector_config in infra/observability/otel-collector.yaml infra/k8s/base/otel-collector-config.yaml; do
+	trace_exporters="$(yq -r '.service.pipelines.traces.exporters | sort | join(",")' "${collector_config}")"
+	tempo_endpoint="$(yq -r '.exporters."otlp_http/tempo".endpoint' "${collector_config}")"
+	loki_endpoint="$(yq -r '.exporters."otlp_http/loki".endpoint' "${collector_config}")"
+	assert_eq "${collector_config} trace exporters" "${trace_exporters}" "otlp_http/tempo,span_metrics"
+	assert_eq "${collector_config} Tempo endpoint" "${tempo_endpoint}" "http://tempo:4318"
+	assert_eq "${collector_config} Loki endpoint" "${loki_endpoint}" "http://loki:3100/otlp"
+done
+
+# Both Tempo configs must accept OTLP on the port the collector writes to and
+# serve their query API on the port Grafana and the readiness check use.
+for tempo_config in infra/observability/tempo.yaml infra/k8s/base/tempo-config.yaml; do
+	tempo_otlp_endpoint="$(yq -r '.distributor.receivers.otlp.protocols.http.endpoint' "${tempo_config}")"
+	tempo_http_port="$(yq -r '.server.http_listen_port' "${tempo_config}")"
+	tempo_usage_report="$(yq -r '.usage_report.reporting_enabled' "${tempo_config}")"
+	assert_eq "${tempo_config} OTLP receiver" "${tempo_otlp_endpoint}" "0.0.0.0:4318"
+	assert_eq "${tempo_config} query port" "${tempo_http_port}" "3200"
+	# The account-free promise: no component may phone an upstream vendor.
+	assert_eq "${tempo_config} usage reporting" "${tempo_usage_report}" "false"
+done
+
+# Correlation is only a lesson if it resolves in both directions: a span must
+# reach its logs and a log line must reach its trace. One direction is half a
+# feature, and neither link fails loudly when its target uid is wrong.
+grafana_datasources=infra/observability/grafana/datasources.yaml
+tempo_datasource_url="$(yq -r '.datasources[] | select(.uid == "tempo") | .url' "${grafana_datasources}")"
+traces_to_logs_uid="$(yq -r '.datasources[] | select(.uid == "tempo") | .jsonData.tracesToLogsV2.datasourceUid' "${grafana_datasources}")"
+derived_field_uid="$(yq -r '.datasources[] | select(.uid == "loki") | .jsonData.derivedFields[0].datasourceUid' "${grafana_datasources}")"
+derived_field_matcher="$(yq -r '.datasources[] | select(.uid == "loki") | .jsonData.derivedFields[0].matcherType + ":" + .jsonData.derivedFields[0].matcherRegex' "${grafana_datasources}")"
+derived_field_url="$(yq -r '.datasources[] | select(.uid == "loki") | .jsonData.derivedFields[0].url' "${grafana_datasources}")"
+assert_eq "Grafana Tempo datasource URL" "${tempo_datasource_url}" "http://tempo:3200"
+assert_eq "Grafana trace-to-logs target" "${traces_to_logs_uid}" "loki"
+assert_eq "Grafana log-to-trace target" "${derived_field_uid}" "tempo"
+assert_eq "Grafana log-to-trace matcher" "${derived_field_matcher}" "label:trace_id"
+# Grafana interpolates `$VAR` while loading a provisioning file, so a single
+# `$` here would provision an empty link that still looks configured.
+assert_eq "Grafana log-to-trace query" "${derived_field_url}" "\$\${__value.raw}"
 if rg -n '/env/[0-9]+/value' infra/k8s/overlays/*/kustomization.yaml; then
 	fail "overlay environment patches must select entries by name"
 fi
@@ -59,7 +101,6 @@ for overlay in local gke; do
 	rendered="${tmp_dir}/${overlay}.yaml"
 	if [[ ${overlay} == gke ]]; then
 		GCP_PROJECT_ID=agentops-course-check \
-			MLFLOW_BUCKET_NAME=agentops-course-check-mlflow \
 			GKE_CLUSTER_DNS_IP=10.30.0.10 \
 			infra/scripts/render-gke.sh >"${rendered}"
 	else
@@ -186,8 +227,8 @@ for overlay in local gke; do
 	backup_arguments="$(yq -r 'select(.kind == "CronJob" and .metadata.name == "agentops-state-backup") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name == "backup") | .args[]' "${rendered}")"
 	assert_eq "${overlay} backup state read-only" "${backup_state_read_only}" "true"
 	assert_eq "${overlay} backup target writable" "${backup_target_read_only}" "false"
-	mlflow_memory_limit="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[0].resources.limits.memory' "${rendered}")"
-	assert_eq "${overlay} MLflow memory limit" "${mlflow_memory_limit}" "2Gi"
+	tempo_memory_limit="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "tempo") | .spec.template.spec.containers[0].resources.limits.memory' "${rendered}")"
+	assert_eq "${overlay} Tempo memory limit" "${tempo_memory_limit}" "1Gi"
 	if rg -Fx -- '--lock-file' <<<"${backup_arguments}" >/dev/null; then
 		fail "backup CronJob must use the shared state-directory lock"
 	fi
@@ -200,21 +241,20 @@ for overlay in local gke; do
 		assert_eq "GKE ModelConfig model" "${model_config}" "gemini-3.5-flash"
 
 		gateway_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "agentgateway") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
-		mlflow_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "mlflow") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
-		mlflow_bucket="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[] | select(.name == "mlflow") | .env[] | select(.name == "MLFLOW_ARTIFACTS_DESTINATION") | .value' "${rendered}")"
+		# agentgateway is the only workload left with a Google identity. Tempo
+		# replaced MLflow's GCS artifact proxy with a PersistentVolumeClaim, so a
+		# second annotated ServiceAccount would be unexplained cloud privilege.
+		annotated_service_accounts="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.annotations."iam.gke.io/gcp-service-account" != null) | .metadata.name' "${rendered}" | sort | paste -sd, -)"
 		gke_storage_classes="$(yq -r 'select(.kind == "PersistentVolumeClaim") | .spec.storageClassName' "${rendered}" | rg -v '^---$' | sort -u)"
 		assert_eq "GKE gateway service account" "${gateway_gsa}" "agentgateway@agentops-course-check.iam.gserviceaccount.com"
-		assert_eq "GKE MLflow service account" "${mlflow_gsa}" "mlflow@agentops-course-check.iam.gserviceaccount.com"
-		assert_eq "GKE MLflow bucket" "${mlflow_bucket}" "gs://agentops-course-check-mlflow"
+		assert_eq "GKE annotated service accounts" "${annotated_service_accounts}" "agentgateway"
 		assert_eq "GKE storage classes" "${gke_storage_classes}" "agentops-standard"
 
-		for deployment in agentgateway agentops-mcp loki otel-collector; do
+		for deployment in agentgateway agentops-mcp loki otel-collector tempo; do
 			deployment_cpu="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "'"${deployment}"'") | .spec.template.spec.containers[0].resources.requests.cpu' "${rendered}")"
 			assert_eq "GKE ${deployment} CPU request" "${deployment_cpu}" "50m"
 		done
-		mlflow_cpu="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[0].resources.requests.cpu' "${rendered}")"
 		agent_cpu="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.resources.requests.cpu' "${rendered}")"
-		assert_eq "GKE MLflow CPU request" "${mlflow_cpu}" "100m"
 		assert_eq "GKE agent CPU request" "${agent_cpu}" "100m"
 
 		vertex_backend_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.provider.vertex.model' infra/agentgateway/gke/config.yaml)"
@@ -223,26 +263,28 @@ for overlay in local gke; do
 		dns_service_cidr="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "dns-egress") | .spec.egress[].to[]? | select(.ipBlock) | .ipBlock.cidr' "${rendered}")"
 		assert_eq "GKE DNS service CIDR" "${dns_service_cidr}" "10.30.0.10/32"
 
-		# Terraform selects Calico, not Dataplane V2. Lock both workloads to the
+		# Terraform selects Calico, not Dataplane V2. Lock the workload to the
 		# corresponding GKE metadata endpoint and reject the incompatible one.
 		if grep -Fq "169.254.169.254" "${rendered}"; then
 			echo "GKE overlay contains the Dataplane V2 metadata endpoint, but the cluster uses Calico" >&2
 			exit 1
 		fi
+		# agentgateway is the sole Workload Identity consumer since Tempo replaced
+		# MLflow's GCS artifact proxy, so the occurrence count below is also an
+		# assertion that no second workload quietly reacquires the metadata route.
 		wif_cidr="169.254.169.252/32"
-		for policy in agentgateway-egress mlflow-egress; do
-			wif_rule='select(.kind == "NetworkPolicy" and .metadata.name == "'"${policy}"'") | .spec.egress[] | select(.to[0].ipBlock.cidr == "'"${wif_cidr}"'")'
-			wif_rule_count="$(yq -r "${wif_rule} | .to[0].ipBlock.cidr" "${rendered}" | awk 'NF { count++ } END { print count + 0 }')"
-			wif_to_counts="$(yq -r "${wif_rule} | .to | length" "${rendered}" | sort -n | paste -sd, -)"
-			wif_ports="$(yq -r "${wif_rule} | .ports[].port" "${rendered}" | sort -n | paste -sd, -)"
-			wif_protocols="$(yq -r "${wif_rule} | .ports[].protocol" "${rendered}" | sort | paste -sd, -)"
-			assert_eq "${policy} WIF rule count" "${wif_rule_count}" "1"
-			assert_eq "${policy} WIF destination count" "${wif_to_counts}" "1"
-			assert_eq "${policy} WIF ports" "${wif_ports}" "987,988"
-			assert_eq "${policy} WIF protocols" "${wif_protocols}" "TCP,TCP"
-		done
+		wif_policy="agentgateway-egress"
+		wif_rule='select(.kind == "NetworkPolicy" and .metadata.name == "'"${wif_policy}"'") | .spec.egress[] | select(.to[0].ipBlock.cidr == "'"${wif_cidr}"'")'
+		wif_rule_count="$(yq -r "${wif_rule} | .to[0].ipBlock.cidr" "${rendered}" | awk 'NF { count++ } END { print count + 0 }')"
+		wif_to_counts="$(yq -r "${wif_rule} | .to | length" "${rendered}" | sort -n | paste -sd, -)"
+		wif_ports="$(yq -r "${wif_rule} | .ports[].port" "${rendered}" | sort -n | paste -sd, -)"
+		wif_protocols="$(yq -r "${wif_rule} | .ports[].protocol" "${rendered}" | sort | paste -sd, -)"
 		wif_cidr_count="$(grep -Fc "${wif_cidr}" "${rendered}")"
-		assert_eq "GKE WIF CIDR occurrence count" "${wif_cidr_count}" "2"
+		assert_eq "${wif_policy} WIF rule count" "${wif_rule_count}" "1"
+		assert_eq "${wif_policy} WIF destination count" "${wif_to_counts}" "1"
+		assert_eq "${wif_policy} WIF ports" "${wif_ports}" "987,988"
+		assert_eq "${wif_policy} WIF protocols" "${wif_protocols}" "TCP,TCP"
+		assert_eq "GKE WIF CIDR occurrence count" "${wif_cidr_count}" "1"
 	fi
 done
 
@@ -536,11 +578,13 @@ docker compose \
 	config \
 	--format json >"${compose_config}"
 compose_services="$(jq -r '.services | keys[]' "${compose_config}" | sort | paste -sd, -)"
-assert_eq "observability Compose services" "${compose_services}" "alertmanager,grafana,loki,mlflow,otel-collector,prometheus"
+assert_eq "observability Compose services" "${compose_services}" "alertmanager,grafana,loki,otel-collector,prometheus,tempo"
 compose_network="$(jq -r '.networks.default.name' "${compose_config}")"
 prometheus_gateway_target="$(yq -r '.scrape_configs[] | select(.job_name == "agentgateway") | .static_configs[0].targets[0]' infra/observability/prometheus.yml)"
 assert_eq "observability shared gateway network" "${compose_network}" "agentops-host-gateway-net"
 assert_eq "Prometheus gateway target" "${prometheus_gateway_target}" "agentops-gateway:15020"
+prometheus_tempo_target="$(yq -r '.scrape_configs[] | select(.job_name == "tempo") | .static_configs[0].targets[0]' infra/observability/prometheus.yml)"
+assert_eq "Prometheus Tempo target" "${prometheus_tempo_target}" "tempo:3200"
 jq -e '
 	.services |
 	to_entries |
@@ -566,15 +610,19 @@ rendered="${tmp_dir}/skaffold-render.yaml"
 		--profile local \
 		--offline \
 		--digest-source tag \
-		--images agentops-agent=agentops-agent:infra-check \
-		--images agentops-mlflow=agentops-mlflow:infra-check
+		--images agentops-agent=agentops-agent:infra-check
 ) >"${rendered}"
 agent_image="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.image' "${rendered}")"
 mcp_image="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "agentops-mcp") | .spec.template.spec.containers[] | select(.name == "mcp") | .image' "${rendered}")"
-mlflow_image="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow") | .spec.template.spec.containers[] | select(.name == "mlflow") | .image' "${rendered}")"
+# Tempo ships as an upstream release, so Skaffold must leave its reference
+# alone. A tag-only image here would let the cluster and the Compose stack run
+# two different trace stores while both call themselves the same version.
+tempo_image="$(yq -r 'select(.kind == "Deployment" and .metadata.name == "tempo") | .spec.template.spec.containers[] | select(.name == "tempo") | .image' "${rendered}")"
+compose_tempo_image="$(jq -r '.services.tempo.image' "${compose_config}")"
 [[ "${agent_image}" == "${mcp_image}" ]]
 [[ "${agent_image##*/}" == "agentops-agent:infra-check" ]]
-[[ "${mlflow_image##*/}" == "agentops-mlflow:infra-check" ]]
+assert_eq "rendered Tempo image" "${tempo_image}" "${compose_tempo_image}"
+[[ "${tempo_image}" == *"@sha256:"* ]]
 
 # A TCP socket can be open while the dataset/session store is unusable. Assert
 # the rendered MCP workload keeps the real HTTP probe and drain contract from
@@ -607,8 +655,6 @@ gateway_service_ports="$(yq -r 'select(.kind == "Service" and .metadata.name == 
 [[ "${gateway_service_ports}" == "3000,3001,4000,15020" ]]
 
 helmfile --file infra/helmfile.yaml --quiet lint --args '--quiet'
-
-uv lock --directory infra/mlflow --check
 
 tofu -chdir=infra/gcp fmt -check -recursive
 tofu -chdir=infra/gcp init -backend=false -input=false -lockfile=readonly

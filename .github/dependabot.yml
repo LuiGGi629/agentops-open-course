@@ -4,7 +4,7 @@
 # It is native to GitHub and needs no token, no app install, and no self-hosted workflow.
 #
 # Dependabot does not support globs in `directory`, so each project gets its own entry: the docs
-# root, the agent, and the MLflow image environment are three independent uv projects.
+# root and the agent are two independent uv projects.
 #
 # Nothing auto-merges. The offline gate cannot see model or protocol drift, so every update goes
 # through the local validation playbook in docs 8.2. Releases.
@@ -64,40 +64,8 @@ updates:
           - minor
           - patch
 
-  - package-ecosystem: uv
-    directory: /infra/mlflow # the locked self-hosted MLflow server image
-    schedule:
-      interval: weekly
-      day: monday
-    commit-message:
-      prefix: "chore(deps)"
-    open-pull-requests-limit: 5
-    groups:
-      mlflow-image-dependencies:
-        patterns:
-          - "*"
-        exclude-patterns:
-          - "mlflow*"
-        update-types:
-          - minor
-          - patch
-
   - package-ecosystem: docker
     directory: /agents/python # agent image base stages
-    schedule:
-      interval: weekly
-      day: monday
-    commit-message:
-      prefix: "chore(deps)"
-    open-pull-requests-limit: 5
-    ignore:
-      - dependency-name: python
-        update-types:
-          - version-update:semver-major
-          - version-update:semver-minor
-
-  - package-ecosystem: docker
-    directory: /infra/mlflow # MLflow image base stages
     schedule:
       interval: weekly
       day: monday

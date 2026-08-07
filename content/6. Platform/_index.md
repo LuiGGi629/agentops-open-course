@@ -105,13 +105,13 @@ Only environment-specific values differ, and every one is a small patch you can 
 | Model backend    | `qwen3:4b-instruct` (host Ollama)       | `gemini-3.5-flash` (Vertex)                                  |
 | Image registry   | `registry.localhost:5050`               | Artifact Registry (`…-docker.pkg.dev`)                       |
 | Identity         | in-cluster ServiceAccounts              | GKE Workload Identity annotations (`workload-identity.yaml`) |
-| MLflow artifacts | local PVC (`/var/lib/mlflow/artifacts`) | GCS bucket from the OpenTofu `mlflow_bucket_name` output     |
+| Volume storage   | k3d's default local-path provisioner    | `agentops-standard` StorageClass on every PVC                |
 | Egress exception | any IPv4 TCP `:11434` (intended Ollama) | any IPv4 `:443` (intended Vertex) plus WIF `:987`/`:988`     |
 
 Two of those rows are a `patches:` entry in exactly one overlay's `kustomization.yaml`, not in both:
 
 1. The model-backend override (`qwen3:4b-instruct`) lives only in `overlays/local`; `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`.
-1. The MLflow GCS placeholder lives only in `overlays/gke`; `render-gke.sh` resolves it from OpenTofu, while `overlays/local` inherits `/var/lib/mlflow/artifacts` from the base `infra/k8s/base/mlflow.yaml`.
+1. The `agentops-standard` storage-class patch lives only in `overlays/gke`, where it selects a persistent disk for every claim carrying the course label; `overlays/local` adds nothing and inherits k3d's default provisioner.
 
 The egress rows are `NetworkPolicy` additions [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}}) explains and `scripts/check-infra.sh` asserts. {{% /collapsible %}}
 
@@ -123,7 +123,7 @@ Each row below is a symptom you can observe, the misconfiguration that usually c
 
 | Symptom                                               | Likely cause                                                                                                                              | Where to look                                                                                                                                 |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| No traces appear in MLflow                            | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector" >}})                             |
+| No traces appear in Tempo                             | An `http/protobuf` client points at `:4317` instead of `:4318`, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset entirely                        | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md#how-do-you-point-a-host-agent-at-the-collector" >}})                             |
 | Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL                       | [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds" >}}) |
 | Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                                                | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
 | Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                                                     | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |

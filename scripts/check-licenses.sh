@@ -236,8 +236,6 @@ pids+=("$!")
 if [[ ${profile} == full ]]; then
 	sync_inventory "agent evaluation" agent-evaluation agents/python evaluation "${inventory_dir}/agent-evaluation.json" &
 	pids+=("$!")
-	sync_inventory "MLflow runtime" mlflow-runtime infra/mlflow runtime "${inventory_dir}/mlflow.json" &
-	pids+=("$!")
 fi
 
 inventory_failed=0
@@ -257,8 +255,4 @@ if [[ ${profile} == full ]]; then
 	check_embedded_license "agent evaluation" "${inventory_dir}/agent-evaluation.json" google-crc32c 'Apache License'
 	check_embedded_license "agent evaluation" "${inventory_dir}/agent-evaluation.json" huey 'Permission is hereby granted'
 	check_embedded_license "agent evaluation" "${inventory_dir}/agent-evaluation.json" skops 'MIT License'
-	check_python_environment "MLflow" "${inventory_dir}/mlflow.json" google-crc32c huey skops
-	check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" google-crc32c 'Apache License'
-	check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" huey 'Permission is hereby granted'
-	check_embedded_license "MLflow" "${inventory_dir}/mlflow.json" skops 'MIT License'
 fi
