@@ -91,6 +91,50 @@ alias = "w"
 description = "Run the test suite in watch mode"
 run = "gotestsum --watch --format pkgname -- ./..."
 
+[tasks.run]
+alias = "r"
+description = "Run the agent in the terminal with the configured model"
+# AGENT_ENTRYPOINT selects the composition the one binary serves, exactly as it
+# does on the Python track: the three terminal tasks below differ only by it.
+env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
+run = "go run ./cmd/agent console"
+
+[tasks.workflow]
+description = "Run the bounded read-only planning workflow in the terminal"
+env = { AGENT_ENTRYPOINT = "workflow", _.file = { path = "../../.env", redact = true } }
+run = "go run ./cmd/agent console"
+
+[tasks.coordinator]
+description = "Run the least-privilege multi-agent coordinator in the terminal"
+env = { AGENT_ENTRYPOINT = "coordinator", _.file = { path = "../../.env", redact = true } }
+run = "go run ./cmd/agent console"
+
+[tasks.web]
+description = "Run the ADK developer web UI with the configured model on :8002"
+# Not ADK's default :8080: the A2A server owns that port in the stable network
+# contract and the raw MCP server owns :8000, so both would collide whenever
+# Chapter 3.3 or 3.6 is running. The two address flags are not decoration —
+# the UI calls the REST API by the address it is given and the API allows CORS
+# for the address it is given, and both default to :8080.
+env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
+run = "go run ./cmd/agent web -port 8002 webui -api_server_address http://localhost:8002/api api -webui_address localhost:8002"
+
+[tasks.a2a]
+description = "Run the persistent A2A server on :8080"
+env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
+run = "go run ./cmd/agent a2a"
+
+[tasks.mcp]
+description = "Run the AgentOps Agent MCP server over stdio (Ch. 3.3)"
+# No dotenv, on either MCP task: this process builds no model and holds no
+# credential — it reads the dataset and answers the six read tools.
+run = "go run ./cmd/agent mcp"
+
+[tasks."mcp:http"]
+description = "Run the AgentOps Agent MCP server over streamable HTTP on :8000"
+env = { MCP_HOST = "127.0.0.1", MCP_PORT = "8000", MCP_TRANSPORT = "streamable-http" }
+run = "go run ./cmd/agent mcp"
+
 [tasks.clean]
 alias = "n"
 description = "Remove caches and build artifacts"

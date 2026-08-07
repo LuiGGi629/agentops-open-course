@@ -1,0 +1,408 @@
+// Package state publishes and restores versioned, integrity-checked snapshots
+// of the agent's SQLite state.
+//
+// The host scripts and the Kubernetes CronJob both drive this package, so the
+// snapshot format, the compatibility checks, and the restore rollback have one
+// implementation and one set of guarantees.
+//
+// # What the module actually promises
+//
+// Writers must be stopped before a restore. A restore is not a multi-file
+// rename: it is a three-phase journaled transaction, serialized across
+// processes by an advisory lock on the state directory, with an fsync at every
+// point where the next step would otherwise be unrecoverable.
+//
+//   - Nothing mutates live state before the snapshot manifest fully validates.
+//   - The journal is durable before the first live-state mutation.
+//   - Every live-state mutation is followed by an fsync of both the source and
+//     the destination directory.
+//   - A crash at any point leaves either the complete old generation or the
+//     complete new generation, never a mix, and the next
+//     [RecoverInterruptedRestore] proves which.
+//   - Recovery refuses to guess. Residue it cannot explain, or bytes it cannot
+//     match to a recorded generation, is a hard error that leaves the evidence
+//     in place for an operator.
+//
+// The committed seed database is never touched here: this package only ever
+// reads and writes the disposable state directory and a backup root beside it.
+//
+// # Why the byte encodings are pinned
+//
+// The `.complete` marker records the SHA-256 of `manifest.json`, and the schema
+// identity of every database is a SHA-256 over its serialized `sqlite_schema`
+// rows. Both are byte contracts, and both are also the contract the Python
+// track writes, so this package reproduces Python's json.dumps output exactly:
+// sorted keys, two-space indent, no HTML escaping, and every non-ASCII rune
+// escaped as \uXXXX. A snapshot published by either track restores under the
+// other.
+package state
+
+import (
+	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
+)
+
+// SnapshotFormatVersion is the on-disk snapshot format this binary writes and
+// the only one it accepts.
+const SnapshotFormatVersion = 1
+
+// restoreJournalFormatVersion is the restore journal's own format version. It
+// is deliberately separate from [SnapshotFormatVersion]: the journal describes
+// a transaction in progress, the snapshot describes published bytes, and the
+// two can evolve independently.
+const restoreJournalFormatVersion = 1
+
+// File and directory names the format owns.
+const (
+	manifestName       = "manifest.json"
+	completeName       = ".complete"
+	restoreJournalName = ".restore-journal.json"
+	restoreLockName    = ".state-restore.lock"
+
+	stagingPrefix     = ".restore-staged."
+	quarantinePrefix  = ".restore-quarantine."
+	journalPrefix     = ".restore-journal."
+	journalTempSuffix = ".tmp"
+
+	incompletePrefix = ".incomplete-"
+	stampLockPrefix  = ".lock-"
+)
+
+// applicationName is the provenance stamped into every manifest.
+//
+// It is the Python distribution's name rather than this module's path, and
+// deliberately so: the two tracks share one snapshot format, and a snapshot
+// taken by either one must read as the same application to the other.
+const applicationName = "agentops-agent"
+
+// unknownCommit is what the manifest records when the build did not stamp one.
+const unknownCommit = "unknown"
+
+// stampLayout is the snapshot directory name format, YYYYMMDDTHHMMSSZ. The
+// trailing Z is a literal here — Go only reads it as a zone offset when it is
+// followed by an offset layout such as Z07:00.
+const stampLayout = "20060102T150405Z"
+
+// File modes.
+const (
+	// dirPerm is the mode of every directory this package creates.
+	dirPerm = 0o750
+	// documentPerm matches what the Python track's json write produced under a
+	// standard umask, so a snapshot taken by one track stays readable to an
+	// operator restoring it from the other under a different account.
+	documentPerm = 0o644
+	// privatePerm is for the journal and the lock: transaction-local files that
+	// only the process that owns the state directory ever reads.
+	privatePerm = 0o600
+)
+
+// hashChunkSize is the streaming digest buffer, matching the Python track's
+// 1 MiB reads. State databases are small, but the snapshot path must not be
+// bounded by the size of a file it is asked to hash.
+const hashChunkSize = 1 << 20
+
+// ErrSnapshot marks every failure this package reports.
+//
+// It is the Go counterpart of Python's StateSnapshotError. Callers that need to
+// tell "the snapshot boundary rejected this" apart from any other failure test
+// it with errors.Is; the cause wrapped underneath keeps the original message.
+var ErrSnapshot = errors.New("state snapshot failed")
+
+// snapshotErrorf reports a snapshot failure with no underlying cause.
+//
+// The name ends in f and the arguments are forwarded verbatim, so vet treats it
+// as a printf wrapper and checks the format string at every call site.
+func snapshotErrorf(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrSnapshot, fmt.Sprintf(format, args...))
+}
+
+// resolveLogger returns the caller's logger or the process default.
+func resolveLogger(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return slog.Default()
+}
+
+// sha256File returns the hex SHA-256 of a file's contents.
+func sha256File(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open %s for hashing: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	digest := sha256.New()
+	if _, err := io.CopyBuffer(digest, file, make([]byte, hashChunkSize)); err != nil {
+		return "", fmt.Errorf("read %s for hashing: %w", path, err)
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// fsyncDir flushes a directory's own entries to stable storage.
+//
+// This is the operation the whole module turns on: renaming a file makes the
+// new name visible, but only an fsync of the directory makes that name durable
+// across a power loss. Every publication point in this package is followed by
+// one, and the journal write is preceded by one as well.
+func fsyncDir(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open the directory %s to fsync it: %w", path, err)
+	}
+	if err := directory.Sync(); err != nil {
+		return errors.Join(
+			fmt.Errorf("fsync the directory %s: %w", path, err),
+			closeQuietly(directory, path),
+		)
+	}
+	return closeQuietly(directory, path)
+}
+
+// fsyncFile flushes one file's contents to stable storage.
+func fsyncFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s to fsync it: %w", path, err)
+	}
+	if err := file.Sync(); err != nil {
+		return errors.Join(fmt.Errorf("fsync %s: %w", path, err), closeQuietly(file, path))
+	}
+	return closeQuietly(file, path)
+}
+
+// closeQuietly closes a handle and names the file when the close itself fails.
+func closeQuietly(file *os.File, path string) error {
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", path, err)
+	}
+	return nil
+}
+
+// databaseFiles lists the SQLite databases directly inside a directory, sorted
+// by name.
+//
+// Dot-prefixed entries are skipped because Python's Path.glob("*.db") skips
+// them, and both tracks have to agree on what a snapshot contains. os.ReadDir
+// already returns entries sorted by name, which is the order the manifest and
+// every publication loop rely on.
+func databaseFiles(directory string) ([]string, error) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, fmt.Errorf("%w: Could not list the databases under %s: %w", ErrSnapshot, directory, err)
+	}
+	var files []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".db") {
+			continue
+		}
+		files = append(files, filepath.Join(directory, name))
+	}
+	return files, nil
+}
+
+// removeIfPresent deletes a path, treating "already gone" as success.
+func removeIfPresent(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove %s: %w", path, err)
+	}
+	return nil
+}
+
+// encodeDocument renders a JSON document the way the Python track writes one:
+// two-space indent, sorted keys, ASCII only, and a trailing newline.
+//
+// Sorting comes free from encoding/json, which always emits map keys in sorted
+// order; that is why every payload in this package is built as a map rather
+// than as a struct, where field order would decide the bytes.
+func encodeDocument(payload map[string]any) ([]byte, error) {
+	return encodeJSON(payload, "  ")
+}
+
+// encodeCompact renders a JSON value with no whitespace and no trailing
+// newline, which is what the schema identity is hashed over.
+func encodeCompact(payload any) ([]byte, error) {
+	encoded, err := encodeJSON(payload, "")
+	if err != nil {
+		return nil, err
+	}
+	// Encoder.Encode always terminates its value with a newline; Python's
+	// json.dumps does not, and the digest is taken over dumps' output.
+	return bytes.TrimSuffix(encoded, []byte("\n")), nil
+}
+
+// encodeJSON is the shared encoder behind encodeDocument and encodeCompact.
+func encodeJSON(payload any, indent string) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	// Go escapes <, > and & by default and Python does not. The seed's audit
+	// schema contains a CHECK constraint with a comparison operator, so leaving
+	// this on would give the same database two different schema digests
+	// depending on which track hashed it.
+	encoder.SetEscapeHTML(false)
+	if indent != "" {
+		encoder.SetIndent("", indent)
+	}
+	if err := encoder.Encode(payload); err != nil {
+		return nil, fmt.Errorf("encode the JSON payload: %w", err)
+	}
+	return escapeNonASCII(buffer.Bytes()), nil
+}
+
+// escapeNonASCII reproduces Python's ensure_ascii=True.
+//
+// Every structural character in JSON is ASCII, so a non-ASCII byte can only
+// appear inside a string literal and rewriting it in place is safe.
+func escapeNonASCII(encoded []byte) []byte {
+	if isASCII(encoded) {
+		return encoded
+	}
+	var out bytes.Buffer
+	out.Grow(len(encoded))
+	for _, character := range string(encoded) {
+		switch {
+		case character < utf8.RuneSelf:
+			out.WriteByte(byte(character))
+		case character > 0xFFFF:
+			// Python emits a surrogate pair for a non-BMP rune, so the escaped
+			// form is identical on both tracks.
+			high, low := utf16.EncodeRune(character)
+			fmt.Fprintf(&out, `\u%04x\u%04x`, high, low)
+		default:
+			fmt.Fprintf(&out, `\u%04x`, character)
+		}
+	}
+	return out.Bytes()
+}
+
+// isASCII reports whether every byte is below 0x80.
+func isASCII(value []byte) bool {
+	for _, character := range value {
+		if character >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
+}
+
+// writeJSONDocument writes an encoded document and flushes it to disk.
+func writeJSONDocument(path string, payload map[string]any, perm fs.FileMode) error {
+	encoded, err := encodeDocument(payload)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, encoded, perm); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return fsyncFile(path)
+}
+
+// loadJSONObject reads a JSON object with numbers preserved as literals.
+//
+// json.Number rather than float64 is what lets the validators reproduce
+// Python's isinstance(value, int) checks exactly: "1" parses as an integer and
+// "1.0" does not, and Go's float64 cannot tell those apart.
+func loadJSONObject(path string) (map[string]any, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: Could not read snapshot metadata %s: %w", ErrSnapshot, path, err)
+	}
+	if !utf8.Valid(content) {
+		// Python raises UnicodeError here rather than a JSON error; the message
+		// is the same either way.
+		return nil, snapshotErrorf("Could not read snapshot metadata %s", path)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.UseNumber()
+	var payload any
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, fmt.Errorf("%w: Could not read snapshot metadata %s: %w", ErrSnapshot, path, err)
+	}
+	// json.loads rejects a document with a second value after the first;
+	// json.Decoder happily reads it as the next value, so the check is explicit.
+	// More skips whitespace, which is why a trailing newline still parses.
+	if decoder.More() {
+		return nil, snapshotErrorf("Could not read snapshot metadata %s", path)
+	}
+	object, ok := payload.(map[string]any)
+	if !ok {
+		return nil, snapshotErrorf("Snapshot metadata must be a JSON object: %s", path)
+	}
+	return object, nil
+}
+
+// jsonInt reads a decoded JSON value as an integer, rejecting anything that was
+// not written as an integer literal.
+func jsonInt(value any) (int64, bool) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(number.String(), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
+}
+
+// hasText reports whether a decoded JSON value is a non-empty string.
+func hasText(value any) bool {
+	text, ok := value.(string)
+	return ok && text != ""
+}
+
+// renderJSONValue describes a decoded JSON value the way Python's %r does, so a
+// rejection message shows whether the offending field was a string, a number,
+// or absent.
+func renderJSONValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return "None"
+	case string:
+		return strconv.Quote(typed)
+	case json.Number:
+		return typed.String()
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+// isHex reports whether every character is a lowercase hexadecimal digit.
+func isHex(value string) bool {
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// newTransactionID mints the identifier that names a restore transaction's
+// journal, staging directory, and quarantine directory.
+//
+// It is 16 random bytes rendered as 32 lowercase hex characters — the same
+// shape as Python's uuid4().hex, and the shape the journal validator enforces.
+// It is not a formatted UUID: nothing reads the version or variant bits, and
+// the format's only requirement is that the identifier be unguessable and
+// exactly 32 hex characters.
+func newTransactionID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("mint a restore transaction id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
