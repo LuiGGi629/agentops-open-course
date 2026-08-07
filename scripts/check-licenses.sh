@@ -54,10 +54,11 @@ trap 'rm -rf -- "${inventory_dir}"' EXIT
 
 check_repository_licenses() {
 	local software_license
-	local font_license=docs/assets/fmind/OFL-1.1.txt
+	# Hugo publishes these verbatim from static/; the Zensical build served them from docs/.
+	local font_license=static/assets/fmind/OFL-1.1.txt
 
 	test -f LICENSE
-	test -f docs/LICENSE.txt
+	test -f static/LICENSE.txt
 	for software_license in agents/LICENSE clients/LICENSE infra/LICENSE load/LICENSE; do
 		if ! cmp -s LICENSE "${software_license}"; then
 			printf '%s: software license differs from the root MIT license\n' "${software_license}" >&2

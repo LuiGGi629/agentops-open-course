@@ -17,11 +17,18 @@ htmlcov/
 # Node
 **/node_modules/
 
+# Go build output and coverage profiles
+**/bin/
+coverage.out
+
 # Docs site (Hugo output, module vendor tree, asset pipeline cache, build lock).
 # The theme is pinned in go.mod, so _vendor/ stays a local convenience: vendoring it
 # would turn a theme bump from a lockfile diff into a 1.1 MB source diff.
 /site/
-/public/ # Hugo's default output dir, used when --destination is omitted
+# Hugo's default output dir, used when --destination is omitted. The comment sits
+# on its own line: gitignore has no trailing-comment syntax, so an inline one
+# becomes part of the pattern and silently stops matching.
+/public/
 /_vendor/
 /resources/
 .hugo_build.lock
