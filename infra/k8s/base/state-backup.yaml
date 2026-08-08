@@ -66,11 +66,12 @@ spec:
             - name: backup
               image: agentops-agent:dev
               imagePullPolicy: IfNotPresent
-              command: ["python", "-m", "agent.state", "backup"]
-              # The CLI uses sqlite3.Connection.backup, validates every copied
-              # database, records a hashed versioned manifest, then atomically
-              # publishes the generation. Retention keeps 7 complete snapshots.
+              # The CLI copies each database with VACUUM INTO — an online-safe copy taken
+              # inside a read transaction — validates every copy, records a hashed versioned
+              # manifest, then atomically publishes the generation. Retention keeps 7 snapshots.
               args:
+                - state
+                - backup
                 - --state-dir
                 - /app/state
                 - --backup-root

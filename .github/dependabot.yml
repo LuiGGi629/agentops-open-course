@@ -4,15 +4,16 @@
 # It is native to GitHub and needs no token, no app install, and no self-hosted workflow.
 #
 # Dependabot does not support globs in `directory`, so each project gets its own entry: the docs
-# root and the agent are two independent uv projects.
+# root and the Python agent are two independent uv projects, and the repository root and the Go
+# agent are two independent Go modules (the root one exists only to pin the Hextra theme).
 #
 # Nothing auto-merges. The offline gate cannot see model or protocol drift, so every update goes
 # through the local validation playbook in docs 8.2. Releases.
 #
 # What Dependabot does NOT cover here, and is therefore updated by hand (see AGENTS.md "Pinned
 # contracts" and the quarterly docs-freshness issue): the `[tools]` pins in mise.toml plus
-# mise.lock, the Helm chart versions in infra/helmfile.yaml, the image digests inside
-# infra/k8s/**, and the Wolfi `apk` pins in agents/python/Dockerfile.
+# mise.lock, the Helm chart versions in infra/helmfile.yaml, and the image digests inside
+# infra/k8s/**.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -29,7 +30,7 @@ updates:
           - "*"
 
   - package-ecosystem: uv
-    directory: / # documentation build (Zensical) and the authoring toolchain
+    directory: / # documentation gates and the authoring toolchain
     schedule:
       interval: weekly
       day: monday
@@ -64,8 +65,60 @@ updates:
           - minor
           - patch
 
+  - package-ecosystem: gomod
+    directory: /agents/go # the Go reference agent, its tests, and its go.mod tool directive
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      go-agent-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          # Coordinated pins reviewed on their own, never inside the weekly batch.
+          - "google.golang.org/adk/*"
+          - "google.golang.org/genai"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: gomod
+    directory: / # the Hextra theme, consumed as a Hugo Module through the root go.mod
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      hugo-theme:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: docker
-    directory: /agents/python # agent image base stages
+    directory: /agents/go # agent image build and distroless runtime stages
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
+    ignore:
+      # The build stage's Go version is a coordinated pin: it must stay equal to the `go`
+      # directive in agents/go/go.mod and to the `go` entry in the root mise.toml [tools].
+      - dependency-name: golang
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+
+  - package-ecosystem: docker
+    directory: /agents/python # retired agent image base stages
     schedule:
       interval: weekly
       day: monday

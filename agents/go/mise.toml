@@ -1,8 +1,12 @@
 # https://mise.jdx.dev
-# AgentOps reference agent — Go track tasks.
-# The task vocabulary matches the Python track and the repository root, so
-# learners, git hooks, and CI use the same words on either track.
+# AgentOps reference agent — Go tasks.
+# The task vocabulary matches the repository root, so learners, git hooks, and CI
+# use the same words from either directory.
 # Only configuration/model-backed tasks load the root .env; offline gates load no dotenv.
+#
+# No [tools] table here on purpose: mise merges parent configs, so `go`, `golangci-lint`, and
+# `gotestsum` resolve from the repository root's [tools] — one authority, one mise.lock, and
+# the freshness reporter (scripts/freshness_report.py) already reads that table.
 
 [env]
 APP_NAME = "agent"
@@ -38,7 +42,7 @@ alias = "c"
 description = "Run the offline code checks in parallel"
 # check:vuln is deliberately absent: govulncheck queries the vulnerability
 # database over the network, and this chain runs on every commit. An offline
-# commit must not fail. CI runs check:vuln as its own step.
+# commit must not fail. CI reaches it through the root check → check:vuln:go chain.
 depends = ["check:format", "check:lint"]
 
 [tasks."check:format"]

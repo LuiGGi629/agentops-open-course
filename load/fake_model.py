@@ -22,35 +22,51 @@ app = typer.Typer(add_completion=False, rich_markup_mode="rich")
 err = Console(stderr=True)
 
 
+#: The one sentence every layer asserts on, so a wrong upstream is obvious rather than plausible.
+REPLY_TEXT = "Fake model response for platform latency measurement."
+
+
 def _response(request: dict[str, Any]) -> dict[str, Any]:
-    """Return the smallest chat-completion response accepted by OpenAI clients."""
+    """Return the smallest Responses API reply accepted by OpenAI clients.
+
+    The agent speaks only `/v1/responses` (ADK Go's `openaimodel` has no
+    chat-completions code path), so this mirrors the fields a real Ollama
+    `/v1/responses` reply carries: a completed `output` message with one
+    `output_text` part, and the `usage` block token budgets read.
+    """
     model = request.get("model")
     model_name = model if isinstance(model, str) else "agentops-fake"
     return {
-        "id": "chatcmpl-agentops-fake",
-        "object": "chat.completion",
-        "created": 0,
+        "id": "resp-agentops-fake",
+        "object": "response",
+        "created_at": 0,
+        "completed_at": 0,
+        "status": "completed",
         "model": model_name,
-        "choices": [
+        "output": [
             {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "Fake model response for platform latency measurement.",
-                },
-                "finish_reason": "stop",
+                "id": "msg-agentops-fake",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": REPLY_TEXT, "annotations": []}],
             }
         ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18},
+        "error": None,
+        "incomplete_details": None,
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": {"input_tokens": 10, "output_tokens": 8, "total_tokens": 18},
     }
 
 
 class FakeModelHandler(BaseHTTPRequestHandler):
-    """Serve health and OpenAI-compatible chat-completion requests."""
+    """Serve health and OpenAI-compatible Responses API requests."""
 
     server_version = "AgentOpsFakeModel/1.0"
     protocol_version = "HTTP/1.1"
-    allowed_paths: ClassVar[set[str]] = {"/v1/chat/completions", "/api/chat"}
+    allowed_paths: ClassVar[set[str]] = {"/v1/responses"}
 
     def do_GET(self) -> None:
         if self.path != "/healthz":

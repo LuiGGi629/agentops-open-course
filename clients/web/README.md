@@ -14,7 +14,7 @@ A single-file A2A browser client for the course's AgentOps Agent: one `index.htm
 
 ## How to run it
 
-1. In a first terminal, start the A2A server: `cd agents/python && mise run a2a` (raw `:8080`).
+1. In a first terminal, start the A2A server: `cd agents/go && mise run a2a` (raw `:8080`).
 1. In a second terminal, start the digest-pinned host gateway wrapper: `mise run gateway:host` from the repository root (loopback A2A route on `:3001`).
 1. In a third terminal, serve this directory: `mise run client:web` from the repository root.
 1. Open `http://localhost:8001`, keep the base URL `http://localhost:3001`, and press Connect.

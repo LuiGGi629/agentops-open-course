@@ -93,7 +93,7 @@ func sumOf(t *testing.T, metric metricdata.Metrics) (int64, map[string]int64) {
 		total += point.Value
 		direction, found := point.Attributes.Value(telemetry.DirectionAttribute)
 		if found {
-			byDirection[direction.Emit()] += point.Value
+			byDirection[direction.String()] += point.Value
 		}
 	}
 	return total, byDirection
@@ -152,7 +152,7 @@ func TestRecordTokenUsageWritesTheSessionAttributesOntoTheSpan(t *testing.T) {
 	}
 	attributes := map[string]string{}
 	for _, attribute := range ended[0].Attributes() {
-		attributes[string(attribute.Key)] = attribute.Value.Emit()
+		attributes[string(attribute.Key)] = attribute.Value.String()
 	}
 	for key, want := range map[string]string{
 		telemetry.SessionInputTokensAttribute:  "700",

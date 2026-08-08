@@ -7,9 +7,9 @@
 # 4200m/4992Mi. Skaffold rollouts surge one extra pod per RollingUpdate
 # deployment (Tempo, Loki, Prometheus, and Alertmanager are Recreate):
 # +550m/+1024Mi requests, +2500m/+2816Mi limits. Twelve workload/surge pods plus
-# the nightly backup Job require 13 pod slots. The ceilings below are unchanged
-# from the MLflow era and now carry roughly 1.4 Gi of extra limit headroom for
-# LimitRange-defaulted debug pods at steady state.
+# the nightly backup Job require 13 pod slots. The ceilings below sit above that
+# sum on purpose, leaving roughly 1.4 Gi of limit headroom for LimitRange-defaulted
+# debug pods at steady state.
 apiVersion: v1
 kind: ResourceQuota
 metadata:

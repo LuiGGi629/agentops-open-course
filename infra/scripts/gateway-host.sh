@@ -40,7 +40,10 @@ fi
 readonly auth_dir_input
 readonly runtime_root="${AGENTOPS_GATEWAY_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agentops-open-course}"
 readonly relay_mode="${AGENTOPS_GATEWAY_LOOPBACK_RELAY:-auto}"
-readonly relay_python="${AGENTOPS_GATEWAY_PYTHON:-${repo_root}/agents/python/.venv/bin/python}"
+# The relay is pure standard library, so the repository's own documentation-gate
+# environment runs it. It deliberately does not reach into a reference agent's
+# environment: the gateway wrapper must work whatever the agent is written in.
+readonly relay_python="${AGENTOPS_GATEWAY_PYTHON:-${repo_root}/.venv/bin/python}"
 
 usage() {
 	cat <<'EOF'

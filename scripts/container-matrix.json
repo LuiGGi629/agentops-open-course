@@ -3,9 +3,9 @@
     {
       "name": "agent",
       "context": "agents",
-      "dockerfile": "agents/python/Dockerfile",
+      "dockerfile": "agents/go/Dockerfile",
       "image": "agentops-agent:scan",
-      "smoke": "import asyncio; from agent.composition import root_agent; from agent.server import create_app; app = create_app(); assert root_agent.name == 'agentops_agent'; asyncio.run(app.state.runtime.close())"
+      "smoke": "config:check"
     }
   ]
 }

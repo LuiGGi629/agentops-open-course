@@ -1,11 +1,19 @@
 # https://mise.jdx.dev
-# Root orchestrator: builds the docs (Zensical) and delegates to the Python agent
-# (agents/python), a self-contained project with its own mise.toml.
+# Root orchestrator: builds the docs (Hugo) and delegates to the reference agents
+# (agents/go, agents/python), each a self-contained project with its own mise.toml.
 # Git hooks (lefthook.yml) and CI (.github/workflows) call these same tasks.
 
 [tools]
 hugo = "0.164.0"
 uv = "0.12.0"
+# The Go toolchain is pinned here rather than in agents/go/mise.toml so one table stays the
+# authority: `hugo mod get` needs `go` for the Hextra module, agents/go needs it for the taught
+# runtime, and scripts/freshness_report.py reads only this [tools] table when reporting drift.
+# mise merges parent configs, so `cd agents/go && mise run check` resolves these same pins.
+# Keep `go` equal to the `go` directive in agents/go/go.mod.
+go = "1.26.5"
+golangci-lint = "2.12.2"
+gotestsum = "1.13.0"
 dprint = "0.55.2"
 lefthook = "2.1.10"
 gitleaks = "8.30.1"
@@ -61,13 +69,14 @@ run = [
   "hugo mod get",
   "uv sync --locked",
   "lefthook install",
+  "cd agents/go && mise run install",
   "cd agents/python && mise run install",
 ]
 
 [tasks."install:tools:core"]
 hide = true # implementation detail of install:*; a learner picks a tier, never a tool list
 description = "Install only the tools used by learner and contributor core tasks"
-run = "mise install hugo uv dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
+run = "mise install hugo uv go golangci-lint gotestsum dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
 
 [tasks."install:platform"]
 description = "Install the local platform and GKE plan dependencies"
@@ -171,12 +180,15 @@ run = "hugo --minify --panicOnWarning --destination site --cleanDestinationDir"
 
 [tasks."build:agent-image"]
 description = "Build the non-root AgentOps Agent image"
+# OCI_VERSION still comes from the root Python project: it is the repository's release
+# version (check:release-metadata holds it equal to CITATION.cff and CHANGELOG.md), not a
+# property of the Go module — Go modules carry no version outside a tag.
 run = """
 docker build \
   --build-arg "AGENT_SOURCE_COMMIT=$(git rev-parse HEAD)" \
   --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
   --build-arg "OCI_VERSION=$(uv version --short)" \
-  --file agents/python/Dockerfile \
+  --file agents/go/Dockerfile \
   --tag agentops-agent:dev \
   agents
 """
@@ -215,12 +227,16 @@ description = "Format all course sources, including optional OpenTofu infrastruc
 depends = ["format:core", "format:tofu"]
 
 [tasks."format:core"]
-description = "Format docs, config, shell scripts, and the Python agent"
-depends = ["format:dprint", "format:python", "format:shell"]
+description = "Format docs, config, shell scripts, and both reference agents"
+depends = ["format:dprint", "format:go", "format:python", "format:shell"]
 
 [tasks."format:dprint"]
 description = "Format Markdown and configuration files"
 run = "dprint fmt"
+
+[tasks."format:go"]
+description = "Format the Go reference agent"
+run = "cd agents/go && mise run format"
 
 [tasks."format:python"]
 description = "Format the Python reference agent"
@@ -246,6 +262,16 @@ depends = ["check:infra", "check:licenses", "check:source", "check:vuln"]
 # Deliberately out of check:core and off the per-commit hook: a dependency audit is a function of
 # the lockfile and the advisory feed, not of the current diff, and it needs the network — which
 # would make an offline commit impossible. It stays in the maintainer gate and in CI.
+description = "Audit every locked dependency profile against published advisories"
+depends = ["check:vuln:go", "check:vuln:python"]
+
+[tasks."check:vuln:go"]
+# One owner per ecosystem: govulncheck is the only gate that audits agents/go, and it is
+# reachability-aware, so scripts/check-vulnerabilities.sh deliberately never sees the Go module.
+description = "Audit the Go reference agent against the Go vulnerability database"
+run = "cd agents/go && mise run check:vuln"
+
+[tasks."check:vuln:python"]
 description = "Audit every lock-synchronized Python dependency profile against published advisories"
 run = "./scripts/check-vulnerabilities.sh"
 
@@ -260,6 +286,7 @@ depends = [
   "check:docs",
   "check:freshness",
   "check:format",
+  "check:go",
   "check:links",
   "check:python",
   "check:release-metadata",
@@ -301,6 +328,10 @@ run = "uv run python -m unittest scripts/test_freshness_report.py"
 [tasks."check:format"]
 description = "Check Markdown and configuration formatting"
 run = "dprint check"
+
+[tasks."check:go"]
+description = "Format-check and lint the Go reference agent"
+run = "cd agents/go && mise run check"
 
 [tasks."check:infra"]
 description = "Render and validate the local and GKE infrastructure"
@@ -351,7 +382,15 @@ run = "actionlint .github/workflows/*.yml"
 
 [tasks.test]
 alias = "t"
-description = "Run the Python agent test suite"
+description = "Run every reference agent test suite"
+depends = ["test:go", "test:python"]
+
+[tasks."test:go"]
+description = "Run the Go reference agent test suite"
+run = "cd agents/go && mise run test"
+
+[tasks."test:python"]
+description = "Run the Python reference agent test suite"
 run = "cd agents/python && mise run test"
 
 [tasks."course:evidence"]

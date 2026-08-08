@@ -31,6 +31,19 @@ assert_eq() {
 	[[ "${got}" == "${want}" ]] || fail "${label}: got '${got}', want '${want}'"
 }
 
+# absolute_path <path> — resolve a possibly relative path against the caller's directory.
+#
+# Scripts that `cd` into a project before invoking a tool must resolve caller-supplied paths
+# first, or a relative argument silently resolves against the project instead. The parent
+# directory must exist; the leaf need not, so this also works for a path about to be created.
+absolute_path() {
+	local path="$1"
+	local parent
+	parent="$(cd -- "$(dirname -- "${path}")" 2>/dev/null && pwd)" ||
+		fail "cannot resolve ${path}: its parent directory does not exist"
+	printf '%s/%s\n' "${parent}" "$(basename -- "${path}")"
+}
+
 # require_cmd <command> [doctor-profile] — assert a tool is on PATH, naming how to install it.
 require_cmd() {
 	local command_name="$1"

@@ -86,6 +86,9 @@ SOURCE_SNIPPET_SURFACES: Final = {
     ),
 }
 
+# The manifest that owns the offline evaluation harness's dependency pins, MLflow among them.
+EVAL_MANIFEST: Final = "agents/python/pyproject.toml"
+
 FRONT_MATTER: Final = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 FENCE: Final = re.compile(r"^\s*(`{3,}|~{3,})\s*(\S*)")
 MACHINE_PATH: Final = re.compile(r"/home/[^ /]+|file:///|k3d-registry\.localhost")
@@ -1002,13 +1005,18 @@ def check_source_versions(
             )
         )
 
+    # MLflow left the online path with its custom image: it is now only the offline evaluation
+    # harness's Python dependency, so the harness manifest owns its version. The rule is keyed on
+    # the tool rather than on the retired `agentops-mlflow` image name, which no longer exists and
+    # therefore could never trip this gate again.
     feedback_path = root / "content/7. Observability/7.4. Feedback.md"
+    mlflow_copy = re.compile(r"\bMLflow\b[^\n]*\b\d+\.\d+\.\d+\b", re.IGNORECASE)
     for number, line in enumerate(pages.get(feedback_path, "").splitlines(), start=1):
-        if "agentops-mlflow" in line and re.search(r"\b\d+\.\d+\.\d+\b", line):
+        if mlflow_copy.search(line):
             problems.append(
                 (
                     feedback_path.relative_to(root).as_posix(),
-                    f"line {number}: MLflow version belongs to infra/mlflow/pyproject.toml; link to it instead",
+                    f"line {number}: MLflow version belongs to {EVAL_MANIFEST}; link to it instead",
                 )
             )
     adk_copy = re.compile(r"google-adk(?:\[[^]]+\])?[^\n`]*(?:==|>=|<=|~=)\s*\d", re.IGNORECASE)
@@ -1219,13 +1227,14 @@ def check_state_course_contracts(
     """The restore lesson follows the shared manifest-bound state CLI."""
     relative = "content/6. Platform/6.6. Platform Delivery.md"
     text = contract_page(pages, root, relative)
-    state_source = (root / "agents/python/src/agent/state.py").read_text(encoding="utf-8")
-    manifest_match = re.search(r'^_MANIFEST_NAME\s*=\s*"([^"]+)"$', state_source, re.MULTILINE)
-    complete_match = re.search(r'^_COMPLETE_NAME\s*=\s*"([^"]+)"$', state_source, re.MULTILINE)
+    state_relative = "agents/go/state/state.go"
+    state_source = (root / state_relative).read_text(encoding="utf-8")
+    manifest_match = re.search(r'^\s*manifestName\s*=\s*"([^"]+)"$', state_source, re.MULTILINE)
+    complete_match = re.search(r'^\s*completeName\s*=\s*"([^"]+)"$', state_source, re.MULTILINE)
     problems: list[Problem] = []
     for label, match in (("manifest", manifest_match), ("completion marker", complete_match)):
         if match is None:
-            problems.append(("agents/python/src/agent/state.py", f"could not resolve snapshot {label} filename"))
+            problems.append((state_relative, f"could not resolve snapshot {label} filename"))
         else:
             problems += require_contract_tokens(relative, text, (match.group(1),))
 
@@ -1235,15 +1244,17 @@ def check_state_course_contracts(
         (
             "manifest_sha256",
             "format_version",
-            'command: ["python", "-m", "agent.state", "restore"]',
+            'args: ["state", "restore",',
         ),
     )
     if "databases=" in text:
         problems.append((relative, "documents the retired databases=N completion-marker format"))
 
+    # One image, one CLI: the CronJob selects the state surface by overriding `args` only, so
+    # the entrypoint stays the agent binary and cannot drift from the host wrapper's spelling.
     cronjob = (root / "infra/k8s/base/state-backup.yaml").read_text(encoding="utf-8")
-    if 'command: ["python", "-m", "agent.state", "backup"]' not in cronjob:
-        problems.append(("infra/k8s/base/state-backup.yaml", "backup CronJob must use the shared agent.state CLI"))
+    if "- state\n" not in cronjob or "- backup\n" not in cronjob or "command:" in cronjob:
+        problems.append(("infra/k8s/base/state-backup.yaml", "backup CronJob must use the shared agent state CLI"))
 
     drill = (root / "infra/scripts/backup-drill.sh").read_text(encoding="utf-8")
     final_line = re.search(r'^echo "([^"]+)"$', drill, re.MULTILINE)

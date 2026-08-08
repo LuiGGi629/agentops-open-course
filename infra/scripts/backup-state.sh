@@ -2,17 +2,17 @@
 # Publish a versioned, integrity-checked snapshot of every agent SQLite database.
 #
 # Usage: backup-state.sh [state_dir] [backup_root]
-#   state_dir    defaults to agents/python/.state
+#   state_dir    defaults to agents/go/.state
 #   backup_root  defaults to .state-backups
 
 # shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
-require_cmd uv base
+require_cmd go base
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-state_dir="${1:-${repo_dir}/agents/python/.state}"
-backup_root="${2:-${repo_dir}/.state-backups}"
+state_dir="$(absolute_path "${1:-${repo_dir}/agents/go/.state}")"
+backup_root="$(absolute_path "${2:-${repo_dir}/.state-backups}")"
 
 # A release image injects AGENT_SOURCE_COMMIT. In a checkout, record the exact
 # reviewed source automatically without making git a runtime backup dependency.
@@ -21,7 +21,9 @@ if [[ -z "${AGENT_SOURCE_COMMIT:-}" ]] && command -v git >/dev/null 2>&1; then
 	export AGENT_SOURCE_COMMIT
 fi
 
-exec uv run --project "${repo_dir}/agents/python" --frozen \
-	python -m agent.state backup \
+# `go run` compiles the module's own state CLI, so a checkout snapshots with exactly the
+# source under review — the same subcommand the deployed image serves as `agent state backup`.
+cd "${repo_dir}/agents/go"
+exec go run ./cmd/agent state backup \
 	--state-dir "${state_dir}" \
 	--backup-root "${backup_root}"

@@ -226,7 +226,7 @@ class SourceContractTests(unittest.TestCase):
     def test_real_state_owner_change_rejects_stale_drill_result(self) -> None:
         docs = ("content/6. Platform/6.6. Platform Delivery.md",)
         owners = (
-            "agents/python/src/agent/state.py",
+            "agents/go/state/state.go",
             "infra/k8s/base/state-backup.yaml",
             "infra/scripts/backup-drill.sh",
         )
@@ -463,7 +463,9 @@ class SourceContractTests(unittest.TestCase):
         workflow = check_conventions.ROOT.joinpath(".github/workflows/platform.yml").read_text(encoding="utf-8")
         drill = check_conventions.ROOT.joinpath("infra/scripts/platform-backup-drill.sh").read_text(encoding="utf-8")
         assert "BACKUP_EVIDENCE_MARKER: platform-backup-canary" in workflow
-        assert "TELEMETRY_LOG_MARKER: platform-telemetry-log-canary" in workflow
+        # Not a canary: the agent's own startup log line, which the distroless image cannot be
+        # made to emit on demand. Its owner is agents/go/a2aserver/serve.go.
+        assert "TELEMETRY_LOG_LINE: serving A2A" in workflow
         assert "TELEMETRY_SENTINEL: platform-private-content-canary" in workflow
         assert "def safe_container_state:" in workflow
         assert ".terminated | {exitCode, reason, signal, startedAt, finishedAt}" in workflow

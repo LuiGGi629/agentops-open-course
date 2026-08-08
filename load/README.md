@@ -31,7 +31,7 @@ For A2A, a successful result is either a non-empty `Message`, or a `Task` whose 
 
 ## Prerequisites
 
-The host quickstart must be running: `mise run mcp:http` and `mise run a2a` from `agents/python/`, the loopback wrapper `mise run gateway:host` from the repository root, and Ollama serving `qwen3:4b-instruct` for the A2A scenario. Run `mise run smoke:host` before adding load. On Kubernetes, port-forward agentgateway and the raw services first and override the `*_URL` environment variables.
+The host quickstart must be running: `mise run mcp:http` and `mise run a2a` from `agents/go/`, the loopback wrapper `mise run gateway:host` from the repository root, and Ollama serving `qwen3:4b-instruct` for the A2A scenario. Run `mise run smoke:host` before adding load. On Kubernetes, port-forward agentgateway and the raw services first and override the `*_URL` environment variables.
 
 For the fake-model comparison, stop Ollama so port `11434` is free, run `mise run model:fake`, and restart the A2A process with `AGENT_MODEL_PROVIDER=openai-compatible` and `OPENAI_BASE_URL=http://127.0.0.1:4000/v1`. The existing host and k3d gateway profiles already route model calls to that host port, so the A2A script and every other layer stay identical. The fake deliberately refuses streaming; keep `AGENT_A2A_STREAMING=false` so the experiment changes only inference.
 

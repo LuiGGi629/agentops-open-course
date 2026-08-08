@@ -42,6 +42,18 @@ jobs:
           restore-keys: |
             uv-${{ runner.os }}-${{ runner.arch }}-
 
+      # Both the module cache and the build cache: `go test -race ./...` recompiles the whole
+      # dependency graph otherwise, which is the dominant cost of the Go half of `check`+`test`.
+      - name: Restore Go module and build caches
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('agents/go/go.sum') }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install project dependencies
         run: mise run install:validation
 
@@ -51,9 +63,13 @@ jobs:
       - name: Format sources
         run: mise run format
 
+      # The only network-permitted gate in the chain: `check` fans out to `check:vuln`, whose two
+      # children audit the Python lock exports with pip-audit and the Go module with govulncheck.
+      # The hooks run `check:core` instead, which omits both so an offline commit still succeeds.
       - name: Run static checks
         run: mise run check
 
+      # Fans out to both reference agent suites (test:go, test:python).
       - name: Run offline tests
         run: mise run test
 

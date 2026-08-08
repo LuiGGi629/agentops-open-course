@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+# Audit the Python dependency profiles only. The Go reference agent is explicitly out of scope:
+# `mise run check:vuln:go` owns it through govulncheck, which resolves advisories against the Go
+# vulnerability database and reports only symbols the build actually reaches. Auditing go.sum
+# here as a flat lock export would duplicate that gate and lose its reachability analysis.
+
 lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${lib_dir}/lib.sh"

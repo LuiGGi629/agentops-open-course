@@ -11,12 +11,14 @@
 # shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
-require_cmd uv base
+require_cmd go base
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-snapshot_dir="${1:?usage: restore-state.sh <snapshot_dir> [state_dir]}"
-state_dir="${2:-${repo_dir}/agents/python/.state}"
+snapshot_dir="$(absolute_path "${1:?usage: restore-state.sh <snapshot_dir> [state_dir]}")"
+state_dir="$(absolute_path "${2:-${repo_dir}/agents/go/.state}")"
 
-exec uv run --project "${repo_dir}/agents/python" --frozen \
-	python -m agent.state restore "${snapshot_dir}" \
+# `go run` compiles the module's own state CLI, so a checkout restores with exactly the
+# source under review — the same subcommand the deployed image serves as `agent state restore`.
+cd "${repo_dir}/agents/go"
+exec go run ./cmd/agent state restore "${snapshot_dir}" \
 	--state-dir "${state_dir}"

@@ -66,6 +66,13 @@ binds:
                   tokensPerFill: 30
                   fillInterval: 60s
               ai:
+                # The client route type is what agentgateway parses the body with. Without this
+                # override it assumes chat-completions and rejects a Responses request as
+                # "missing field `messages`" — and the response guard below would then be
+                # inspecting a shape that never arrives. The agent speaks only /v1/responses
+                # (ADK Go's openaimodel has no chat-completions code path).
+                routes:
+                  /v1/responses: responses
                 promptGuard:
                   request:
                     - regex:
@@ -88,7 +95,7 @@ binds:
               - ai:
                   name: ollama
                   hostOverride: localhost:11434
-                  pathOverride: /v1/chat/completions
+                  pathOverride: /v1/responses
                   provider:
                     openAI:
                       model: qwen3:4b-instruct

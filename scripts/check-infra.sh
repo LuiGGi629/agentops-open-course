@@ -4,6 +4,7 @@ lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${lib_dir}/lib.sh"
 
+require_cmd go base
 require_cmd yq gateway
 require_cmd kubectl platform
 require_cmd kubeconform platform
@@ -241,9 +242,10 @@ for overlay in local gke; do
 		assert_eq "GKE ModelConfig model" "${model_config}" "gemini-3.5-flash"
 
 		gateway_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "agentgateway") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
-		# agentgateway is the only workload left with a Google identity. Tempo
-		# replaced MLflow's GCS artifact proxy with a PersistentVolumeClaim, so a
-		# second annotated ServiceAccount would be unexplained cloud privilege.
+		# agentgateway is the only workload with a Google identity: it is the sole
+		# component that calls a cloud API (Vertex). Every other workload, tracing
+		# included, persists to a PersistentVolumeClaim, so a second annotated
+		# ServiceAccount would be unexplained cloud privilege.
 		annotated_service_accounts="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.annotations."iam.gke.io/gcp-service-account" != null) | .metadata.name' "${rendered}" | sort | paste -sd, -)"
 		gke_storage_classes="$(yq -r 'select(.kind == "PersistentVolumeClaim") | .spec.storageClassName' "${rendered}" | rg -v '^---$' | sort -u)"
 		assert_eq "GKE gateway service account" "${gateway_gsa}" "agentgateway@agentops-course-check.iam.gserviceaccount.com"
@@ -269,9 +271,9 @@ for overlay in local gke; do
 			echo "GKE overlay contains the Dataplane V2 metadata endpoint, but the cluster uses Calico" >&2
 			exit 1
 		fi
-		# agentgateway is the sole Workload Identity consumer since Tempo replaced
-		# MLflow's GCS artifact proxy, so the occurrence count below is also an
-		# assertion that no second workload quietly reacquires the metadata route.
+		# agentgateway is the sole Workload Identity consumer, so the occurrence
+		# count below is also an assertion that no second workload quietly
+		# reacquires the metadata route.
 		wif_cidr="169.254.169.252/32"
 		wif_policy="agentgateway-egress"
 		wif_rule='select(.kind == "NetworkPolicy" and .metadata.name == "'"${wif_policy}"'") | .spec.egress[] | select(.to[0].ipBlock.cidr == "'"${wif_cidr}"'")'
@@ -343,13 +345,15 @@ done
 
 # The deployable CronJob must use the same versioned state CLI as the host
 # wrappers. Keep this assertion exact so an illustrative one-off backup program
-# cannot silently diverge from the tested snapshot contract.
+# cannot silently diverge from the tested snapshot contract. The container sets
+# `args` and never `command`: the image's entrypoint is the agent binary, and an
+# overridden entrypoint is exactly how a second, untested CLI would creep in.
 backup_command="$(
 	yq -r '
 		select(.kind == "CronJob" and .metadata.name == "agentops-state-backup") |
 		.spec.jobTemplate.spec.template.spec.containers[] |
 		select(.name == "backup") |
-		.command | join(",")
+		.command // "unset"
 	' "${tmp_dir}/local.yaml"
 )"
 backup_args="$(
@@ -360,8 +364,8 @@ backup_args="$(
 		.args | join(",")
 	' "${tmp_dir}/local.yaml"
 )"
-[[ "${backup_command}" == "python,-m,agent.state,backup" ]]
-[[ "${backup_args}" == "--state-dir,/app/state,--backup-root,/backups,--keep,7" ]]
+[[ "${backup_command}" == "unset" ]]
+[[ "${backup_args}" == "state,backup,--state-dir,/app/state,--backup-root,/backups,--keep,7" ]]
 ./infra/scripts/backup-drill.sh
 
 # SOPS guard rail (Ch. 6.5): every manifest under infra/**/secrets/ must be
@@ -489,26 +493,30 @@ auth_mount="$(grep -F "dst=/etc/agentgateway/auth,readonly" "${host_auth_contain
 # prompt guards, and the browser origin are invariant across all three. Twenty-six
 # hand-copied occurrences used to be verified by eye at the end of 5.0.
 #
-# The allowlist is compared against the tuple the agent's MCP client really
-# pins, not against a literal list repeated here. Read it statically: importing
-# the client initializes ADK's MCP integration and emits an experimental-feature
-# warning during an otherwise pure infrastructure check. The Python test suite
-# independently asserts that the server registers exactly this same set.
-mcp_read_tools="$(
-	agents/python/.venv/bin/python - <<'PY'
-import ast
-from pathlib import Path
+# The allowlist is compared against the list the agent's MCP client really pins, not
+# against a literal repeated here. It is asked of the compiled package rather than parsed
+# out of the source, because the names are typed constants declared in three other files
+# and a text scrape would have to re-resolve them. The Go test suite independently asserts
+# that the server registers exactly this same set.
+mcp_read_tools_program="$(pwd)/${tmp_dir}/mcp-read-tools.go"
+cat >"${mcp_read_tools_program}" <<'GO'
+package main
 
-tree = ast.parse(Path("agents/python/src/agent/mcp_client.py").read_text(encoding="utf-8"))
-assignment = next(
-	node
-	for node in tree.body
-	if isinstance(node, ast.Assign)
-	and any(isinstance(target, ast.Name) and target.id == "MCP_READ_TOOL_NAMES" for target in node.targets)
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
 )
-print(",".join(sorted(ast.literal_eval(assignment.value))))
-PY
-)"
+
+func main() {
+	names := compose.MCPReadToolNames()
+	sort.Strings(names)
+	fmt.Println(strings.Join(names, ","))
+}
+GO
+mcp_read_tools="$(cd agents/go && go run "${mcp_read_tools_program}")"
 [[ -n "${mcp_read_tools}" ]]
 mcp_read_tool_count="$(printf '%s\n' "${mcp_read_tools}" | tr ',' '\n' | wc -l)"
 gateway_prompt_guard="$(

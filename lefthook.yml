@@ -3,8 +3,10 @@
 # lefthook, dprint, actionlint, and gitleaks are provided on PATH by mise (see mise.toml [tools]).
 #
 # pre-commit is globbed per language: the whole `check:core` costs ~37 s warm even for a
-# one-word README fix. pre-push still runs it unglobbed, so nothing reaches a remote unchecked.
-# Every command here is offline — `check:vuln` queries PyPI and runs in CI instead.
+# one-word README fix. pre-push still runs it unglobbed, so nothing reaches a remote unchecked,
+# and its `test` fans out to both reference agent suites through the root aggregate.
+# Every command here is offline — `check:vuln` queries PyPI and the Go vulnerability
+# database, so it stays out of the hooks and runs inside the CI `check` gate instead.
 pre-commit:
   parallel: false # formatters must restage before check reads the files
   commands:
@@ -13,8 +15,13 @@ pre-commit:
       glob: "*.{json,md,toml,yaml,yml}"
       run: mise run format:dprint {staged_files}
       stage_fixed: true
-    format-python:
+    format-go:
       priority: 20
+      glob: "*.go"
+      run: mise run format:go
+      stage_fixed: true
+    format-python:
+      priority: 21
       glob: "*.py"
       run: mise run format:python
       stage_fixed: true
@@ -22,44 +29,48 @@ pre-commit:
       priority: 30
       glob: "*.{json,md,toml,yaml,yml}"
       run: mise run check:format
-    check-python:
+    check-go:
       priority: 31
+      glob: "{*.go,agents/go/go.mod,agents/go/go.sum,agents/go/.golangci.yml}"
+      run: mise run check:go
+    check-python:
+      priority: 32
       glob: "*.{py,toml}"
       run: mise run check:python
     check-shell:
-      priority: 32
+      priority: 33
       glob: "*.sh"
       run: mise run check:shell
     check-workflows:
-      priority: 33
+      priority: 34
       glob: ".github/workflows/*.{yml,yaml}"
       run: mise run check:workflows
     check-docs:
-      priority: 34
-      glob: "{docs/**,mkdocs.yml}"
+      priority: 35
+      glob: "{content/**,hugo.toml,data/nav.yaml,layouts/**,assets/**}"
       run: mise run check:docs
     check-links:
-      priority: 35
+      priority: 36
       glob: "*.md"
       run: mise run check:links
     check-skills:
-      priority: 36
+      priority: 37
       glob: "skills/**"
       run: mise run check:skills
     check-data:
-      priority: 37
+      priority: 38
       glob: "agents/data/**"
       run: mise run check:data
     check-release-metadata:
-      priority: 38
+      priority: 39
       glob: "{*pyproject.toml,CITATION.cff,CHANGELOG.md}"
       run: mise run check:release-metadata
     check-licenses:
-      priority: 39
+      priority: 40
       glob: "{*pyproject.toml,*uv.lock}"
       run: mise run check:licenses:core
     secure:
-      priority: 40
+      priority: 41
       run: mise run secure:staged
 pre-push:
   parallel: false

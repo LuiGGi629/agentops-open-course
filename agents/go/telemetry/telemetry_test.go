@@ -175,7 +175,7 @@ func TestResourcePinsTheServiceIdentity(t *testing.T) {
 	}
 	attributes := map[string]string{}
 	for _, attribute := range res.Attributes() {
-		attributes[string(attribute.Key)] = attribute.Value.Emit()
+		attributes[string(attribute.Key)] = attribute.Value.String()
 	}
 	if got := attributes["service.name"]; got != telemetry.ServiceName {
 		t.Errorf("service.name = %q, want %q", got, telemetry.ServiceName)

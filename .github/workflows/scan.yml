@@ -74,8 +74,11 @@ jobs:
             --tag "${{ matrix.image }}" \
             "${{ matrix.context }}"
 
+      # The distroless image carries no interpreter and no shell, so the smoke is a
+      # subcommand of the image's own entrypoint: config:check builds the same fail-fast
+      # configuration every surface loads at startup and exits non-zero when it is invalid.
       - name: Smoke-test ${{ matrix.name }} image runtime
-        run: docker run --rm --entrypoint python "${{ matrix.image }}" -c "${{ matrix.smoke }}"
+        run: docker run --rm "${{ matrix.image }}" "${{ matrix.smoke }}"
 
       - name: Scan ${{ matrix.name }} image
         uses: ./.github/actions/scan-image

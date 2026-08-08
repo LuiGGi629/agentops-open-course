@@ -295,10 +295,12 @@ jobs:
           docker load --input "${RUNNER_TEMP}/${NAME}.tar"
           user="$(docker image inspect --format '{{.Config.User}}' "$IMAGE")"
           [[ -n "$user" && "${user%%:*}" != 0 ]]
+          # No interpreter and no shell in a distroless image: the smoke is a subcommand of
+          # the image's own entrypoint, run under the same read-only root the manifests use.
           docker run --rm --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=128m \
             --tmpfs /app/state:rw,noexec,nosuid,size=128m,uid=10001,gid=10001 \
-            --entrypoint python "$IMAGE" -c "$SMOKE"
+            "$IMAGE" "$SMOKE"
 
           container="release-preflight-${NAME}"
           cleanup() {

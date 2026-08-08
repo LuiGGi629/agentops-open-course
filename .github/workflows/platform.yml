@@ -30,9 +30,13 @@ jobs:
       BACKUP_EVIDENCE_MARKER: platform-backup-canary
       CURL_IMAGE: curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
       GITHUB_TOKEN: ${{ github.token }}
+      # A log line the agent really emits, rather than one injected through an exec: the
+      # distroless image has no interpreter to inject with, and asserting on the agent's own
+      # startup record proves the slog-to-OTLP bridge is what carries application logs.
+      # `agents/go/a2aserver/serve.go` is its owner.
+      TELEMETRY_LOG_LINE: serving A2A
       # Keep privacy canaries alphabetic: numeric run IDs can look like financial
-      # identifiers to Presidio and turn capture assertions into false positives.
-      TELEMETRY_LOG_MARKER: platform-telemetry-log-canary
+      # identifiers to a PII detector and turn capture assertions into false positives.
       TELEMETRY_SENTINEL: platform-private-content-canary
     steps:
       - name: Checkout repository
@@ -253,13 +257,35 @@ jobs:
           kubectl exec --namespace kagent gateway-allowed-probe -- \
             curl --silent --show-error --connect-timeout 2 --max-time 4 \
             http://agentgateway.agentops.svc.cluster.local:3000/ >/dev/null
+          # The agent image is distroless: no shell, no interpreter, nothing to exec. An
+          # ephemeral debug container joins the *same pod*, so it inherits that pod's network
+          # identity and the NetworkPolicy that selects it — which is exactly what this step
+          # asserts. `--target` also shares the agent's process namespace, used further below.
           agent_pod="$(
             kubectl get pod --namespace agentops \
               --selector app.kubernetes.io/name=agentops-agent \
               --output jsonpath='{.items[0].metadata.name}'
           )"
-          kubectl exec --namespace agentops "${agent_pod}" -- python -c \
-            'import socket; [socket.create_connection(("agentgateway", port), timeout=3).close() for port in (3000, 4000)]'
+          # shellcheck disable=SC2016 # the probe's own `sh` expands these, not this script
+          kubectl debug --namespace agentops "${agent_pod}" \
+            --image "${CURL_IMAGE}" --target agent \
+            --container gateway-egress-probe --attach=false --quiet -- \
+            sh -c 'for port in 3000 4000; do
+                     code="$(curl -s -o /dev/null -w "%{http_code}" \
+                       --connect-timeout 3 --max-time 5 "http://agentgateway:${port}/" || true)"
+                     echo "agentgateway:${port} -> ${code}"
+                     [ "${code}" != "000" ] || exit 1
+                   done'
+          timeout 120 bash -c "
+            until kubectl get pod --namespace agentops '${agent_pod}' -o json |
+              jq -e '.status.ephemeralContainerStatuses[]?
+                     | select(.name == \"gateway-egress-probe\")
+                     | .state.terminated' >/dev/null; do sleep 2; done"
+          kubectl logs --namespace agentops "${agent_pod}" --container gateway-egress-probe
+          kubectl get pod --namespace agentops "${agent_pod}" -o json |
+            jq -e '.status.ephemeralContainerStatuses[]
+                   | select(.name == "gateway-egress-probe")
+                   | .state.terminated.exitCode == 0'
 
       - name: Forward only the tested private services
         run: |
@@ -295,20 +321,33 @@ jobs:
           DURATION=15s RATE=12 mise run load:mcp
           ITERATIONS=1 mise run load:a2a
 
-      - name: Emit one safe application log and verify capture defaults
+      # Read the capture defaults off the *running process*, not off the manifest: the image
+      # bakes them, so a pod spec would not show them and a rebuilt image that dropped them
+      # would pass unnoticed. An ephemeral container with `--target agent` shares the agent's
+      # process namespace, which is what makes /proc/1/environ readable from a second image.
+      - name: Verify the telemetry capture defaults on the running agent
         run: |
           agent_pod="$(
             kubectl -n agentops get pods \
               -l app.kubernetes.io/name=agentops-agent \
               -o jsonpath='{.items[0].metadata.name}'
           )"
-          kubectl -n agentops exec "${agent_pod}" -- sh -eu -c \
-            "test \"\${ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS}\" = false
-             test \"\${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT}\" = false"
-          kubectl -n agentops exec "${agent_pod}" -- \
-            python -c \
-            'import logging, sys; from agent.telemetry import setup_telemetry; from opentelemetry import _logs; setup_telemetry(); logging.getLogger("agent.platform").warning(sys.argv[1]); provider = _logs.get_logger_provider(); assert provider.force_flush(timeout_millis=10_000), "OpenTelemetry log flush timed out"' \
-            "${TELEMETRY_LOG_MARKER}"
+          # shellcheck disable=SC2016 # the probe's own `sh` expands these, not this script
+          kubectl debug --namespace agentops "${agent_pod}" \
+            --image "${CURL_IMAGE}" --target agent \
+            --container capture-defaults-probe --attach=false --quiet -- \
+            sh -c 'environ="$(tr "\0" "\n" </proc/1/environ)"
+                   echo "${environ}" | grep -qx "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+                   echo "${environ}" | grep -qx "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false"'
+          timeout 120 bash -c "
+            until kubectl get pod --namespace agentops '${agent_pod}' -o json |
+              jq -e '.status.ephemeralContainerStatuses[]?
+                     | select(.name == \"capture-defaults-probe\")
+                     | .state.terminated' >/dev/null; do sleep 2; done"
+          kubectl get pod --namespace agentops "${agent_pod}" -o json |
+            jq -e '.status.ephemeralContainerStatuses[]
+                   | select(.name == "capture-defaults-probe")
+                   | .state.terminated.exitCode == 0'
 
       - name: Prove traces, metrics, and logs contain the expected evidence
         run: |
@@ -376,13 +415,13 @@ jobs:
               --data-urlencode 'since=15m' \
               --data-urlencode 'limit=500' \
               >"${RUNNER_TEMP}/loki.json"
-            jq -e --arg marker "${TELEMETRY_LOG_MARKER}" \
-              '.status == "success" and (tostring | contains($marker))' \
+            jq -e --arg line "${TELEMETRY_LOG_LINE}" \
+              '.status == "success" and (tostring | contains($line))' \
               "${RUNNER_TEMP}/loki.json" >/dev/null && break
             sleep 2
           done
-          jq -e --arg marker "${TELEMETRY_LOG_MARKER}" \
-            '.status == "success" and (tostring | contains($marker))' \
+          jq -e --arg line "${TELEMETRY_LOG_LINE}" \
+            '.status == "success" and (tostring | contains($line))' \
             "${RUNNER_TEMP}/loki.json" >/dev/null
           jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
             'tostring | contains($sentinel) | not' \

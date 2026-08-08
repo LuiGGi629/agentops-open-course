@@ -7,7 +7,8 @@ Guidance for coding agents working in the AgentOps Open Course. Humans should st
 The course teaches the complete lifecycle of one **AgentOps Agent** with Google ADK, agentgateway, kagent, OpenTelemetry into Tempo/Loki/Prometheus, and MLflow for offline evaluation. `main` is a completed, executable reference that learners inspect and extend; it must not drift into a collection of illustrative snippets. Chapter 8.7 turns that reference into a capstone contract for a learner-owned domain.
 
 - `content/` contains FAQ-based course pages, built by **Hugo** (`hugo.toml`, `layouts/`, `data/nav.yaml`).
-- `agents/python/` is the locked Python reference agent, offline tests, and model-backed evaluations.
+- `agents/go/` is the Go reference agent and its offline tests, wired into the root `install`, `format`, `check`, and `test` aggregates.
+- `agents/python/` is the frozen Python reference agent, offline tests, and model-backed evaluations, kept as the behavioural reference until the Go port clears its evaluation gate.
 - `agents/data/` is immutable seed input: SQLite, logs, runbooks, and the agent's runtime Agent Skills.
 - `skills/` holds installable, portable Agent Skills (`npx skills add …`) that distil the course's patterns for reuse in other projects — distinct from the runtime skills under `agents/data/skills`. `scripts/check_conventions.py skills` (via `mise run check:skills`) validates them.
 - `clients/web/` is a minimal, offline, dependency-free A2A web client for the AgentOps Agent.
@@ -22,7 +23,7 @@ The course teaches the complete lifecycle of one **AgentOps Agent** with Google 
 
 - **Docs mirror source.** Critical Python excerpts use the checked `{{< include >}}` shortcode over named `--8<-- [start:x]`/`[end:x]` regions in `agents/python`; a missing file or region fails the build; commands/manifests match `infra`. Prefer a short exact excerpt plus a source link over a second pseudo-implementation.
 - **Every course page is an FAQ.** It starts with YAML `description` front matter, contains at least one H2, and every H2 ends in `?`. `scripts/check_conventions.py` enforces this and the page frame below.
-- **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/python/.state`; Kubernetes agent/MCP processes share `agentops-agent-state` so reads remain coherent with approved writes. Only the A2A startup and direct write boundary may prepare or migrate runtime state; probes and read tools stay read-only.
+- **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/go/.state`; Kubernetes agent/MCP processes share `agentops-agent-state` so reads remain coherent with approved writes. Only the A2A startup and direct write boundary may prepare or migrate runtime state; probes and read tools stay read-only.
 - **Restore is crash-recoverable, not an instantaneous multi-file rename.** Stop every writer first. `agent.state` serializes backup/restore with a process lock and fsyncs a three-phase journal; A2A startup recovers an interrupted transaction before schema preflight or publication. Never bypass that boundary with direct file copies or delete unexplained `.restore-*` evidence.
 - **Reads and writes have different authority.** The conversational entrypoint alone switches its six read/runbook tools from direct local calls to MCP through `AGENT_MCP_URL`; workflow and coordinator specialists always bind local tools. The MCP toolset passes `tool_filter=MCP_READ_TOOL_NAMES` (`mcp_client.py`), so a server cannot widen the surface by advertising more tools. `restart_service` and `resolve_incident` remain in-process, require ADK confirmation, validate targets, and append audit evidence in the same transaction. Replays with the same invocation, action, and target return the original audit row without mutating state again.
 - **Policy is attached once, at the app boundary.** `src/agent/governance.py` holds `AgentOpsPolicyPlugin`, an ADK `BasePlugin` registered on the `App` that `composition.py` exports as `app` (also re-exported by `src/agent/__init__.py`, which ADK discovery prefers over a bare `root_agent`). Its hooks fire for every agent, sub-agent, and workflow node, so adding an agent cannot lose the policy. Two properties are load-bearing: the before-model order is budget → compaction → redaction, and the first non-`None` return short-circuits the rest. Never reintroduce a per-agent callback list — that is what let nine copies of the same six callbacks accumulate. ADK 2.6's stock evaluator rebuilds a bare-agent runner, so ADK evals must enter through `evals/governed_adk_eval.py`, while MLflow must use `InMemoryRunner(app=build_app(...))`.
@@ -49,6 +50,7 @@ The optional GKE path compatibility-pins `gemini-3.5-flash`. Do not move that pi
 Use the repository files and locks as version authority — never a number copied into prose. The authoritative pin for each component lives in:
 
 - Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution.
+- Google ADK for Go and every Go dependency: `agents/go/go.mod` for the requirement, `agents/go/go.sum` for the exact resolution. The Go toolchain itself (`go`, `golangci-lint`, `gotestsum`) is pinned once in `mise.toml` `[tools]`, and `go` there must match the `go` directive in `agents/go/go.mod`.
 - Hugo: `mise.toml` `[tools]`. The Hextra theme is a Hugo Module pinned in `go.mod`/`go.sum`; the self-hosted Mermaid and FlexSearch bundles are pinned by version and sha256 in `assets/js/vendor/versions.json`. The remaining documentation gates (front-matter parsing, browser accessibility) are Python: root `pyproject.toml` and `uv.lock`.
 - CLI tools (agentgateway, k3d, kubectl, helm, helmfile, skaffold, k6, gcloud, …): `mise.toml` `[tools]`, with checksums and provenance in `mise.lock`.
 - Workflow-only Docker Buildx: the explicit `version` inputs in `.github/workflows/release.yml`.
@@ -130,7 +132,24 @@ mise run gke:smoke
 
 `mise run install` bootstraps the learner-facing core tools and environments. The platform and maintainer tiers are explicit so a first checkout does not install Kubernetes, cloud, and security tooling it does not yet need.
 
-Aggregate tasks run their children: `install`, `format`, `check`, and `build` each fan out, so `mise run build` builds the site **and** both container images and therefore needs Docker. Use `mise run build:docs` for the container-free documentation build. `install:core`, `doctor:base`, `watch`, and `scan` are aliases of `install`, `doctor`, `serve`, and `secure`; `install:tools:*` are hidden implementation details.
+Aggregate tasks run their children: `install`, `format`, `check`, `test`, and `build` each fan out. `mise run test` runs both reference agent suites (`test:go`, `test:python`), and `mise run build` builds the site **and** the agent image and therefore needs Docker. Use `mise run build:docs` for the container-free documentation build. `install:core`, `doctor:base`, `watch`, and `scan` are aliases of `install`, `doctor`, `serve`, and `secure`; `install:tools:*` are hidden implementation details.
+
+Agent tasks from `agents/go/`:
+
+```bash
+mise run check
+mise run test
+mise run build
+mise run run
+mise run workflow
+mise run coordinator
+mise run web
+mise run a2a
+mise run mcp
+mise run mcp:http
+mise run config:check
+mise run data:reset
+```
 
 Agent tasks from `agents/python/`:
 
@@ -160,7 +179,7 @@ Kubernetes begins in Chapter 6. Local Kubernetes is created only from `infra/k3d
 mise run platform:dev
 ```
 
-That task derives `AGENT_SOURCE_COMMIT` from `HEAD`; raw Skaffold commands must provide the same exact-source value because `infra/skaffold.yaml` refuses an untraceable image build.
+That task derives `AGENT_SOURCE_COMMIT` from `HEAD`; raw Skaffold commands must provide the same exact-source value because the build refuses an untraceable image. The refusal is enforced in `agents/go/Dockerfile`, not in `infra/skaffold.yaml`: Skaffold renders an unset `{{.AGENT_SOURCE_COMMIT}}` as the literal string `<no value>` and would otherwise build an image claiming that as its revision. A bare `docker build` that passes no build argument keeps the honest `unknown` default.
 
 Do not start host Compose observability while the in-cluster stack is forwarded on the same ports. No profile creates an Ingress, LoadBalancer, or public application endpoint; clients use temporary port-forwards through agentgateway.
 

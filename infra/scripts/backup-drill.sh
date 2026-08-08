@@ -9,6 +9,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
 require_cmd sqlite3 base
+require_cmd go base
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scripts_dir="${repo_dir}/infra/scripts"
@@ -87,19 +88,42 @@ mkdir "${rollback_target}"
 cp "${state_dir}"/*.db "${rollback_target}/"
 sql "${rollback_target}/obsolete.db" "CREATE TABLE stale (value TEXT); INSERT INTO stale VALUES ('keep-on-failure');"
 rollback_before="$(sha256sum "${rollback_target}"/*.db)"
-if uv run --project "${repo_dir}/agents/python" --frozen \
-	python -c '
-import sys
-from pathlib import Path
+# The publication failure is injected through RestoreOptions.BeforePublish, the seam the
+# restore carries for exactly this proof. `go run <file>` inside the module compiles this
+# program against the module's own packages, so the drill exercises the shipped restore.
+cat >"${drill_dir}/inject-publication-failure.go" <<'GO'
+package main
 
-from agent.state import restore_state
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
 
-def fail_after_first_publication(installed_count: int) -> None:
-    if installed_count >= 1:
-        raise OSError("injected second-file publication failure")
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
+)
 
-restore_state(Path(sys.argv[1]), Path(sys.argv[2]), before_publish=fail_after_first_publication)
-' "${snapshot}" "${rollback_target}" \
+func main() {
+	if len(os.Args) != 3 {
+		fmt.Fprintln(os.Stderr, "usage: inject-publication-failure <snapshot> <state-dir>")
+		os.Exit(2)
+	}
+	options := state.RestoreOptions{
+		BeforePublish: func(installed int) error {
+			if installed >= 1 {
+				return errors.New("injected second-file publication failure")
+			}
+			return nil
+		},
+	}
+	if _, err := state.RestoreState(context.Background(), os.Args[1], os.Args[2], options); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+GO
+if (cd "${repo_dir}/agents/go" &&
+	go run "${drill_dir}/inject-publication-failure.go" "${snapshot}" "${rollback_target}") \
 	>"${drill_dir}/expected-publication-failure.log" 2>&1; then
 	fail "drill failed: injected second-file publication failure was ignored"
 fi

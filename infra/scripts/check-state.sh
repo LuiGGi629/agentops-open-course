@@ -95,8 +95,9 @@ for overlay in local gke; do
 	assert_eq "${overlay} Tempo token automount" "${tempo_automount}" "false"
 	assert_eq "${overlay} Tempo trace claim" "${tempo_claim}" "tempo"
 	assert_eq "${overlay} Tempo data mount" "${tempo_data_mount}" "/var/tempo"
-	# Both overlays keep trace blocks on the claim: unlike MLflow, Tempo has no
-	# object-storage destination that could differ between local and GKE.
+	# Both overlays keep trace blocks on the claim: Tempo's only storage destination
+	# here is that PersistentVolumeClaim, so local and GKE cannot diverge into one
+	# cluster writing traces to a bucket and the other to a disk.
 	assert_eq "${overlay} Tempo block path" "${tempo_block_path}" "/var/tempo/blocks"
 	[[ -z "${unbounded_tmp_volumes}" ]]
 done
