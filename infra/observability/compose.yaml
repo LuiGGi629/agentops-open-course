@@ -131,7 +131,11 @@ services:
     volumes:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Mount each dashboard as its own file. Binding the directory read-only and then
+      # binding a file inside it makes runc create a mountpoint under a read-only mount,
+      # which fails the container outright ("read-only file system"). Landing both files
+      # directly in the grafana-data volume keeps each one read-only without that nesting.
+      - ./grafana/dashboards/agentops.json:/var/lib/grafana/dashboards/agentops.json:ro
       - ../../evals/grafana-dashboard.json:/var/lib/grafana/dashboards/evaluations.json:ro
       - grafana-data:/var/lib/grafana
     tmpfs:

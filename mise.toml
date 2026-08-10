@@ -572,10 +572,19 @@ run = "tools/bin/fake-model"
 
 [tasks."observability:up"]
 description = "Start and readiness-check the hardened local observability stack"
+# Compose resolves its own `.env` relative to the compose file's directory, so the root
+# `.env` never reaches the `${TEMPO_PORT}`-style interpolations in
+# infra/observability/compose.yaml. Loading it into the task environment instead feeds
+# compose and both shell scripts from one place; passing `--env-file` to compose would
+# reach compose only, and `--project-directory .` would re-root every bind mount.
+env = { _.file = { path = ".env", redact = true } }
 run = "./infra/scripts/observability-up.sh"
 
 [tasks."observability:down"]
 description = "Stop local observability services while preserving their volumes"
+# Same environment as observability:up, so teardown resolves the identical project,
+# network, and ports that startup published.
+env = { _.file = { path = ".env", redact = true } }
 run = [
   "docker compose -f infra/observability/compose.yaml down",
   "./scripts/check-observability.sh stopped",

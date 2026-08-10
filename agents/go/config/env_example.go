@@ -29,12 +29,20 @@ var rawEnvAssignment = regexp.MustCompile(`(?m)^[ \t]*#?[ \t]*[A-Z][A-Z0-9_]*=.*
 // stay explicit so the template cannot silently grow an unrelated environment
 // surface.
 var externalExampleVariables = map[string]struct{}{
-	"ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS":               {},
-	"OTEL_EXPORTER_OTLP_ENDPOINT":                        {},
-	"OTEL_EXPORTER_OTLP_PROTOCOL":                        {},
+	"ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS": {},
+	"AGENTOPS_GATEWAY_NETWORK":             {},
+	"ALERTMANAGER_PORT":                    {},
+	"GRAFANA_PORT":                         {},
+	"LOKI_PORT":                            {},
+	"OTEL_EXPORTER_OTLP_ENDPOINT":          {},
+	"OTEL_EXPORTER_OTLP_PROTOCOL":          {},
+	"OTEL_GRPC_PORT":                       {},
+	"OTEL_HTTP_PORT":                       {},
 	"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": {},
-	"OTEL_SERVICE_NAME":                                  {},
-	"SSL_CERT_FILE":                                      {},
+	"OTEL_SERVICE_NAME": {},
+	"PROMETHEUS_PORT":   {},
+	"SSL_CERT_FILE":     {},
+	"TEMPO_PORT":        {},
 }
 
 type envExampleField struct {
