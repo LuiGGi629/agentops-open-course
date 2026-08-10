@@ -104,6 +104,7 @@
     - page: 6. Platform/6.5. Platform Gateway.md
     - page: 6. Platform/6.6. Platform Delivery.md
     - page: 6. Platform/6.7. Promotion and Rollback.md
+    - page: 6. Platform/6.8. Platform Operations.md
 
 - label: 7. Observability
   children:
@@ -112,6 +113,7 @@
     - page: 7. Observability/7.0. Reproducibility.md
     - page: 7. Observability/7.1. Tracing.md
     - page: 7. Observability/7.2. Monitoring.md
+    - page: 7. Observability/7.2b. Alerting.md
     - page: 7. Observability/7.3. Costs.md
     - page: 7. Observability/7.4. Feedback.md
     - page: 7. Observability/7.5. Online Evaluation.md
@@ -122,8 +124,10 @@
   children:
     - page: 8. Community/_index.md
       label: Community
+    # The capstone is the chapter's destination and the end of the required path, so it sits
+    # directly under the chapter index. Everything below it is skippable maintenance reference.
     - page: 8. Community/8.7. Capstone.md
-    - label: Optional OSS maintenance
+    - label: Appendix — Optional OSS maintenance
       children:
         - page: 8. Community/8.0. Repository.md
         - page: 8. Community/8.1. License.md

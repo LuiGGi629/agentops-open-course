@@ -6,17 +6,40 @@ slug: "8-community"
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Start the capstone directly and know which optional page to use when you maintain an open-source project.
-- **You need:** Chapters 1-7 finished and the learner gates passing.
-- **Time:** about 6 minutes, orientation. {{% /admonition %}}
+- **You will:** Go straight to the capstone, and learn which appendix page to open only if you later publish what you built.
+- **You need:** Chapters 1–7 finished with the learner checks passing.
+- **Time:** about 5 minutes, orientation. {{% /admonition %}}
 
-## What should you do after Chapter 7?
+## The course ends where your domain begins
 
-Go directly to [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}). It turns the completed reference into an agent for a domain you understand, then proves the result reproduces from a clean clone — handed to a reviewer, or run by you on a machine that carries nothing over.
+Chapter 7 closed with the reversal the whole course was building toward: the agent became the incident, and you were the one holding the trace, the metric, the audit row, and the kill switch. There is nothing left to add to Northwind Retail. The work now is to throw the story away and keep the machine.
 
-[Chapter 7]({{< relref "/7. Observability/_index.md" >}}) left you with the evidence needed to make that change responsibly: tests, trajectories, gateway policy, deployment checks, traces, metrics, and audit records. The capstone is where those pieces become one learner-owned platform.
+That is the capstone, and it is the only required page in this chapter. Everything the reference does for a fictional inventory outage, your derivative should do for a problem you were already losing time to.
 
-Pages 8.0-8.6 are optional OSS maintenance references. Read one when you need to organize, license, release, document, or contribute to a public project; they are not prerequisites for starting the capstone.
+The swap is bigger than the seed, so measure it before you plan it:
+
+```bash
+cd evals
+mise run eval:validate
+```
+
+```text
+{
+  "evalsets": 3,
+  "cases": 21,
+  "calibration_cases": 12
+}
+```
+
+Twenty-one behavioral cases and twelve calibration examples currently assert things about incidents, services, and runbooks that stop being true the moment you change the seed. That is before the Go suite, the runbooks, the logs, and the gateway policies get a vote. The capstone is the page that turns that from a nasty surprise into an ordered plan.
+
+Write two lines down now, somewhere you will still have them next week: the bounded problem your derivative solves, and the one person who acts on its answer. The capstone's design brief starts from those two lines, and every milestone after it narrows them.
+
+Then open [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}). It records your baseline, maps how tightly the reference is wired to its own domain, walks ten milestones each carrying the one command or test that backs it, and ends with a manifest a reviewer can verify from a clean clone.
+
+## Everything else here is an appendix you may skip
+
+Pages 8.0 through 8.6 are optional maintenance references for open-source projects. Nothing in the capstone depends on them, and reading them first is the most common way learners stall three pages short of finishing. Open one when a publishing question actually arrives — and only that one.
 
 ```mermaid
 flowchart LR
@@ -24,32 +47,24 @@ flowchart LR
     Cap -.when publishing.-> Maint["8.0–8.6 optional<br/>OSS maintenance"]
 ```
 
-## Which optional page answers your maintenance question?
+**Diagram in words:** Chapter 7's operating work feeds directly into the 8.7 capstone, where you adapt the reference, prove it, and hand it off. Only if you then decide to publish does the optional 8.0–8.6 maintenance appendix become relevant, shown as a dashed side path rather than a next step.
 
-Use this table as a lookup rather than a second linear syllabus:
+| Appendix page                                                                           | Open it when you need to…                                                      |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [8.0. Repository]({{< relref "/8. Community/8.0. Repository.md" >}}) _(reference)_      | Find the exact file that owns a claim, a check, or a deployed behavior.        |
+| [8.1. License]({{< relref "/8. Community/8.1. License.md" >}}) _(reference)_            | Reuse or redistribute prose and code with the right grant attached.            |
+| [8.2. Releases]({{< relref "/8. Community/8.2. Releases.md" >}}) _(reference)_          | Turn one reviewed commit into a signed, attested, immutable release.           |
+| [8.3. Templates]({{< relref "/8. Community/8.3. Templates.md" >}}) _(concept)_          | Decide between forking once and maintaining a project generator.               |
+| [8.4. Documentation]({{< relref "/8. Community/8.4. Documentation.md" >}}) _(hands-on)_ | Keep prose, quoted source, and rendered routes from drifting apart.            |
+| [8.5. Contributions]({{< relref "/8. Community/8.5. Contributions.md" >}}) _(hands-on)_ | Take someone else's change through the same checks your hooks run.             |
+| [8.6. AAIF]({{< relref "/8. Community/8.6. AAIF.md" >}}) _(reference)_                  | Route an upstream failure to the narrow project that owns the broken contract. |
 
-| Optional page                                                                            | Open it when you need to…                                                           |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| [8.0. Repository]({{< relref "/8. Community/8.0. Repository.md" >}}) _(reference)_       | Map the top-level layout and separate human from agent guidance.                    |
-| [8.1. License]({{< relref "/8. Community/8.1. License.md" >}}) _(reference)_             | Reuse or distribute prose and code under the correct license.                       |
-| [8.2. Releases]({{< relref "/8. Community/8.2. Releases.md" >}}) _(reference)_           | Cut a deliberate SemVer release with changelog and gate evidence.                   |
-| [8.3. Templates]({{< relref "/8. Community/8.3. Templates.md" >}}) _(concept)_           | Extract a reusable project shape without copying secrets or domain assumptions.     |
-| [8.4. Documentation]({{< relref "/8. Community/8.4. Documentation.md" >}}) _(hands-on)_  | Keep course prose, checked snippets, and publication behavior aligned.              |
-| [8.5. Contributions]({{< relref "/8. Community/8.5. Contributions.md" >}}) _(reference)_ | Accept a change through issue, review, validation, and CI.                          |
-| [8.6. AAIF]({{< relref "/8. Community/8.6. AAIF.md" >}}) _(reference)_                   | Understand upstream stewardship and choose where an ecosystem contribution belongs. |
+## What this chapter proved
 
-The reference on `main` remains a completed, executable project. These pages explain how to sustain that property when maintenance becomes part of your goal.
+- You know the required path continues to the capstone and stops there; the appendix is a lookup, not a syllabus.
+- You measured how much committed evaluation surface a domain swap moves: twenty-one cases and twelve calibration examples across three evalsets.
+- You wrote down the bounded problem and the person who acts on its answer, which is where the capstone brief begins.
 
-## What proves this chapter worked?
+An hour ago this chapter looked like seven maintenance pages with a project attached. It is the opposite: one project, with seven pages you may never need.
 
-There is no new runtime or gate on this orientation page. The capstone begins by recording the learner baseline, then widens validation only as your claims widen.
-
-**You are done when:**
-
-- You have chosen a bounded domain and user outcome for the capstone.
-- You know that the required course path continues directly to 8.7.
-- You have bookmarked only the optional maintenance pages relevant to how you plan to share the result.
-- You finished the required drill in [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md#how-do-you-prove-coupling-before-milestone-one" >}}): one seed identifier changed, the suite red on the tests that name it, and everything green again after `git restore` and a rebuild.
-- Without reopening Chapter 3, you can name the four boundaries one new read capability crosses — data, tool, gateway policy, evidence — and the file that owns each.
-
-Continue to [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}) when you can name the domain boundary you will replace.
+Continue to [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}) as soon as those two lines are written down.

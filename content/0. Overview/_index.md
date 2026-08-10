@@ -1,73 +1,52 @@
 ---
 title: "0. Overview"
-description: "Orient before you build: decide when an agent is justified, map the AgentOps lifecycle, assign ownership across the stack, and choose the required OSS path or an optional hosted provider."
+description: "Orient before you build: see what the agent is grounded in, decide when an agent is justified, learn what a claim in this course is worth, and pick your path."
 slug: "0-overview"
 ---
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Answer the five questions the rest of the course assumes you have already settled.
-- **You need:** Nothing beyond this course page; Chapter 0 is read-only.
+- **You will:** Decide whether an agent is the right tool for a job, learn what this course's green checkmarks are worth, and pick your model path.
+- **You need:** Nothing installed. Chapter 0 is read-only.
 - **Time:** about 4 minutes, orientation. {{% /admonition %}}
 
-{{% admonition tip "Keep the glossary open" %}}
+## Three incidents are open and one of them is a SEV1
 
-Every term the course teaches as a concept has a one-line definition in [0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}}), with a link to the page that introduces it. Open it in a second tab now — nothing on this page expects you to already know the names below. {{% /admonition %}}
+The world this course works in is small, fictional, and already committed to the repository. Before you read the rows below, guess how many of them a language model could plausibly have memorised during training:
 
-## What will you learn in this chapter?
-
-This chapter is orientation, not installation. It settles the decisions the rest of the course assumes you have already made.
-
-Read 0.0, 0.1, 0.2 and 0.4 in order. Bookmark 0.3, 0.5, 0.6 and 0.7, and come back to them when you need them.
-
-Four pages, about 63 minutes. 0.3 is a reference map of ownership boundaries across nine technologies you have not seen run yet; it reads far better after Chapter 2 than before Chapter 1.
-
-This chapter covers:
-
-- **[0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}})** _(orientation · ~20 min)_: outcome, audience, prerequisites, time, cost, and learning paths.
-- **[0.1. Agents]({{< relref "/0. Overview/0.1. Agents.md" >}})** _(concept · ~16 min)_: what an AI agent is, the agentic loop, common patterns, and when a workflow or plain code is the better choice.
-- **[0.3. AgentOps]({{< relref "/0. Overview/0.3. AgentOps.md" >}})** _(concept · ~12 min)_: the AgentOps lifecycle and how MLOps, LLMOps, and AgentOps relate.
-- **[0.4. Ecosystem]({{< relref "/0. Overview/0.4. Ecosystem.md" >}})** _(lookup · bookmark)_: ownership boundaries across ADK, agentgateway, kagent, OTel, Tempo, the Go evaluation harness, MCP, A2A, AAIF, and CNCF — the page you return to when you need to know who owns a boundary.
-- **[0.5. Providers]({{< relref "/0. Overview/0.5. Providers.md" >}})** _(concept · ~15 min)_: local Qwen3 by default, then optional Gemini or Vertex AI compared explicitly.
-- **[0.6. Resources]({{< relref "/0. Overview/0.6. Resources.md" >}})** _(lookup · bookmark)_: primary documentation, open-source development tools, and community routes.
-- **[0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md" >}})** _(lookup · bookmark)_: symptom-first fixes for the most common setup and runtime failures.
-- **[0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}})** _(lookup · bookmark)_: one-line definitions for the course's terms, each linked to the page that owns it.
-
-## What decisions does this chapter help you make?
-
-Five questions, in order, answered across the sub-pages below. Settle them before you commit engineering time to building:
-
-```mermaid
-flowchart TD
-    Q1["Is an agent justified,<br/>or is a workflow enough?<br/>0.1 Agents"] --> Q2["What is AgentOps,<br/>and what is its lifecycle?<br/>0.2 AgentOps"]
-    Q2 --> Q3["Who owns which boundary<br/>across the stack?<br/>0.3 Ecosystem · look up"]
-    Q3 --> Q4["Required OSS path or<br/>optional hosted service?<br/>0.3 Ecosystem · look up"]
-    Q4 --> Q5["Which model provider,<br/>and how do you authenticate?<br/>0.4 Providers"]
-    Q5 --> Ready(["Ready for<br/>1. Setup"])
+```bash
+sqlite3 -header -column agents/data/incidents.db \
+  "select id, service, severity, status from incidents where status = 'open';"
 ```
 
-The lifecycle you meet in [0.3. AgentOps]({{< relref "/0. Overview/0.3. AgentOps.md" >}}) is not only a mental model — it is the order of the course. Build ([2. Agents]({{< relref "/2. Agents/_index.md" >}})), Capabilities ([3. Capabilities]({{< relref "/3. Capabilities/_index.md" >}})), Quality ([4. Quality]({{< relref "/4. Quality/_index.md" >}})), Gateway ([5. Gateway]({{< relref "/5. Gateway/_index.md" >}})), Platform ([6. Platform]({{< relref "/6. Platform/_index.md" >}})), and Observe ([7. Observability]({{< relref "/7. Observability/_index.md" >}})) each own one phase. That is why the chapters run from a first model call to a monitored workload rather than in any other sequence. The full phase-to-chapter table is on that page, under "How does the lifecycle map to the course?".
+```text
+  id       service    severity  status
+-------  -----------  --------  ------
+INC-002  inventory    SEV1      open
+INC-005  search       SEV3      open
+INC-010  api-gateway  SEV3      open
+```
 
-One thread runs underneath every decision above: the open-source boundary. The required path — ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Grafana, Ollama, the standalone Go evaluation harness, and the Apache-2.0 open-weight Qwen3 model — needs no account and no fee. Gemini, Vertex AI, and GKE are optional proprietary comparisons the course never relabels as open source.
+None of them. That file is the only source for `INC-002` — ten incidents, four service logs, seven runbooks, two Agent Skills — so every claim the agent makes about it has to come from there or from nowhere. Inventory is down, and somebody has to decide whether restarting it clears the fault or destroys the record of what broke. You will hand that decision to an agent, then spend the rest of the course working out whether the agent deserved it.
 
-## What do you need to run this chapter?
+You cannot run that query yet, and that is deliberate: `sqlite3` arrives with the pinned toolchain in [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}). Read it for now as the transcript it is.
 
-Nothing. Chapter 0 asks you to read, compare, and decide; it does not ask you to install software, download a model, create an account, or spend money.
+## Three pages now, six for later
 
-[1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) owns the repository clone and core installation. [1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}}) owns the local model download. Keeping those actions in Setup gives every command one canonical home and lets you finish orientation on any device.
+Chapter 0 is the only part of the course you cannot run, so it earns its place by being short and by ending in decisions rather than exercises; the hands-on work starts the moment you install. Read these three in order:
 
-The course admits each heavy dependency only at the chapter that first needs it. A running model server, container engine, cluster, or cloud project never blocks the decisions you can make today.
+- **[0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}})** _(orientation · ~8 min)_: what you will have built, which path to take, and what it costs.
+- **[0.1. Agents]({{< relref "/0. Overview/0.1. Agents.md" >}})** _(concept · ~12 min)_: what an agent actually is, and when a plain function beats one.
+- **[0.2. Evidence]({{< relref "/0. Overview/0.2. Evidence.md" >}})** _(concept · ~8 min)_: what a gate proves, what an observation suggests, and why the course never blurs them.
 
-## What proves this chapter worked?
+The other six are reference — open them when a chapter sends you. [0.3. AgentOps]({{< relref "/0. Overview/0.3. AgentOps.md" >}}) maps the lifecycle to the chapters, [0.4. Ecosystem]({{< relref "/0. Overview/0.4. Ecosystem.md" >}}) says who owns which boundary and port, [0.5. Providers]({{< relref "/0. Overview/0.5. Providers.md" >}}) settles the model choice, [0.6. Resources]({{< relref "/0. Overview/0.6. Resources.md" >}}) says which source wins when two disagree, [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md" >}}) fixes a failing checkpoint, and [0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}}) defines every term in one line — keep that one open in a second tab.
 
-There is nothing to run here. The chapter has worked when you can answer its five questions in your own words.
+## What this chapter proved
 
-**You are done when:**
+- The agent's world is a committed SQLite seed with ten incidents in it, three of them open and one a SEV1.
+- You know which three pages to read now and which six to bookmark.
+- You know that Chapter 0 installs nothing: [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) owns the clone and the toolchain.
 
-- You can say why this course builds an agent for incident work, and when a workflow or plain code would have been the better answer.
-- You can name the six lifecycle phases — Build, Capabilities, Quality, Gateway, Platform, Observe — and the chapter that owns each one.
-- You can find, in [0.4. Ecosystem]({{< relref "/0. Overview/0.4. Ecosystem.md" >}}) and inside a minute, which tool owns the agent runtime, which owns the traffic in front of it, and which ones record what happened — by lookup, not from memory.
-- You have picked a model path, and you know the default one needs no account and no fee.
-- You know which four pages you will read now (0.0, 0.1, 0.2, 0.4) and which four lookup pages you have bookmarked (0.3, 0.5, 0.6, 0.7).
+Four minutes ago this was a repository someone recommended. You now know what it contains, what the course will make you responsible for, and which page to open first.
 
-Continue to [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}) when you are ready to pick a learning path.
+Continue to [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), which shows you the first thing the agent does with `INC-002`.

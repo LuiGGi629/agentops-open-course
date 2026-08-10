@@ -6,37 +6,44 @@ slug: "5-gateway"
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Map the chapter's reading order and the page that owns each gateway boundary.
-- **You need:** Chapters 2-4 finished; [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) installs the optional platform tier before starting anything.
-- **Time:** about 4 minutes, orientation. {{% /admonition %}}
+- **You will:** See what the chapter governs, check that your machine can run it, and pick the page that owns each boundary.
+- **You need:** Chapters 2-4 finished and Docker running. The one command below only reports; `mise run install:platform` supplies the tools every later page uses.
+- **Time:** about 5 minutes, orientation. {{% /admonition %}}
 
-## Where should you begin?
+## The agent works. Its traffic has no rules yet.
 
-Begin with [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}), which owns the case for the extra hop, the data-plane definition, the listener map, and the responsibility boundary.
+Ana's agent can read INC-002, rank the runbooks, and ask a human before it restarts anything. Every one of those abilities arrives over a connection the agent opens itself: a model endpoint it names in an environment variable, an MCP server it trusts to advertise honest tools, an A2A port any process on the machine can post to. Nothing rate-limits those connections, nothing logs them in one place, and nothing stops the next service your team writes from wiring itself to the same backends with a slightly different set of rules.
 
-This index only maps the reading order. The six hands-on pages then apply that single model to MCP, A2A, model, security, and observability concerns.
+That is the gap this chapter closes. You put one open-source proxy — [agentgateway](https://agentgateway.dev/) — between the agent and all three of its outside worlds, and you move the traffic decisions into it: which tools exist, how fast a caller may push, which prompts are refused, what gets logged. The agent keeps the decisions a proxy cannot make, and by the end of 5.6 you can watch a single refused request appear in a log line, a counter, and nowhere else.
 
-{{% collapsible note "Deeper: who builds agentgateway?" %}}
+First, find out whether your machine is ready. This probes and starts nothing:
 
-agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an **[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in the Go ADK application. {{% /collapsible %}}
+```bash
+mise run doctor:gateway
+```
 
-## Which page covers what?
+```text
+[doctor:gateway] $ ./scripts/doctor.sh gateway
+gateway    ready
+env        optional .env is absent
+docker     ready
+```
 
-Read the sections by their kind, not just their order. **5.0 is conceptual** — the case for the extra hop. The six pages after it are hands-on, and each ends with something you can see:
+Three lines and no surprises is what you want. `gateway ready` means every tool the host path needs is on `PATH`; `docker ready` means the daemon answered and `docker compose` exists. On a fresh clone it fails instead, and the failure is useful: each line pairs a `missing:` tool with the `remedy:` that supplies it, which for `yq` is `mise run install:platform`. The doctor reports; it never installs. [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) opens with that command.
 
-- **[5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}})** _(concept)_: The connectivity and security problem agents face, and an agentgateway overview.
-- **[5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}})** _(hands-on)_: Start the whole stack on your laptop, through a wrapper that keeps every listener on loopback.
-- **[5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md" >}})** _(hands-on)_: Watch the gateway allow exactly six read tools, refuse a seventh, and fail closed when the tool server is down.
-- **[5.3. A2A Gateway]({{< relref "/5. Gateway/5.3. A2A Gateway.md" >}})** _(hands-on)_: Chat with the agent from a browser through the gateway, and approve a service restart.
-- **[5.4. Model Gateway]({{< relref "/5. Gateway/5.4. Model Gateway.md" >}})** _(hands-on)_: Move the agent onto one model endpoint by changing a single variable, with local Qwen3 or GKE Vertex Gemini behind it.
-- **[5.5. Gateway Security]({{< relref "/5. Gateway/5.5. Gateway Security.md" >}})** _(hands-on)_: Trip the prompt guard, review the allowlists and limits already active, then add tokens and TLS in an opt-in profile.
-- **[5.6. Gateway Observability]({{< relref "/5. Gateway/5.6. Gateway Observability.md" >}})** _(hands-on)_: Read the gateway's own logs, metrics, and traces for a single request, and see what stays out of them.
+## What each page owns
 
-## How does the chapter fit together?
+Read them in order. Each one takes a single boundary and ends with something you can see on your own screen.
 
-Read [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}) for the conceptual contract. Then stand the gateway up in [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) and govern each boundary in turn.
+- **[5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}})** _(concept)_: Why an extra hop is worth it, which port carries which protocol, and the three controls that must never leave the agent.
+- **[5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}})** _(hands-on)_: Start the whole stack on your laptop through a wrapper that keeps every listener on loopback, and read what it did to your machine.
+- **[5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md" >}})** _(hands-on)_: Watch the gateway hand out six read tools, refuse a seventh, and fail closed when the tool server is gone.
+- **[5.3. A2A Gateway]({{< relref "/5. Gateway/5.3. A2A Gateway.md" >}})** _(hands-on)_: Fetch the agent card through the gateway, see the address it rewrites, and find out which origins a browser may use.
+- **[5.4. Model Gateway]({{< relref "/5. Gateway/5.4. Model Gateway.md" >}})** _(hands-on)_: Discover that the gateway, not the agent, now chooses which model answers — then route a second alias yourself.
+- **[5.5. Gateway Security]({{< relref "/5. Gateway/5.5. Gateway Security.md" >}})** _(hands-on)_: Trip the prompt guard, turn on TLS and JWTs, and hand out a token that can see two tools instead of six.
+- **[5.6. Gateway Observability]({{< relref "/5. Gateway/5.6. Gateway Observability.md" >}})** _(hands-on)_: Follow one rejected request through a log line, a counter, and a Prometheus query — and explain the trace that never appears.
 
-Security ([5.5. Gateway Security]({{< relref "/5. Gateway/5.5. Gateway Security.md" >}})) and observability ([5.6. Gateway Observability]({{< relref "/5. Gateway/5.6. Gateway Observability.md" >}})) are cross-cutting rather than a fourth plane: their policies attach per-listener to MCP, A2A, and model traffic alike.
+## How the chapter fits together
 
 ```mermaid
 flowchart TD
@@ -50,31 +57,23 @@ flowchart TD
     Sec --> Obs["5.6 Observability<br/>logs · metrics · traces"]
 ```
 
-Before you start, three things about the shape of the chapter:
+**Diagram in words:** The conceptual opener feeds the setup page, which feeds the three protocol pages in any order; security and observability then cut across all three.
 
-- **It all runs on your laptop.** The host profile needs no Kubernetes cluster, cloud account, or provider key.
-- **It needs the platform tier, Docker, and Qwen3.** [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) runs `mise run install:platform`, then the model and gateway doctors.
-- **Not all of it is required.** The secured JWT/TLS profile in 5.5. Gateway Security is opt-in, the Vertex Gemini path in 5.4. Model Gateway is an optional proprietary comparison, and the Kubernetes material is a preview of Chapter 6.
+Security and observability are not a fourth plane. Their policies attach per listener, so the same rate limit vocabulary and the same log shape apply to MCP, A2A, and model traffic alike — which is exactly the payoff of putting one process in the path.
 
-## What proves this chapter worked?
+Three facts about the shape of the chapter, before you start. **It all runs on your laptop**: the host profile needs no Kubernetes cluster, no cloud account, and no provider key. **It needs Docker and a pulled Qwen3**, because the gateway ships as a digest-pinned container and the model listener forwards to your local Ollama. And **not all of it is required**: the JWT/TLS profile in 5.5 is opt-in, the Vertex Gemini path in 5.4 is an optional proprietary comparison, and every Kubernetes mention is a preview of [Chapter 6]({{< relref "/6. Platform/_index.md" >}}).
 
-One command stands the whole composition up and tears it down again:
+{{% collapsible note "Deeper: who builds agentgateway?" %}}
 
-```bash
-mise run smoke:host
-```
+agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an **[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in the Go ADK application. {{% /collapsible %}}
 
-It runs the host stack against a fake model on temporary ports, so it proves the composition without spending model time.
+## What this chapter proved
 
-The chapter checkpoint tests fail-closed MCP, A2A discovery, local model translation, prompt rejection, and telemetry through gateway ports only.
+Once the platform tier is installed, one command stands the whole composition up against a deterministic fake model on temporary ports and tears it down again, so the chapter's central claim is checkable without spending a single model token. That command is `mise run smoke:host`, and [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}) runs it as its first real step. When you reach the end of 5.6, four things will be true:
 
-**You are done when:**
+- `mise run smoke:host` finishes green and leaves no container, process, or work directory behind.
+- You can name the page that owns the MCP, A2A, and model boundaries, and the two that cut across all three.
+- You have taken one tool away at the gateway, watched `mise run check:infra` refuse the half-change, and can name the file under `agents/go/` that has to agree before the tool is really gone.
+- You can say why a control that decides whether a specific human approved a specific write cannot live at a proxy at all.
 
-- You can name the page that owns the MCP, A2A, and model boundaries, and the two pages that cut across all three.
-- The chapter's required drill is done: the `## Your turn` in [5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md#your-turn-how-do-you-take-one-tool-off-the-allowlist" >}}) took one tool away from every caller by editing one CEL rule, with nothing under `agents/go/` touched.
-- You know where to find the listener map and the gateway-versus-ADK responsibility boundary.
-- Without reopening Chapter 4: you can name the callback that hardens a tool result before the model reads it, and say why the gateway's prompt guard does not replace it.
-
-[Chapter 6]({{< relref "/6. Platform/_index.md" >}}) moves the same listener contract to **k3d**, a Kubernetes cluster that runs on your own machine, and to optional GKE overlays.
-
-Continue to [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}) when you can explain the chapter order from the map above.
+Continue to [5.0. Gateway]({{< relref "/5. Gateway/5.0. Gateway.md" >}}) once `mise run doctor:gateway` is green, because every page after it assumes the gateway can start.
