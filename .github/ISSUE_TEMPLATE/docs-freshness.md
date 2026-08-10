@@ -5,11 +5,11 @@ title: "docs: freshness audit for <release/date>"
 labels: documentation
 ---
 
-Time-sensitive claims rot silently. Walk this checklist before each release: open the source file, confirm the claim still matches reality (installed version, current price, current model name, re-run benchmark, current foundation status), and check the box or open a fix. Keep this audit open until every box is checked; the release gate rejects an empty or incomplete checklist. Update this template when a claim moves, is added, or is retired.
+Time-sensitive claims rot silently. Walk this checklist before each release: open the source file, confirm the claim still matches reality (installed version, current price, current model name, re-run benchmark, current foundation status), and check the box or open a fix. Keep this audit open until every box is checked. No workflow reads this checklist: it is the maintainer's own record that the claims were re-verified before a release, not an automated gate. Update this template when a claim moves, is added, or is retired.
 
 ## Automated snapshot
 
-The quarterly `.github/workflows/freshness.yml` workflow appends a read-only report to this issue. It inventories every `mise.toml` tool, filters stable k3s/Ollama/kagent/mise releases, checks Kubernetes skew and the Ollama asset checksum, resolves kagent charts and arbitrary image digests, checks Wolfi pins, and runs the copied-prose source gate. Every proposal names its upstream authority and required validation tier.
+The quarterly freshness jobs in `.github/workflows/scan.yml` append a read-only report to this issue. It inventories every `mise.toml` tool, filters stable k3s/Ollama/kagent/mise releases, checks Kubernetes skew and the Ollama asset checksum, resolves kagent charts and arbitrary image digests, checks Wolfi pins, and runs the copied-prose source gate. Every proposal names its upstream authority and required validation tier.
 
 - [ ] Triage every `REVIEW`, `MISMATCH`, `MISSING`, or `UNAVAILABLE` row in the newest automated comment.
 - [ ] Keep upgrades explicit: the reporter must never change a pin, branch, issue state, or pull request.
@@ -36,7 +36,7 @@ The quarterly `.github/workflows/freshness.yml` workflow appends a read-only rep
 - [ ] Container base-image digests and workflow action pins remain current — `agents/go/Dockerfile` and `.github/workflows/`.
 - [ ] The pinned `curlimages/curl` smoke image still resolves for every supported host architecture — `scripts/smoke-host.sh`.
 - [ ] Ollama evaluation release asset and SHA-256 still match the pinned version — `.github/workflows/eval.yml`.
-- [ ] Docker Buildx remains pinned to the current stable release, and its Docker/OCI index behavior still matches the native release validator — `.github/workflows/release.yml`, `tools/internal/releasecheck/`.
+- [ ] Docker Buildx remains pinned to the current stable release — `.github/actions/setup-buildx/action.yml`.
 - [ ] GitHub Actions SHA pins current (Dependabot) — `.github/workflows/*.yml`.
 
 ## Governance & foundation status
@@ -57,5 +57,5 @@ The quarterly `.github/workflows/freshness.yml` workflow appends a read-only rep
 ## Wrap-up
 
 - [ ] Every finding above was corrected or documented accurately before its box was checked.
-- [ ] The release handoff records the reviewer and review date, or the protected release reviewer approves an explicit one-release waiver reason.
+- [ ] The reviewer and review date are recorded on this issue before the next release is dispatched.
 - [ ] This template updated for any claim that moved, was added, or was retired.

@@ -160,7 +160,9 @@ func releasePins(root, helmVersion string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	freshness, err := readText(filepath.Join(root, ".github", "workflows", "freshness.yml"))
+	// The quarterly freshness report folded into the Scan workflow, which is where its
+	// pinned mise resolver now lives; it is still the only dated version pin in that file.
+	freshness, err := readText(filepath.Join(root, ".github", "workflows", "scan.yml"))
 	if err != nil {
 		return nil, err
 	}

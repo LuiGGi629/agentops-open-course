@@ -52,7 +52,14 @@ run = "go tool govulncheck ./..."
 [tasks.test]
 alias = "t"
 description = "Run repository-tool tests"
-run = "gotestsum --format pkgname -- -race ./..."
+# Deliberately outside the 80% per-package coverage floor that agents/go and evals carry.
+# That floor is the course's claim about the code it teaches and the evidence it publishes;
+# this module is maintainer scaffolding. Its two largest packages are verified by execution
+# rather than by unit tests — the conventions checker gates every `mise run check`, and the
+# accessibility driver is exercised against real Chrome by `check:accessibility`. The
+# profile is still written so `scripts/check-coverage.sh coverage.out 80 tools` reports the
+# real numbers on demand; today five packages sit below, and that gap is visible, not hidden.
+run = "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./..."
 
 [tasks.build]
 alias = "b"

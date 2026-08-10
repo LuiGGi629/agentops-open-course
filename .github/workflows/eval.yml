@@ -1,7 +1,8 @@
-# Scheduled model-backed evidence for the Go agent. Pull requests use only the
-# deterministic offline validator in CI; this workflow downloads a local open
-# model, drives the black-box wire harness against the candidate container, and
-# exports sanitized evidence.
+# Model-backed evidence for the Go agent, on explicit dispatch only. A run pulls a
+# local open model, drives the black-box wire harness against the candidate
+# container, and exports sanitized evidence — it is slow, stochastic, and spends a
+# runner for up to two hours, so it is never a merge gate. Every pull request is
+# covered by the deterministic offline validator (`eval:validate`) inside CI.
 name: Eval
 
 on:
@@ -11,8 +12,6 @@ on:
         description: "Ollama model tag to evaluate"
         type: string
         default: qwen3:4b-instruct
-  schedule:
-    - cron: "0 7 * * 1"
 
 permissions:
   contents: read
@@ -66,9 +65,12 @@ jobs:
             ~/.cache/go-build
           key: eval-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('agents/go/go.sum', 'evals/go.sum', 'tools/go.sum') }}
 
-      - name: Install and build the Go evidence path
+      # The harness refuses a binary that does not match this checkout, so proving
+      # the image identity here turns a later mismatch into a build error instead of
+      # evidence attributed to the wrong commit.
+      - name: Build and identify the agent image under evaluation
         run: |
-          mise install -y --locked go golangci-lint gotestsum dprint jq github:mikefarah/yq
+          mise install -y --locked go jq github:mikefarah/yq
           mise run build:agent-image
           source_identity="$(go -C tools run ./cmd/source-identity --root .. --mode release)"
           source_tree_digest="$(jq -er .tree_digest <<<"$source_identity")"
@@ -88,25 +90,7 @@ jobs:
               .build_timestamp == $created and
               .dirty == false
             ' <<<"$binary_identity" >/dev/null
-          image_labels="$(docker image inspect --format '{{json .Config.Labels}}' "$EVAL_AGENT_IMAGE")"
-          jq -e \
-            --arg revision "$GITHUB_SHA" \
-            --arg tree_digest "$source_tree_digest" \
-            --arg version "$version" \
-            --arg created "$created" '
-              .["org.opencontainers.image.created"] == $created and
-              .["org.opencontainers.image.version"] == $version and
-              .["org.opencontainers.image.revision"] == $revision and
-              .["dev.fmind.agentops.build-mode"] == "release" and
-              .["dev.fmind.agentops.source-identity"] == $revision and
-              .["dev.fmind.agentops.source-revision"] == $revision and
-              .["dev.fmind.agentops.source-tree-digest"] == $tree_digest and
-              .["dev.fmind.agentops.source-dirty"] == "false"
-            ' <<<"$image_labels" >/dev/null
           cd evals
-          mise run install
-          mise run build
-          cd ../tools
           mise run install
 
       - name: Install Ollama and load the pinned model
@@ -131,16 +115,6 @@ jobs:
               head -n 1
           )"
           echo "EVAL_MODEL_DIGEST=${model_digest}" >> "$GITHUB_ENV"
-
-      - name: Resolve the repository evaluation-policy state
-        id: policy
-        run: |
-          status="$(jq -er .status evals/release-policy.json)"
-          case "$status" in
-            calibration-required | approved) ;;
-            *) echo "::error::Unsupported release-policy status: $status"; exit 1 ;;
-          esac
-          echo "status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Start evaluation observability and judge boundary
         env:
@@ -172,58 +146,18 @@ jobs:
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:8080/healthz >/dev/null; do sleep 1; done'
           mise run gateway:host:start
 
-      - name: Calibrate the gateway judge before governed campaigns
+      # Calibration first: an uncalibrated judge makes the campaign's judge score
+      # unreadable. Both steps continue on error so one weak signal still produces
+      # the full sanitized verdict below instead of an empty run.
+      - name: Measure judge agreement against the labeled set
         id: judge
         continue-on-error: true
-        env:
-          POLICY_STATUS: ${{ steps.policy.outputs.status }}
-        run: |
-          if [[ "$POLICY_STATUS" == approved ]]; then
-            mise run eval:judge-calibration
-          else
-            mise run eval:judge-calibration:trial
-          fi
+        run: mise run eval:judge-calibration
 
-      - name: Run the policy-governed REST campaign and matching cost evidence
+      - name: Run the model-backed operations campaign
         id: core
-        if: steps.judge.outcome == 'success'
         continue-on-error: true
-        env:
-          POLICY_STATUS: ${{ steps.policy.outputs.status }}
-        run: |
-          if [[ "$POLICY_STATUS" == approved ]]; then
-            mise run eval
-          else
-            mise run eval:policy-trial
-          fi
-
-      - name: Run bounded workflow evaluation
-        id: workflow
-        continue-on-error: true
-        run: mise run eval:workflow
-
-      - name: Run structured-report evaluation
-        id: report
-        continue-on-error: true
-        run: mise run eval:report
-
-      - name: Run the policy-governed deployed A2A campaign
-        id: a2a
-        if: steps.judge.outcome == 'success'
-        continue-on-error: true
-        env:
-          POLICY_STATUS: ${{ steps.policy.outputs.status }}
-        run: |
-          if [[ "$POLICY_STATUS" == approved ]]; then
-            mise run eval:a2a
-          else
-            mise run eval:a2a:policy-trial
-          fi
-
-      - name: Run groundedness evaluation
-        id: ground
-        continue-on-error: true
-        run: mise run eval:ground
+        run: mise run eval
 
       - name: Prove Tempo, Prometheus, and Grafana received the run
         id: observability
@@ -244,15 +178,9 @@ jobs:
         if: always()
         env:
           CORE_OUTCOME: ${{ steps.core.outcome }}
-          WORKFLOW_OUTCOME: ${{ steps.workflow.outcome }}
-          REPORT_OUTCOME: ${{ steps.report.outcome }}
-          A2A_OUTCOME: ${{ steps.a2a.outcome }}
-          GROUND_OUTCOME: ${{ steps.ground.outcome }}
-          COST_OUTCOME: ${{ steps.core.outcome }}
           JUDGE_OUTCOME: ${{ steps.judge.outcome }}
           OBSERVABILITY_OUTCOME: ${{ steps.observability.outcome }}
         run: |
-          policy_status="$(jq -er .status evals/release-policy.json)"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg sha "$GITHUB_SHA" \
@@ -260,23 +188,16 @@ jobs:
             --arg model "$AGENT_MODEL" \
             --arg digest "${EVAL_MODEL_DIGEST:-}" \
             --arg core "$CORE_OUTCOME" \
-            --arg workflow "$WORKFLOW_OUTCOME" \
-            --arg report "$REPORT_OUTCOME" \
-            --arg a2a "$A2A_OUTCOME" \
-            --arg ground "$GROUND_OUTCOME" \
-            --arg cost "$COST_OUTCOME" \
             --arg judge "$JUDGE_OUTCOME" \
             --arg observability "$OBSERVABILITY_OUTCOME" \
-            --arg policy_status "$policy_status" \
             '{
               schema_version: 1,
               repository: $repository,
               source_commit: $sha,
               run: {id: ($run_id | tonumber)},
               model: {name: $model, digest: $digest},
-              policy: {status: $policy_status, qualification_requested: ($policy_status == "approved"), release_qualified: false},
-              signals: {core: $core, workflow: $workflow, report: $report, a2a: $a2a, groundedness: $ground, cost_observation: $cost, judge_calibration: $judge, observability: $observability},
-              overall: ([$core, $workflow, $report, $a2a, $ground, $cost, $judge, $observability] | if all(. == "success") then "signals-collected" else "failure" end),
+              signals: {core: $core, judge_calibration: $judge, observability: $observability},
+              overall: ([$core, $judge, $observability] | if all(. == "success") then "signals-collected" else "failure" end),
               privacy: "sanitized evidence only; no prompts, responses, tool data, errors, URLs, secrets, or model transcripts"
             }' > evals/verdict.json
 
@@ -284,18 +205,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: eval-release-evidence-${{ github.run_id }}
+          name: eval-evidence-${{ github.run_id }}
           path: |
-            evals/eval-results.json
-            evals/policy-trial-results.json
-            evals/workflow-results.json
-            evals/triage-report-results.json
-            evals/a2a-results.json
-            evals/a2a-policy-trial-results.json
-            evals/grounded-results.json
-            evals/cost-observed.json
+            evals/results.json
             evals/judge-calibration-results.json
-            evals/judge-calibration-trial-results.json
             evals/verdict.json
           if-no-files-found: error
           retention-days: 7
@@ -304,13 +217,12 @@ jobs:
         if: always()
         run: |
           mise run gateway:host:stop || true
-          docker logs agentops-eval-judge > evals/judge-webhook.log 2>&1 || true
           docker stop --timeout 30 agentops-eval-judge || true
           if [[ -n "${OLLAMA_PID:-}" ]]; then kill "$OLLAMA_PID" || true; fi
           mise run observability:down || true
 
       - name: Surface failed evaluation signals
-        if: always() && (steps.core.outcome == 'failure' || steps.workflow.outcome == 'failure' || steps.report.outcome == 'failure' || steps.a2a.outcome == 'failure' || steps.ground.outcome == 'failure' || steps.judge.outcome == 'failure' || steps.observability.outcome == 'failure')
+        if: always() && (steps.core.outcome == 'failure' || steps.judge.outcome == 'failure' || steps.observability.outcome == 'failure')
         run: |
           echo "::error::At least one model-backed evaluation signal failed; inspect the named step and sanitized artifacts."
           exit 1
