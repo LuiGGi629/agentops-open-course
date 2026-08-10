@@ -35,6 +35,18 @@ run "valid_disposable_profile" {
     error_message = "The disposable cluster must remain deletable."
   }
 
+  # The absent version floor is a decision, not an omission, so it is asserted:
+  # a min_master_version added later would read like a pin, would not act as
+  # one, and would rot out of the channel. main.tf carries the reasoning.
+  assert {
+    condition = (
+      google_container_cluster.agentops.min_master_version == null &&
+      google_container_cluster.agentops.release_channel[0].channel == "REGULAR" &&
+      google_container_node_pool.spot.management[0].auto_upgrade
+    )
+    error_message = "The control plane must float on the REGULAR channel with no version floor, and the nodes must follow it."
+  }
+
   assert {
     condition = (
       google_container_cluster.agentops.location == "europe-west1-b" &&

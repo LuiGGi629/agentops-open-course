@@ -26,6 +26,8 @@ Every inventory command must succeed: an authentication or authorization error i
 
 Spot VMs can stop at any time, and the GKE overlay keeps every workload's data on zonal standard persistent disks — including Tempo's trace blocks, which do not survive a deleted claim. [7.3. Costs](../../content/7.%20Observability/7.3.%20Costs.md) owns the dated estimate and its assumptions; refresh every linked provider price immediately before applying.
 
+The control-plane version is deliberately not pinned: the cluster enrolls in GKE's REGULAR release channel, Google selects and upgrades the Kubernetes version, and the node pool auto-upgrades behind it. A plan reviewed weeks ago can therefore apply onto a newer version than the one it was written against. `main.tf` records why a `min_master_version` floor would be a false pin rather than a fix, and `tests/course_profile.tftest.hcl` fails if one is added.
+
 ## How do you isolate an approved deployment?
 
 Keep the cloud lab out of the workstation's normal kubeconfig. After the approved apply, create an isolated file and run the credentials command printed by OpenTofu:

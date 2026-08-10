@@ -102,6 +102,13 @@ resource "google_container_cluster" "agentops" {
     services_secondary_range_name = "agentops-services"
   }
 
+  # The control-plane version deliberately floats, with no min_master_version
+  # floor: that field is a creation-time minimum rather than a pin (GKE upgrades
+  # the master past it on the channel cadence), and GKE removes patch versions
+  # from a channel, so an exact value pinned today stops being creatable within
+  # months. This module's only gate is a credential-free mocked plan, which
+  # could not notice the rot. Reproducibility comes from this source and
+  # .terraform.lock.hcl; the nodes follow the master through auto_upgrade below.
   release_channel {
     channel = "REGULAR"
   }
