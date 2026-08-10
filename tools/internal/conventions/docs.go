@@ -138,6 +138,8 @@ func CheckDocs(root string) []Problem {
 	problems = append(problems, checkSourceVersions(root, pages)...)
 	problems = append(problems, checkCurrentSourceContracts(root, pages)...)
 	problems = append(problems, checkPortContracts(root, pages)...)
+	problems = append(problems, checkProbeContracts(root, pages)...)
+	problems = append(problems, checkNetworkPolicyContracts(root, pages)...)
 	problems = append(problems, checkCostOwner(pages)...)
 	problems = append(problems, checkQuickstarts(root, pages)...)
 	problems = append(problems, checkMaintainerDrift(root, pages)...)
