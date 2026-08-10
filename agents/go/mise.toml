@@ -79,8 +79,14 @@ run = "go run ./cmd/agent config:example --write ../../.env.example"
 
 [tasks.test]
 alias = "t"
-description = "Run the offline test suite with coverage"
-run = "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./..."
+description = "Run the offline test suite and enforce the per-package coverage floor"
+# The floor is checked here rather than in `check` because it needs the profile this
+# task produces. 80% per package, `cmd/` excluded by kind — see scripts/check-coverage.sh
+# for why a repository total would hide exactly the package worth worrying about.
+run = [
+  "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./...",
+  "../../scripts/check-coverage.sh coverage.out 80 agents/go",
+]
 
 [tasks.coverage]
 alias = "v"

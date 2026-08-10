@@ -57,9 +57,9 @@ Offline support covers asset validation, typed event folding, transport equivale
 
 Model-backed support requires an explicitly configured model and records one source commit, model identity, evalset digest, transport, pass rate, minimum pass rate, required-case status, and positive usage.
 
-No Go coverage threshold is enforced because the owner has not selected one. Coverage output is measured evidence only and is not a compatibility or release criterion.
+`mise run test` enforces an 80% line-coverage floor per package in `agents/go` and `evals`. It is a quality gate for this repository, not a compatibility or release criterion: a supported version is defined by its behavior, not by its coverage percentage.
 
-The committed cost baseline is schema-valid but remains inherited evidence until a reviewed Go-agent run replaces it. Offline validation must never be presented as that model-backed proof.
+Offline validation must never be presented as model-backed proof. A green `mise run check` and `mise run test` say nothing about how the agent answered, whether a judge agreed, or whether a span reached Tempo — only a model-backed `mise run eval` speaks to that, and only about the runtime it ran against.
 
 ## How are compatibility and deprecations handled?
 

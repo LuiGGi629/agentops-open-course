@@ -48,7 +48,7 @@ The root `go.mod` exists only for the Hextra Hugo Module. Never add agent, evalu
 - **Dirty work never claims `HEAD`.** Release-bearing source resolution rejects tracked or untracked changes. Development may use `unknown+dirty.<digest>`, with revision empty and the deterministic tree digest recorded separately.
 - **Planning is bounded.** The root agent plans multi-step investigations and verifies approved actions. The workflow is plan, investigate, evidence review, recommend; never introduce an unbounded reflection loop.
 - **Cost-efficient by default.** Prefer deterministic offline tests, fakes, and the smallest model that materially proves the boundary. Do not start clusters, collectors, model servers, paid APIs, or cloud resources for an offline claim.
-- **No Go coverage policy exists.** The owner has not selected a threshold. Report measured coverage as evidence only; never imply a required percentage.
+- **Go coverage has a floor.** `mise run test` fails when any package in `agents/go` or `evals` drops below 80% line coverage; `scripts/check-coverage.sh` measures it per package, because a repository total hides exactly the package worth worrying about. `cmd/` packages are excluded by kind — they are `package main` wiring exercised through subprocess tests. `tools/` is maintainer scaffolding and sits outside the floor; its two largest packages are verified by execution rather than unit tests, and the same script reports its real numbers on demand.
 
 ## Open-source boundary
 

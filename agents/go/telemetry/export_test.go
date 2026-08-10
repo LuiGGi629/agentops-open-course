@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
@@ -345,6 +348,281 @@ func TestConsoleAndExportBothReceiveRedactedRecords(t *testing.T) {
 	}
 	if got := exportedAttributes(exported)[telemetry.TraceIDKey].AsString(); got != traceID {
 		t.Errorf("exported %s attribute = %q, want %q", telemetry.TraceIDKey, got, traceID)
+	}
+}
+
+// TestExportNormalizesTheValueTypesTheAgentLogs pins the type mapping the whole
+// OTLP path rests on. A number stays a number whatever width the caller used,
+// because a backend that receives it as text can no longer aggregate it; and
+// anything the redactor cannot walk — a time, a byte body, a struct — becomes
+// text first, so nothing reaches the collector having never been inspected.
+func TestExportNormalizesTheValueTypesTheAgentLogs(t *testing.T) {
+	t.Parallel()
+
+	moment := time.Date(2026, 8, 10, 9, 30, 0, 0, time.UTC)
+	handler, exporter := exportSink(t, passthrough)
+
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "typed", 0)
+	record.AddAttrs(
+		slog.Any("missing", nil),
+		slog.Uint64("attempts", 3),
+		slog.Float64("ratio", 0.5),
+		slog.Time("observed", moment),
+		slog.Duration("elapsed", 1500*time.Millisecond),
+		slog.Any("body", []byte("runbook body")),
+		slog.Any("services", []string{"shipping", "billing"}),
+		slog.Any("labels", map[string]string{"env": "local"}),
+		slog.Any("build", struct{ Name string }{Name: "agentops"}),
+		// A decoded tool result is the realistic source of raw Go numbers: the
+		// values inside a map are whatever the caller put there, and slog widens
+		// only top-level attributes, never the contents of one.
+		slog.Any("nested", map[string]any{
+			"int": 1, "int8": int8(2), "int16": int16(3), "int32": int32(4),
+			"uint": uint(5), "uint8": uint8(6), "uint16": uint16(7), "uint32": uint32(8),
+			"uint64": uint64(9), "float32": float32(0.25),
+			"items": []any{"text", int16(10)},
+		}),
+	)
+	if err := handler.Handle(context.Background(), record); err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+
+	attributes := exportedAttributes(exporter.only(t))
+	for key, want := range map[string]log.Value{
+		"missing":  {},
+		"attempts": log.Int64Value(3),
+		"ratio":    log.Float64Value(0.5),
+		"observed": log.StringValue(moment.Format(time.RFC3339Nano)),
+		"elapsed":  log.StringValue("1.5s"),
+		"body":     log.StringValue("runbook body"),
+		"services": log.SliceValue(log.StringValue("shipping"), log.StringValue("billing")),
+		"labels":   log.MapValue(log.KeyValue{Key: "env", Value: log.StringValue("local")}),
+		"build":    log.StringValue("{agentops}"),
+	} {
+		got, found := attributes[key]
+		if !found {
+			t.Errorf("%s was not exported at all", key)
+			continue
+		}
+		if !got.Equal(want) {
+			t.Errorf("%s = %v (%v), want %v (%v)", key, got, got.Kind(), want, want.Kind())
+		}
+	}
+
+	nested := map[string]log.Value{}
+	for _, member := range attributes["nested"].AsMap() {
+		nested[member.Key] = member.Value
+	}
+	for key, want := range map[string]log.Value{
+		"int": log.Int64Value(1), "int8": log.Int64Value(2), "int16": log.Int64Value(3),
+		"int32": log.Int64Value(4), "uint": log.Int64Value(5), "uint8": log.Int64Value(6),
+		"uint16": log.Int64Value(7), "uint32": log.Int64Value(8), "uint64": log.Int64Value(9),
+		"float32": log.Float64Value(0.25),
+		"items":   log.SliceValue(log.StringValue("text"), log.Int64Value(10)),
+	} {
+		if got := nested[key]; !got.Equal(want) {
+			t.Errorf("nested.%s = %v (%v), want %v (%v)", key, got, got.Kind(), want, want.Kind())
+		}
+	}
+}
+
+// TestExportFlattensGroupsIntoDottedKeys holds the query contract. Every Loki
+// selector and alert expression in this repository addresses an attribute by a
+// flat name, so an open group has to become a key prefix rather than a nested
+// map. The elisions are part of it: slog drops an empty attribute and an empty
+// group, and exporting either would publish a key beginning with "." that
+// nothing can query.
+func TestExportFlattensGroupsIntoDottedKeys(t *testing.T) {
+	t.Parallel()
+
+	handler, exporter := exportSink(t, passthrough)
+	derived := handler.WithGroup("tool").WithAttrs([]slog.Attr{
+		slog.String("name", "restart_service"),
+		// An empty attribute and an empty group reach a handler only through
+		// With(): Record.AddAttrs drops empty groups before a handler sees them.
+		{},
+		slog.Group("nothing"),
+	})
+
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "grouped", 0)
+	record.AddAttrs(
+		slog.Group("call",
+			slog.String("target", "warehouse"),
+			slog.Group("retry", slog.Int("attempt", 2)),
+		),
+		slog.Attr{},
+		// An anonymous group contributes its members without a level of its own.
+		slog.Any("", slog.GroupValue(slog.String("loose", "value"))),
+	)
+	if err := derived.Handle(context.Background(), record); err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+
+	got := slices.Sorted(maps.Keys(exportedAttributes(exporter.only(t))))
+	want := []string{"tool.call.retry.attempt", "tool.call.target", "tool.loose", "tool.name"}
+	if !slices.Equal(got, want) {
+		t.Errorf("exported attribute keys = %v, want %v", got, want)
+	}
+}
+
+// TestExportHandlerNoOpsFollowSlogsContract keeps two cheap invariants slog
+// states outright: an empty attribute list and an empty group name change
+// nothing. Returning a derived handler instead would copy the attribute slice on
+// every logger.With() call, and a nameless group would prefix every later key
+// with a bare dot.
+func TestExportHandlerNoOpsFollowSlogsContract(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := exportSink(t, passthrough)
+	if handler.WithAttrs(nil) != slog.Handler(handler) {
+		t.Error("WithAttrs(nil) returned a different handler; it must be a no-op")
+	}
+	if handler.WithGroup("") != slog.Handler(handler) {
+		t.Error(`WithGroup("") returned a different handler; it must be a no-op`)
+	}
+}
+
+// TestExportSeverityMapsWholeRanges is why severityOf compares ranges instead of
+// equalities. slog levels are integers a caller may offset — slog.LevelWarn+1 is
+// a legitimate custom level — and mapping by equality would export it as an
+// unspecified severity, which is precisely the field a dashboard filters on.
+func TestExportSeverityMapsWholeRanges(t *testing.T) {
+	t.Parallel()
+
+	exporter := &recordingExporter{}
+	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)))
+	t.Cleanup(func() {
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Errorf("shutting the logger provider down: %v", err)
+		}
+	})
+	handler, err := telemetry.NewExportHandler(telemetry.ExportConfig{
+		Redact: passthrough,
+		Level:  slog.LevelDebug,
+		Logger: provider.Logger(telemetry.ScopeName),
+	})
+	if err != nil {
+		t.Fatalf("NewExportHandler() error = %v, want nil", err)
+	}
+
+	cases := []struct {
+		level slog.Level
+		want  log.Severity
+	}{
+		{level: slog.LevelDebug - 4, want: log.SeverityDebug},
+		{level: slog.LevelDebug, want: log.SeverityDebug},
+		{level: slog.LevelInfo, want: log.SeverityInfo},
+		{level: slog.LevelInfo + 1, want: log.SeverityInfo},
+		{level: slog.LevelWarn, want: log.SeverityWarn},
+		{level: slog.LevelWarn + 1, want: log.SeverityWarn},
+		{level: slog.LevelError, want: log.SeverityError},
+		{level: slog.LevelError + 4, want: log.SeverityError},
+	}
+	for _, testCase := range cases {
+		if handleErr := handler.Handle(
+			context.Background(), slog.NewRecord(time.Now(), testCase.level, "level-carrying", 0),
+		); handleErr != nil {
+			t.Fatalf("Handle(%v) error = %v, want nil", testCase.level, handleErr)
+		}
+	}
+
+	exported := exporter.exported()
+	if len(exported) != len(cases) {
+		t.Fatalf("exported %d records, want %d", len(exported), len(cases))
+	}
+	for index, testCase := range cases {
+		if got := exported[index].Severity(); got != testCase.want {
+			t.Errorf("%v exported severity %v, want %v", testCase.level, got, testCase.want)
+		}
+		// The text keeps the caller's own name for the level, which is the only
+		// place an offset level survives at all.
+		if got := exported[index].SeverityText(); got != testCase.level.String() {
+			t.Errorf("%v exported severity text %q, want %q", testCase.level, got, testCase.level.String())
+		}
+	}
+}
+
+// TestExportStringifiesAnUnexpectedRedactorResult is the last step of the
+// fail-safe. A redactor may rewrite a value, not just mask inside it, and if it
+// returns a shape the normalizer never produces then the export falls back to
+// capped text — never an unexamined structure sent to the collector.
+func TestExportStringifiesAnUnexpectedRedactorResult(t *testing.T) {
+	t.Parallel()
+
+	type unexpected struct{ Note string }
+	handler, exporter := exportSink(t, func(_ context.Context, value any) any {
+		if text, ok := value.(string); ok && text == "rewrite me" {
+			return unexpected{Note: strings.Repeat("z", telemetry.MaxExportedChars+50)}
+		}
+		return value
+	})
+
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "rewritten", 0)
+	record.AddAttrs(slog.String("evidence", "rewrite me"))
+	if err := handler.Handle(context.Background(), record); err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+
+	evidence := exportedAttributes(exporter.only(t))["evidence"]
+	if evidence.Kind() != log.KindString {
+		t.Fatalf("evidence exported as %v, want text", evidence.Kind())
+	}
+	if got := len([]rune(evidence.AsString())); got != telemetry.MaxExportedChars {
+		t.Errorf("the stringified value is %d characters, want exactly %d", got, telemetry.MaxExportedChars)
+	}
+	if !strings.HasSuffix(evidence.AsString(), telemetry.TruncatedSuffix) {
+		t.Error("the stringified value was not marked truncated")
+	}
+}
+
+// TestNewHandlerWithExportFeedsBothLeaves assembles the documented shape —
+// correlation outside, fan-out in the middle, independently redacting console
+// and OTLP leaves — and proves a single logger call reaches both, redacted.
+//
+// It installs a global OpenTelemetry logger provider because that is the wiring
+// the runtime uses: NewHandler names no Logger, so the export leaf resolves the
+// global one ADK's launcher installs. The global is set once per process by
+// design, so this test is deliberately not parallel and is the only test here
+// that touches it.
+func TestNewHandlerWithExportFeedsBothLeaves(t *testing.T) {
+	ctx, traceID, _ := sampledContext(t)
+	governance, err := policy.New(policy.Config{})
+	if err != nil {
+		t.Fatalf("policy.New() error = %v, want nil", err)
+	}
+
+	exporter := &recordingExporter{}
+	provider := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exporter)))
+	t.Cleanup(func() {
+		if shutdownErr := provider.Shutdown(context.Background()); shutdownErr != nil {
+			t.Errorf("shutting the logger provider down: %v", shutdownErr)
+		}
+	})
+	global.SetLoggerProvider(provider)
+
+	console := &capture{}
+	handler, err := telemetry.NewHandler(telemetry.Config{
+		Console: console, Redact: governance.RedactPersistedValue, ExportLogs: true,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v, want nil", err)
+	}
+	slog.New(handler).WarnContext(ctx, "calling upstream with api_key=super-secret-value-123456")
+
+	local := console.only(t)
+	if strings.Contains(local.Message, "super-secret-value-123456") {
+		t.Errorf("the credential reached the console: %q", local.Message)
+	}
+	if got := attributes(local)[telemetry.TraceIDKey]; got != traceID {
+		t.Errorf("console %s = %q, want %q", telemetry.TraceIDKey, got, traceID)
+	}
+
+	exported := exporter.only(t)
+	if body := exported.Body().AsString(); strings.Contains(body, "super-secret-value-123456") {
+		t.Errorf("the credential reached the collector: %q", body)
+	}
+	if got := exported.TraceID().String(); got != traceID {
+		t.Errorf("exported trace id = %q, want %q", got, traceID)
 	}
 }
 

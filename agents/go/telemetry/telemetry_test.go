@@ -148,6 +148,34 @@ func TestContentCaptureDefaultsDoNotOverrideAnExplicitChoice(t *testing.T) {
 	}
 }
 
+// TestMalformedContentCaptureClosesTheBoundaryAndReportsIt is the fail-closed
+// half of the risk gate. A typo in the acceptance switch must not read as
+// acceptance — and it must not read as a clean default either, because a value
+// nobody meant to type is a configuration bug an operator has to be told about
+// while the boundary is already shut.
+func TestMalformedContentCaptureClosesTheBoundaryAndReportsIt(t *testing.T) {
+	clearOTLPEnvironment(t)
+	t.Setenv(telemetry.EnvADKCaptureMessageContent, "yes please")
+	t.Setenv(telemetry.EnvTracesSampler, "always_on")
+
+	err := telemetry.SetContentCaptureDefaults()
+	if err == nil {
+		t.Fatal("SetContentCaptureDefaults() error = nil, want the malformed value reported")
+	}
+	if !strings.Contains(err.Error(), telemetry.EnvADKCaptureMessageContent) {
+		t.Errorf("error = %v, want it to name %s", err, telemetry.EnvADKCaptureMessageContent)
+	}
+	if got := os.Getenv(telemetry.EnvADKCaptureMessageContent); got != telemetry.ContentCaptureDisabled {
+		t.Errorf("%s = %q, want the boundary closed with %q",
+			telemetry.EnvADKCaptureMessageContent, got, telemetry.ContentCaptureDisabled)
+	}
+	// The operator's sampler choice is overridden, not merged: unsafe ADK spans
+	// carry tool payloads, so an unaccepted risk means no recording at all.
+	if got := os.Getenv(telemetry.EnvTracesSampler); got != telemetry.TraceSamplerDisabled {
+		t.Errorf("%s = %q, want %q", telemetry.EnvTracesSampler, got, telemetry.TraceSamplerDisabled)
+	}
+}
+
 // TestExportGatesFollowTheStandardEnvironment ports three Python tests at once:
 // the no-endpoint no-op, the OTEL_SDK_DISABLED kill switch, and — the case that
 // is easy to get wrong — a traces-only endpoint that must not turn the log path

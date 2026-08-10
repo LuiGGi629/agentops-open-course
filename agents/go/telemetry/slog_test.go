@@ -3,6 +3,7 @@ package telemetry_test
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -352,6 +353,290 @@ func TestSanitizingHandlerFailsClosedWhenRedactionPanics(t *testing.T) {
 	}
 	if record := console.only(t); record.Message != telemetry.OmittedBody || record.NumAttrs() != 0 {
 		t.Errorf("record = %q with %d attrs, want omitted body and no attrs", record.Message, record.NumAttrs())
+	}
+}
+
+// leveled is a capture that declines records below its level, which is the shape
+// the real fan-out has: the OTLP leaf is bounded by ExportConfig.Level while the
+// console keeps whatever level its own handler was built with.
+type leveled struct {
+	*capture
+	min slog.Level
+}
+
+func (l leveled) Enabled(_ context.Context, level slog.Level) bool { return level >= l.min }
+
+// failingWriter reports a write error, which is how a full disk or a closed pipe
+// reaches the standard-library log path.
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// shortWriter accepts a record and then claims it wrote less than it was given,
+// which io.Writer treats as a protocol violation rather than a partial success.
+type shortWriter struct{}
+
+func (shortWriter) Write(data []byte) (int, error) { return len(data) - 1, nil }
+
+// TestMultiHandlerRespectsEachDestinationsLevel is the property that lets the
+// two sinks disagree. The console is the log an engineer reads while the
+// collector is down, so an exporter that declines debug records must not be able
+// to keep them off the terminal, and a level nothing accepts must not cost a
+// redaction pass at all.
+func TestMultiHandlerRespectsEachDestinationsLevel(t *testing.T) {
+	t.Parallel()
+
+	console, export := &capture{}, &capture{}
+	fanout, err := telemetry.NewMultiHandler(
+		leveled{capture: console, min: slog.LevelDebug},
+		leveled{capture: export, min: slog.LevelError},
+	)
+	if err != nil {
+		t.Fatalf("NewMultiHandler() error = %v, want nil", err)
+	}
+
+	if !fanout.Enabled(context.Background(), slog.LevelInfo) {
+		t.Error("Enabled(Info) = false while a destination still wants it")
+	}
+	if fanout.Enabled(context.Background(), slog.LevelDebug-1) {
+		t.Error("Enabled() = true for a level no destination accepts")
+	}
+	if handleErr := fanout.Handle(
+		context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "routine", 0),
+	); handleErr != nil {
+		t.Fatalf("Handle() error = %v, want nil", handleErr)
+	}
+	if len(console.records) != 1 {
+		t.Errorf("the console received %d records, want 1", len(console.records))
+	}
+	if len(export.records) != 0 {
+		t.Errorf("the exporter received %d records it declined, want 0", len(export.records))
+	}
+}
+
+// TestMultiHandlerCarriesWithAttrsAndWithGroupToEveryDestination is the bug a
+// fan-out invites: a handler that kept logger.With() context for itself would
+// give the console a field the collector never receives, and the two logs would
+// stop describing the same event.
+func TestMultiHandlerCarriesWithAttrsAndWithGroupToEveryDestination(t *testing.T) {
+	t.Parallel()
+
+	first, second := &capture{}, &capture{}
+	fanout, err := telemetry.NewMultiHandler(first, second)
+	if err != nil {
+		t.Fatalf("NewMultiHandler() error = %v, want nil", err)
+	}
+
+	if fanout.WithAttrs(nil) != slog.Handler(fanout) {
+		t.Error("WithAttrs(nil) returned a different handler; it must be a no-op")
+	}
+	if fanout.WithGroup("") != slog.Handler(fanout) {
+		t.Error(`WithGroup("") returned a different handler; it must be a no-op`)
+	}
+
+	bound := []slog.Attr{slog.String("component", "tools")}
+	derived := fanout.WithAttrs(bound).WithGroup("call")
+	if handleErr := derived.Handle(
+		context.Background(), slog.NewRecord(time.Now(), slog.LevelWarn, "retrying", 0),
+	); handleErr != nil {
+		t.Fatalf("Handle() error = %v, want nil", handleErr)
+	}
+	for name, sink := range map[string]*capture{"first": first, "second": second} {
+		if len(sink.attrs) != 1 || sink.attrs[0].Key != "component" {
+			t.Errorf("the %s destination received attrs %v, want the bound component", name, sink.attrs)
+		}
+		if len(sink.groups) != 1 || sink.groups[0] != "call" {
+			t.Errorf("the %s destination received groups %v, want [call]", name, sink.groups)
+		}
+		if len(sink.records) != 1 {
+			t.Errorf("the %s destination received %d records, want 1", name, len(sink.records))
+		}
+	}
+}
+
+// TestWrappersSurfaceTheirDestinationsFailure keeps a broken sink loud. Both
+// wrappers sit between slog and something that can fail, and a swallowed error
+// here is how "the process stopped logging" becomes invisible.
+func TestWrappersSurfaceTheirDestinationsFailure(t *testing.T) {
+	t.Parallel()
+
+	// Each wrapper gets its own destination: capture records without a lock, so
+	// two parallel subtests sharing one would race instead of proving anything.
+	for name, wrap := range map[string]func(*testing.T, slog.Handler) slog.Handler{
+		"OtelHandler": func(_ *testing.T, inner slog.Handler) slog.Handler {
+			return telemetry.NewOtelHandler(inner)
+		},
+		"SanitizingHandler": func(t *testing.T, inner slog.Handler) slog.Handler {
+			t.Helper()
+			handler, err := telemetry.NewSanitizingHandler(inner, func(_ context.Context, value any) any { return value })
+			if err != nil {
+				t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+			}
+			return handler
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			handler := wrap(t, &capture{fail: errors.New("destination unavailable")})
+			handleErr := handler.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelError, "boom", 0))
+			if handleErr == nil || !strings.Contains(handleErr.Error(), "destination unavailable") {
+				t.Errorf("Handle() error = %v, want it to name the failing destination", handleErr)
+			}
+		})
+	}
+}
+
+// TestSanitizingHandlerQualifiesAttributesWithOpenGroups gives the console the
+// same flat dotted keys the OTLP path exports, so a field read off a terminal
+// line and the same field queried in Loki are spelled identically.
+func TestSanitizingHandlerQualifiesAttributesWithOpenGroups(t *testing.T) {
+	t.Parallel()
+
+	console := &capture{}
+	handler, err := telemetry.NewSanitizingHandler(console, func(_ context.Context, value any) any { return value })
+	if err != nil {
+		t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+	}
+	if handler.WithAttrs(nil) != slog.Handler(handler) {
+		t.Error("WithAttrs(nil) returned a different handler; it must be a no-op")
+	}
+	if handler.WithGroup("") != slog.Handler(handler) {
+		t.Error(`WithGroup("") returned a different handler; it must be a no-op`)
+	}
+
+	logger := slog.New(handler).WithGroup("tool").With("name", "restart_service")
+	logger.InfoContext(t.Context(), "calling", "target", "warehouse")
+
+	found := attributes(console.only(t))
+	for key, want := range map[string]string{
+		"tool.name":   "restart_service",
+		"tool.target": "warehouse",
+	} {
+		if got := found[key]; got != want {
+			t.Errorf("attribute %s = %q, want %q (all keys: %v)", key, got, want, found)
+		}
+	}
+}
+
+// TestSanitizingHandlerBoundsStringsNestedInStructuredValues mirrors the export
+// path's rule on the console: a terminal and a CI log are durable too, so a
+// megabyte of model output nested inside a slice must be capped there as well.
+func TestSanitizingHandlerBoundsStringsNestedInStructuredValues(t *testing.T) {
+	t.Parallel()
+
+	console := &capture{}
+	handler, err := telemetry.NewSanitizingHandler(console, func(_ context.Context, value any) any { return value })
+	if err != nil {
+		t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+	}
+	record := slog.NewRecord(time.Now(), slog.LevelInfo, "structured", 0)
+	record.AddAttrs(slog.Any("evidence", []any{strings.Repeat("x", telemetry.MaxExportedChars+500), 7}))
+	if err := handler.Handle(t.Context(), record); err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+
+	var evidence []any
+	console.only(t).Attrs(func(attr slog.Attr) bool {
+		if attr.Key == "evidence" {
+			evidence, _ = attr.Value.Any().([]any)
+		}
+		return true
+	})
+	if len(evidence) != 2 {
+		t.Fatalf("evidence = %#v, want two members", evidence)
+	}
+	capped, ok := evidence[0].(string)
+	if !ok || len([]rune(capped)) != telemetry.MaxExportedChars {
+		t.Errorf("the nested string is %#v, want exactly %d characters", evidence[0], telemetry.MaxExportedChars)
+	}
+	if !strings.HasSuffix(capped, telemetry.TruncatedSuffix) {
+		t.Error("the nested string was not marked truncated")
+	}
+	// The number keeps its type: a console line a learner greps and a metric a
+	// backend aggregates both lose meaning when 7 becomes "7".
+	if number, isInt := evidence[1].(int64); !isInt || number != 7 {
+		t.Errorf("the nested number is %#v, want int64(7)", evidence[1])
+	}
+}
+
+// TestSanitizedSinksRefuseAnIncompleteConfiguration keeps both fail-closed seams
+// explicit. A nil redactor in particular must never be defaulted to a
+// pass-through, because "we chose not to redact" and "we forgot to wire it"
+// cannot be the same line of code.
+func TestSanitizedSinksRefuseAnIncompleteConfiguration(t *testing.T) {
+	t.Parallel()
+
+	redact := func(_ context.Context, value any) any { return value }
+	if _, err := telemetry.NewSanitizingWriter(nil, redact); err == nil {
+		t.Error("NewSanitizingWriter() with no destination returned no error")
+	}
+	if _, err := telemetry.NewSanitizingWriter(&strings.Builder{}, nil); err == nil {
+		t.Error("NewSanitizingWriter() with no redactor returned no error")
+	}
+	if _, err := telemetry.NewSanitizingHandler(nil, redact); err == nil {
+		t.Error("NewSanitizingHandler() with no destination returned no error")
+	}
+	if _, err := telemetry.NewSanitizingHandler(&capture{}, nil); err == nil {
+		t.Error("NewSanitizingHandler() with no redactor returned no error")
+	}
+}
+
+// TestSanitizingWriterReportsWhatItActuallyConsumed pins the io.Writer contract
+// this type has to fake. Redaction changes the byte count, so the count returned
+// to the standard library must be the caller's own — otherwise log.Print sees a
+// short write and retries — while a destination that genuinely wrote less has to
+// surface as a failure rather than as silent truncation.
+func TestSanitizingWriterReportsWhatItActuallyConsumed(t *testing.T) {
+	t.Parallel()
+
+	redact := func(_ context.Context, value any) any {
+		text, ok := value.(string)
+		if !ok {
+			return value
+		}
+		return strings.ReplaceAll(text, "not-a-real-secret-value", "<SECRET>")
+	}
+
+	var output strings.Builder
+	writer, err := telemetry.NewSanitizingWriter(&output, redact)
+	if err != nil {
+		t.Fatalf("NewSanitizingWriter() error = %v, want nil", err)
+	}
+	// The redacted form is shorter than the original here, which is exactly the
+	// case a naive implementation gets wrong.
+	original := []byte("token=not-a-real-secret-value\n")
+	written, err := writer.Write(original)
+	if err != nil || written != len(original) {
+		t.Fatalf("Write() = (%d, %v), want (%d, nil)", written, err, len(original))
+	}
+	if got := output.Len(); got == len(original) {
+		t.Fatalf("the destination received %d bytes; the test no longer exercises a size change", got)
+	}
+
+	// An empty write consumes nothing and must not emit a record of its own.
+	output.Reset()
+	if emptyWritten, emptyErr := writer.Write(nil); emptyWritten != 0 || emptyErr != nil {
+		t.Errorf("Write(nil) = (%d, %v), want (0, nil)", emptyWritten, emptyErr)
+	}
+	if output.Len() != 0 {
+		t.Errorf("an empty write produced %q, want nothing", output.String())
+	}
+
+	failing, err := telemetry.NewSanitizingWriter(failingWriter{err: errors.New("disk full")}, redact)
+	if err != nil {
+		t.Fatalf("NewSanitizingWriter() error = %v, want nil", err)
+	}
+	if _, failErr := failing.Write([]byte("anything\n")); failErr == nil ||
+		!strings.Contains(failErr.Error(), "disk full") {
+		t.Errorf("Write() error = %v, want it to name the destination failure", failErr)
+	}
+
+	short, err := telemetry.NewSanitizingWriter(shortWriter{}, redact)
+	if err != nil {
+		t.Fatalf("NewSanitizingWriter() error = %v, want nil", err)
+	}
+	if _, shortErr := short.Write([]byte("anything\n")); !errors.Is(shortErr, io.ErrShortWrite) {
+		t.Errorf("Write() error = %v, want %v", shortErr, io.ErrShortWrite)
 	}
 }
 
