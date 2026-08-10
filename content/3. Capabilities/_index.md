@@ -1,33 +1,37 @@
 ---
 title: "3. Capabilities"
-description: Add typed tools, reviewed skills, MCP, retrieval, bounded workflows, A2A, and least-privilege delegation to the Go agent.
+description: Grow the agent from one grounded read into tools, skills, MCP, retrieval, bounded workflows, A2A, and least-privilege delegation.
 slug: "3-capabilities"
 ---
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Choose the smallest composition boundary for each capability and prove its authority offline.
-- **You need:** Chapter 2's Go agent and development loop.
-- **Time:** about 4 hours for the complete chapter, orientation. {{% /admonition %}}
+- **You will:** Give the agent the capabilities Ana's incident actually needs — one at a time, each arriving with a limit you can check offline.
+- **You need:** Chapter 2 finished, with `mise run test` green inside `agents/go`.
+- **Time:** about 4 hours for the whole chapter, orientation. {{% /admonition %}}
 
-## Which capabilities will you add?
+## What the agent still cannot do at 02:14 {#which-capabilities-will-you-add}
 
-Chapter 3 expands one composed agent without widening every boundary.
+The agent you ran in [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) can look up `INC-002` and tell Ana that inventory is crash-looping. That is where it stops. It cannot find the right runbook from a symptom nobody typed as a slug. It cannot restart anything, and you would not want it to yet. It cannot reach a tool that lives in another process, cannot remember what last night's engineer already tried, cannot be told to always challenge its own evidence before advising, and cannot hand the write to a specialist that holds nothing else.
 
-- **3.0. Packaging:** Go modules, tool directives, and optional vendoring.
-- **3.1. Tools:** typed reads, confirmed writes, timeouts, circuits, and atomic audit.
-- **3.2. Skills:** progressively disclosed reviewed instruction.
-- **3.3. MCP:** a remote, filtered six-read tool surface.
-- **3.4. Memory:** sessions, operator notes, runbooks, and bounded retrieval.
-- **3.5. Workflows:** a fixed read-only investigation graph.
-- **3.6. A2A:** durable network tasks, streaming, and cancellation.
-- **3.7. Multi-Agent:** a coordinator with restricted specialists.
+Chapter 3 closes each of those gaps. The interesting part is not that the agent gets more powerful — anything can be made more powerful by handing it more tools. It is that each capability arrives with a limit drawn around it, and most of those limits are decidable without a model. The two that are not — which skill the model loads, and which specialist the coordinator picks — are named plainly on the pages that own them.
+
+- **[3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})** _(hands-on)_: One Go module, one binary, and the four surfaces it serves.
+- **[3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})** _(hands-on)_: Typed reads with deadlines, and writes that fail closed without a named human.
+- **[3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})** _(hands-on)_: Reviewed procedures the model loads only when they apply.
+- **[3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}})** _(hands-on)_: The six reads moved into their own process, and the allowlist that keeps them six.
+- **[3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}})** _(hands-on)_: Six stores with different lifetimes, and retrieval you can watch rank.
+- **[3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})** _(hands-on)_: A four-stage investigation the model cannot shortcut.
+- **[3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})** _(hands-on)_: The agent as a durable network service another team can call.
+- **[3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}})** _(hands-on)_: A coordinator whose specialists cannot borrow each other's authority.
+
+Every one of those pages adds an element to the same value you already read in Chapter 2 — a config with an instruction, a tool list, and a toolset list:
 
 {{< include path="agents/go/compose/composition.go" region="root-agent" lang="go" >}}
 
 ## Which composition should you reach for?
 
-Choose by authority and control-flow need, not novelty.
+Adding a capability is easy. Choosing where it lives is the decision that survives contact with production, and there are only five real answers.
 
 ```mermaid
 flowchart TD
@@ -41,39 +45,30 @@ flowchart TD
     Q4 -->|no| A["single agent"]
 ```
 
-**Diagram in words:** Work with no model judgment stays plain Go. Model-backed work with a fixed order uses a workflow. A real deployment boundary uses A2A. Distinct authority inside one runtime uses delegation. Everything else stays one agent.
+**Diagram in words:** Work needing no model judgment stays plain Go. Model-backed work with a fixed order becomes a workflow. A capability with its own deployment owner becomes an A2A service. Distinct authority inside one runtime becomes delegation. Everything else stays one agent.
 
-MCP is orthogonal: it moves a tool boundary across a process or network without deciding the agent's orchestration shape.
+MCP sits outside that tree on purpose. It moves a tool into another process without deciding the agent's orchestration shape, which is why 3.3 can change where the six reads execute and change nothing the model sees.
 
-## Which capability lives in which module?
+## Where each capability lives, and what it deliberately lacks
 
-| Capability                  | Source authority                                           |
-| --------------------------- | ---------------------------------------------------------- |
-| Packaging                   | `agents/go/go.mod`, `go.sum`, and `vendor/` when generated |
-| Incident tools and actions  | `agents/go/tools/`                                         |
-| Skills                      | `agents/go/compose/skills.go` and `agents/data/skills/`    |
-| MCP server/client           | `agents/go/mcpserver/` and `agents/go/compose/mcp.go`      |
-| Memory and retrieval        | `agents/go/memory/`                                        |
-| Workflow and delegation     | `agents/go/compose/workflow.go` and `delegation.go`        |
-| A2A runtime                 | `agents/go/a2aserver/`                                     |
-| Black-box protocol evidence | `evals/`                                                   |
+The module layout is the map you will edit all chapter. Each capability has one owning package, and its authority stops at that package's edge.
 
-## Which switches change this chapter's behavior?
+| Capability                 | Source authority                                           | Authority it does not get                      |
+| -------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
+| Packaging                  | `agents/go/go.mod`, `go.sum`, and `vendor/` when generated | no second binary per composition               |
+| Incident tools and actions | `agents/go/tools`                                          | no generic SQL or filesystem escape hatch      |
+| Skills                     | `agents/go/compose/skills.go`, `agents/data/skills`        | no arbitrary file reads from a skill directory |
+| MCP server and client      | `agents/go/mcpserver`, `agents/go/compose/mcp.go`          | no write tool, in either direction             |
+| Memory and retrieval       | `agents/go/memory`                                         | no silent context injection                    |
+| Workflow and delegation    | `agents/go/compose/workflow.go`, `delegation.go`           | no write tool on any workflow stage            |
+| A2A runtime                | `agents/go/a2aserver`                                      | no guarded write without a verified principal  |
+| Black-box protocol runs    | `evals`                                                    | no import of the agent implementation          |
 
-Typed configuration owns the switches.
+Typed configuration owns the switches that move those limits, and `mise run config:check` prints the resolved values with secrets masked: `AGENT_MCP_URL` moves conversational reads to a remote server, `AGENT_ENTRYPOINT` selects the agent, workflow, or coordinator composition, `AGENT_SEMANTIC_RETRIEVAL` swaps the retrieval scorer, `AGENT_MAX_HISTORY_MESSAGES` and `AGENT_MAX_TOKENS_PER_SESSION` bound context work, `AGENT_A2A_MAX_LLM_CALLS` and `AGENT_A2A_STREAMING` bound network execution, and `AGENT_WRITES_DISABLED` freezes actions without touching a read schema.
 
-- `AGENT_MCP_URL` moves conversational reads to remote MCP.
-- `AGENT_ENTRYPOINT` selects agent, workflow, coordinator, or structured report composition.
-- `AGENT_SEMANTIC_RETRIEVAL` enables the bounded embedding path.
-- `AGENT_MAX_HISTORY_MESSAGES` and `AGENT_MAX_TOKENS_PER_SESSION` bound context work.
-- `AGENT_A2A_MAX_LLM_CALLS` and `AGENT_A2A_STREAMING` bound A2A execution and publication.
-- `AGENT_WRITES_DISABLED` disables action execution without changing read schemas.
+## What this chapter proved
 
-Run `mise run config:check` after changing any of them.
-
-## What proves this chapter worked?
-
-Run the complete Go module evidence without a model:
+Run the whole Go module suite, then the standalone evaluation assets. Neither needs a model:
 
 ```bash
 cd agents/go
@@ -83,15 +78,27 @@ cd ../../evals
 mise run eval:validate
 ```
 
-The test task also enforces an 80% line-coverage floor per package, so a capability added without tests fails the gate instead of quietly diluting a module average.
+`mise run test` ends by reading the coverage profile it just wrote. Here is the tail of a real run in this checkout, with fourteen of the twenty package lines cut for width:
+
+```text
+DONE 1759 tests in 1.964s
+[test] $ ../../scripts/check-coverage.sh coverage.out 80 agents/go
+  ok      84.6%  agents/go/a2aserver
+  ok      91.7%  agents/go/compose
+  ok      88.6%  agents/go/mcpserver
+  ok      87.7%  agents/go/memory
+  ok      90.4%  agents/go/policy
+  ok      98.5%  agents/go/tools
+agents/go meets the 80% per-package coverage floor
+```
+
+Two seconds, no model, no network. The floor is applied per package rather than to a repository total, because a total lets a well-tested `domain` package carry an untested `mcpserver` — so a capability added without tests fails the run instead of quietly diluting an average.
 
 **You are done when:**
 
-- Tools, skills, MCP, retrieval, workflow, A2A, and delegation tests pass under the race detector.
-- You kept the [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}) read tool with parse-at-the-boundary input, bounded output, cancellation coverage, and an explicit MCP exposure decision.
-- The focused tool diff contains no generated runtime state or unrelated change, and the complete Go module gate is green.
-- Evaluation assets validate without importing the agent implementation.
-- You can choose among plain Go, workflow, one agent, delegation, and A2A from the decision tree.
-- You can name the authority that each capability intentionally lacks.
+- The tool, skill, MCP, retrieval, workflow, A2A, and delegation tests pass under the race detector, and the evaluation assets validate without importing the agent.
+- You kept the read tool you prototyped in [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}), with parse-at-the-boundary input, bounded output, and an explicit MCP exposure decision.
+- You can pick between plain Go, a workflow, one agent, delegation, and A2A for a new task, and say what each choice costs.
+- You can name, for any capability in this chapter, the authority it deliberately lacks and the test that would fail the moment it gained one.
 
-Continue to [4. Quality]({{< relref "/4. Quality/_index.md" >}}) when the capabilities are narrow enough to score and secure.
+An hour of reading ago the agent was a model with a database attached. It now has a shape you can argue about: every capability with a limit around it, and every limit written down as something that runs in seconds. Continue to [4. Quality]({{< relref "/4. Quality/_index.md" >}}) when those limits are narrow enough to score and attack.

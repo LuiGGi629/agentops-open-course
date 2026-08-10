@@ -1,62 +1,69 @@
 ---
 title: "4. Quality"
-description: "Make the agent correct and trustworthy: typing, linting, testing, metrics, evaluations, guardrails, and security."
+description: "Prove the agent behaves under adversarial pressure: types, linting, tests, metrics, evaluations, guardrails, and security."
 slug: "4-quality"
 ---
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** See how the chapter's seven quality layers fit together and which page owns each check.
+- **You will:** See which failure each of the chapter's seven layers catches, and run the three offline commands that cover all of them.
 - **You need:** Chapter 3 finished and `mise run test` passing.
-- **Time:** about 5 minutes, orientation. {{% /admonition %}}
+- **Time:** about 6 minutes, orientation. {{% /admonition %}}
 
-## How will you make the agent trustworthy?
+## Three ways to be wrong while everything looks right
 
-Trust comes in layers. Each page below adds one, and each layer catches a class of failure the cheaper layers below it cannot.
+A value that compiles. A value that lies. A run that is green for the wrong reason.
 
-Your agent now holds a conversation ([Chapter 2]({{< relref "/2. Agents/_index.md" >}})) and has bounded capabilities ([Chapter 3]({{< relref "/3. Capabilities/_index.md" >}})). This chapter makes it defensible.
+The first is a `string` holding `INC-2; DROP TABLE incidents`. The compiler has no opinion about it, and neither does a test that never thought to try it. The second is a confident paragraph with nothing underneath it — indistinguishable, from the outside, from the grounded one you watched in [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}). The third is the one that ends careers quietly: a suite that passes because the interesting case was never in it, or a pass rate that clears its floor while the safety case underneath it fails.
 
-The early checkpoints need no model, account, network, or bill. The full maintainer security gate may refresh advisory data. The marker on each line says what that page's own checkpoint needs; run `mise run doctor:model` before a model-backed one.
+Chapters 2 and 3 gave the agent a conversation and capabilities. This chapter answers the question those two raise: **does it still behave when its inputs are hostile, and how would you know?** That is not one property, so it is not one gate. Each page below adds a layer, and each layer catches a class of failure the cheaper layers underneath cannot see.
 
-- **[4.0. Type Safety]({{< relref "/4. Quality/4.0. Type Safety.md" >}})** _(concept · offline)_: compiler-checked types, enums, and parsing untrusted input at the boundary.
-- **[4.1. Linting]({{< relref "/4. Quality/4.1. Linting.md" >}})** _(hands-on · offline)_: Lint and format with golangci-lint and dprint.
-- **[4.2. Testing]({{< relref "/4. Quality/4.2. Testing.md" >}})** _(hands-on · offline)_: Fast, offline unit tests with go test, against an isolated dataset copy.
-- **[4.3. Metrics]({{< relref "/4. Quality/4.3. Metrics.md" >}})** _(reference · needs a model)_: A scorecard of deterministic gates, model-backed evidence, and observed operational indicators.
-- **[4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md" >}})** _(offline validation; model-backed runs)_: black-box REST/A2A turns, deterministic scorers, sanitized artifacts, and optional calibrated judge evidence.
-- **[4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}})** _(hands-on · offline, except the last checkpoint step)_: Boundary redaction, stable errors, confirmation, transactions, and audit evidence.
-- **[4.6. Security]({{< relref "/4. Quality/4.6. Security.md" >}})** _(hands-on · model-free; scans may use network)_: Threat modeling, offline adversarial regressions, identity, and supply-chain scanning.
+## Seven layers, and the failure each one catches
 
-Expect to write code, not just read. [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) proves deterministic and gateway PII layers, while [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md" >}}) shows how to add a fixed black-box case.
+Read the order as a cost curve. The early layers are free, offline, and instant; the later ones need a model or a running gateway, and they exist because the cheap layers genuinely cannot answer their questions.
 
-## Where is gate versus evidence explained?
+- **[4.0. Type Safety]({{< relref "/4. Quality/4.0. Type Safety.md" >}})** _(concept · offline)_: a hostile tool argument dies at the boundary that owns it, instead of reaching the database.
+- **[4.1. Linting]({{< relref "/4. Quality/4.1. Linting.md" >}})** _(hands-on · offline)_: an ignored error in a transaction — a bug that compiles perfectly — is caught by a machine.
+- **[4.2. Testing]({{< relref "/4. Quality/4.2. Testing.md" >}})** _(hands-on · offline)_: the model is replaced and everything else stays real, so most of the agent is decided in seconds.
+- **[4.3. Metrics]({{< relref "/4. Quality/4.3. Metrics.md" >}})** _(reference · needs a model for the live rows)_: a scorecard where every number names its command, candidate, and proof class.
+- **[4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md" >}})** _(hands-on · offline validation, model-backed runs)_: black-box turns over the wire, scored by structure first and by a judge only for the residue.
+- **[4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}})** _(hands-on · offline, except the optional gateway run)_: injected text is defused, personal data is masked twice, and no write lands without confirmation and one transaction.
+- **[4.6. Security]({{< relref "/4. Quality/4.6. Security.md" >}})** _(hands-on · offline; scanners may use the network)_: authority the agent never holds cannot be misused, and a suite proves nobody quietly added it back.
 
-[4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#what-can-you-validate-without-a-model" >}}) separates offline asset validation, model-backed evidence, and release qualification. This index only marks each page's prerequisites.
+Expect to write code rather than only read it. Three pages ask you to break something on purpose and restore it — [4.1. Linting]({{< relref "/4. Quality/4.1. Linting.md" >}}), [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md#your-turn-does-a-tool-name-prove-trusted-provenance" >}}), and [4.6. Security]({{< relref "/4. Quality/4.6. Security.md" >}}) — and two ask you to add something you keep, in [4.2. Testing]({{< relref "/4. Quality/4.2. Testing.md" >}}) and [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#your-turn-how-do-you-add-one-adversarial-case-and-deterministic-validator" >}}).
 
-## What proves this chapter worked?
+One distinction runs through all seven pages and is owned in one place: what a deterministic gate proves versus what a model-backed observation suggests. [0.2. Evidence]({{< relref "/0. Overview/0.2. Evidence.md" >}}) holds it, and each page links there rather than restating it.
 
-Two offline commands cover the chapter: the full test suite, then the adversarial regression suite.
+## One offline sweep covers the chapter
+
+Three commands, run from the repository root, none of which needs a model, a provider key, or a network:
 
 ```bash
-cd agents/go
 mise run test
-cd ../..
 mise run redteam
-cd evals
 mise run eval:validate
-mise run test
 ```
 
-Neither needs a model, a provider key, or a network.
+The first is the widest: it fans out to all three Go modules at once, and two of them end by enforcing a coverage floor.
 
-**You are done when:**
+```text
+[test:evals] DONE 394 tests in 12.386s
+[test:evals] evals meets the 80% per-package coverage floor
+[test:tools] DONE 173 tests in 26.869s
+[test:go] DONE 1759 tests in 25.223s
+[test:go] agents/go meets the 80% per-package coverage floor
+Finished in 39.17s
+```
 
-- `mise run test` passes under the race detector and every package clears the 80% line-coverage floor it enforces.
-- Root `mise run redteam` passes the deterministic adversarial policy cases.
-- You kept the [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#your-turn-how-do-you-add-one-adversarial-case-and-deterministic-validator" >}}) unseen adversarial case, validator, and red-green regression; no generated result artifact or unrelated baseline changed.
-- The [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md#your-turn-does-a-tool-name-prove-trusted-provenance" >}}) name-based trust experiment went red, then the identity check was restored with a clean focused diff.
-- Standalone evaluation validation and tests pass without a model.
-- You can use the page markers above to say which checkpoints need a configured model and which run offline.
-- You can point to [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#how-can-an-evaluation-lie" >}}) for the ways a green run can still mislead you.
-- Without reopening Chapter 3: you can name which of the six memory stores a value belongs in when it must survive the next turn but not the next session.
+Six lines lifted from that run in the order they arrived. The three suites run concurrently, so the full log interleaves them and prints a coverage line for every package; `tools` is the maintainer module and deliberately sits outside the floor.
 
-Continue to [4.0. Type Safety]({{< relref "/4. Quality/4.0. Type Safety.md" >}}) when you know the first three pages need no model or provider account.
+## What this chapter proved
+
+- Twenty-three hundred tests decide the agent, the evaluator, and the repository tooling under the race detector in well under a minute, with no service to start and nothing spending a token.
+- `mise run redteam` settles the adversarial policy cases and `mise run eval:validate` proves the evalsets against the seed, both without a model.
+- Three of the seven pages hand you something to break and restore; two hand you something to keep — a table case in [4.2. Testing]({{< relref "/4. Quality/4.2. Testing.md" >}}) and an evaluation case in [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#your-turn-how-do-you-add-one-adversarial-case-and-deterministic-validator" >}}).
+- By the end you can take any green result in this chapter and say whether it is a gate or an observation — and name the command behind it.
+
+The agent refuses hostile input either way; the guardrails were already there when you arrived. What changes over these seven pages is that you can prove it in a second, and say which of its guarantees are deterministic and which are merely encouraging — which is exactly the distinction you need before putting it behind a gateway that other people can reach.
+
+Continue to [4.0. Type Safety]({{< relref "/4. Quality/4.0. Type Safety.md" >}}); the first three pages need no model and no account.
