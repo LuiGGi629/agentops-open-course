@@ -22,7 +22,7 @@ Choose the entry point that matches your current experience:
 
 This separation is intentional. You make the architecture and provider decisions before downloading tools, prove the code offline before adding a model, then run the agent where the course can explain what happened.
 
-Keep [0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md" >}}) open when a term is unfamiliar. Use [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md" >}}) only when a command later fails.
+Keep [0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}}) open when a term is unfamiliar. Use [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md" >}}) only when a command later fails.
 
 ## What are the six commands that reach the first agent turn?
 
@@ -45,7 +45,7 @@ mise run run
 
 Ask `List the open incidents`. The expected final answer names exactly **INC-002, INC-005, and INC-010**, but this console preview alone cannot prove whether the model read or guessed them.
 
-The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu" >}}) names the one variable to raise, and how to tell a slow turn from an unreachable model.
+The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu" >}}) names the one variable to raise, and how to tell a slow turn from an unreachable model.
 
 `mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) repeats this run under `mise run web`, then requires the `list_incidents(status="open")` call, returned rows, and final identifiers in one observed turn before calling it grounded.
 

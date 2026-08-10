@@ -51,7 +51,7 @@ func checkPortContracts(root string, pages pageSet) []Problem {
 			problems = append(problems, problem(owner.path, "authoritative pattern for stable port :%d is missing", port))
 		}
 	}
-	const ecosystemWhere = "content/0. Overview/0.3. Ecosystem.md"
+	const ecosystemWhere = "content/0. Overview/0.4. Ecosystem.md"
 	heading := `{{% collapsible note "Deeper: every port the course binds" %}}`
 	_, section, _ := strings.Cut(pages[ecosystemWhere], heading)
 	section, _, _ = strings.Cut(section, "\n## ")

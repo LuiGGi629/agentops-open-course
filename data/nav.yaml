@@ -23,12 +23,13 @@
       label: Overview
     - page: 0. Overview/0.0. Course.md
     - page: 0. Overview/0.1. Agents.md
-    - page: 0. Overview/0.2. AgentOps.md
-    - page: 0. Overview/0.3. Ecosystem.md
-    - page: 0. Overview/0.4. Providers.md
-    - page: 0. Overview/0.5. Resources.md
-    - page: 0. Overview/0.6. Troubleshooting.md
-    - page: 0. Overview/0.7. Glossary.md
+    - page: 0. Overview/0.2. Evidence.md
+    - page: 0. Overview/0.3. AgentOps.md
+    - page: 0. Overview/0.4. Ecosystem.md
+    - page: 0. Overview/0.5. Providers.md
+    - page: 0. Overview/0.6. Resources.md
+    - page: 0. Overview/0.7. Troubleshooting.md
+    - page: 0. Overview/0.8. Glossary.md
 
 - label: 1. Setup
   children:

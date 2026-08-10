@@ -117,7 +117,7 @@ Do not change these names or JSON schemas without a compatibility decision and c
 
 This file owns the stable network inventory. Repository convention checks map MCP `:3000`, A2A `:3001`, model `:4000`, gateway metrics `:15020`, gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, kagent control plane `:8083`, web client `:8001`, ADK web `:8002`, docs `:8003`, Ollama `:11434`, Tempo `:3200`, OTLP `:4317` and `:4318`, collector metrics `:8889`, collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, Grafana `:3002`, Loki `:3100`, and registry `:5050` to executable owners.
 
-Adding a port requires updating this inventory, the convention checker contract, the executable owner, and `content/0. Overview/0.3. Ecosystem.md`.
+Adding a port requires updating this inventory, the convention checker contract, the executable owner, and `content/0. Overview/0.4. Ecosystem.md`.
 
 ## Hugo documentation build
 

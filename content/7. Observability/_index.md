@@ -12,7 +12,7 @@ slug: "7-observability"
 
 ## How will you operate the agent after deployment?
 
-Your AgentOps Agent runs behind agentgateway ([Chapter 5]({{< relref "/5. Gateway/_index.md" >}})), and optionally as a Kubernetes workload ([Chapter 6]({{< relref "/6. Platform/_index.md" >}})). This chapter closes the [AgentOps loop]({{< relref "/0. Overview/0.2. AgentOps.md" >}}) with evidence: seeing what the agent does, proving what it did, and reacting when it breaks.
+Your AgentOps Agent runs behind agentgateway ([Chapter 5]({{< relref "/5. Gateway/_index.md" >}})), and optionally as a Kubernetes workload ([Chapter 6]({{< relref "/6. Platform/_index.md" >}})). This chapter closes the [AgentOps loop]({{< relref "/0. Overview/0.3. AgentOps.md" >}}) with evidence: seeing what the agent does, proving what it did, and reacting when it breaks.
 
 The telemetry stack is a Docker Compose stack, not a cluster feature. Seven of the eight pages below run entirely on it; [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) is the single page that reads its evidence off the deployed workload and therefore needs `mise run install:platform` and a running k3d cluster. Read the rest whenever Chapter 5 is behind you.
 
@@ -73,7 +73,7 @@ flowchart LR
 
 Three names in that diagram are worth pinning down now:
 
-- **OTLP** — the OpenTelemetry wire protocol that carries traces, metrics, and logs off the agent ([0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md#otlp" >}})).
+- **OTLP** — the OpenTelemetry wire protocol that carries traces, metrics, and logs off the agent ([0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md#otlp" >}})).
 - **`span_metrics`** — the collector connector that turns spans into request-count and duration metrics.
 - **`trace_id`** — the identifier a log record carries when it is emitted inside a recorded span. It enables Grafana's trace-to-log links during the explicit tracing exercise.
 

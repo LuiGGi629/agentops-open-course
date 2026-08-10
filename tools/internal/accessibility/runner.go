@@ -24,7 +24,7 @@ var documentSurfaces = []struct {
 	Label string
 }{
 	{Path: "/", Label: "homepage"},
-	{Path: "/0-overview/0-3-ecosystem/", Label: "dense diagram page"},
+	{Path: "/0-overview/0-4-ecosystem/", Label: "dense diagram page"},
 	{Path: "/3-capabilities/3-6-a2a/", Label: "A2A page"},
 	{Path: "/4-quality/4-6-security/", Label: "security page"},
 	{Path: "/8-community/8-7-capstone/", Label: "capstone page"},
@@ -82,7 +82,7 @@ func Run(ctx context.Context, config Config) (resultErr error) {
 			return err
 		}
 	}
-	densePage := docs.URL + "/0-overview/0-3-ecosystem/"
+	densePage := docs.URL + "/0-overview/0-4-ecosystem/"
 	if err := contentControlsSmoke(page, densePage); err != nil {
 		return err
 	}

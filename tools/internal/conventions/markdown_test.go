@@ -10,15 +10,15 @@ import (
 func TestCheckPageURLRequiresSlugAndRejectsURLShadowing(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "content", "0. Overview", "0.7. Glossary.md")
-	text := "---\ntitle: \"0.7. Glossary\"\ndescription: x\nslug: \"0-7-glossary\"\nurl: \"/wrong/\"\n---\n\n# Duplicate\n\n## Why?\n"
-	problems := checkPageURL(root, "content/0. Overview/0.7. Glossary.md", path, text)
+	text := "---\ntitle: \"0.7. Glossary\"\ndescription: x\nslug: \"0-8-glossary\"\nurl: \"/wrong/\"\n---\n\n# Duplicate\n\n## Why?\n"
+	problems := checkPageURL(root, "content/0. Overview/0.8. Glossary.md", path, text)
 	messages := problemMessages(problems)
 	if !strings.Contains(messages, "must not define url") || !strings.Contains(messages, "would publish a second <h1>") {
 		t.Fatalf("problems = %#v", problems)
 	}
 
-	valid := "---\ntitle: \"0.7. Glossary\"\ndescription: x\nslug: \"0-7-glossary\"\n---\n\n## Why?\n"
-	if problems := checkPageURL(root, "content/0. Overview/0.7. Glossary.md", path, valid); len(problems) != 0 {
+	valid := "---\ntitle: \"0.7. Glossary\"\ndescription: x\nslug: \"0-8-glossary\"\n---\n\n## Why?\n"
+	if problems := checkPageURL(root, "content/0. Overview/0.8. Glossary.md", path, valid); len(problems) != 0 {
 		t.Fatalf("valid slug problems = %#v", problems)
 	}
 }
