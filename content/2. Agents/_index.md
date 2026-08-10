@@ -12,9 +12,9 @@ slug: "2-agents"
 
 ## What will you understand in this chapter?
 
-This chapter builds one object, `root_agent`. Every later chapter adds to that same object rather than replacing it.
+This chapter builds one object, the root agent `Compose.RootAgent()` returns. Every later chapter adds to that same object rather than replacing it.
 
-That object is the **AgentOps Agent**, the single reference agent carried through the entire course. It is assembled once in `compose/composition.go` as a plain ADK `Agent` value: a model, an instruction string, a flat tool list, and a set of **policy callbacks** — code the runtime runs around every model call and tool call.
+That object is the **AgentOps Agent**, the single reference agent carried through the entire course. It is assembled once in `compose/composition.go` as a plain ADK `llmagent.Config`: a model, an instruction string, and a flat tool list, plus a set of **policy callbacks** attached once at the application level — code the runtime runs around every model call and tool call.
 
 {{% collapsible note "Deeper: where does this agent go after Chapter 2?" %}}
 
@@ -35,18 +35,18 @@ By the end you will have run the agent on a model on your own laptop. You will k
 
 ## Which page owns which part of the agent?
 
-The `Agent(...)` call in `compose/composition.go` names each part of the reference agent. Each part is taught by exactly one sub-page, so when a behavior surprises you, there is one page and one module to open.
+The `llmagent.Config` that `Compose.conversationalConfig()` assembles in `compose/composition.go` names each part of the reference agent. Each part is taught by exactly one sub-page, so when a behavior surprises you, there is one page and one module to open.
 
-Concretely, each field of `root_agent` traces to one owner:
+Concretely, each field of the root agent `Compose.RootAgent()` returns traces to one owner:
 
-| Sub-page                                                              | What it teaches                                | Owning module / symbol                                                            |
-| --------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
-| [2.0. Concepts]({{< relref "/2. Agents/2.0. Concepts.md" >}})         | The ADK runtime loop and its object vocabulary | `google.adk` (framework)                                                          |
-| [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}})   | Composing and running `root_agent`             | `compose/composition.go` (composition root)                                       |
-| [2.2. Models]({{< relref "/2. Agents/2.2. Models.md" >}})             | Provider selection behind `model=`             | `model/model.go` `build_model`, `config/config.go` `ModelProvider`                |
-| [2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md" >}}) | The persona and rules behind `instruction=`    | `compose/composition.go` `INSTRUCTION` / `_instruction`                           |
-| [2.4. Sessions]({{< relref "/2. Agents/2.4. Sessions.md" >}})         | Persistent sessions and A2A task state         | `a2aserver/a2aserver.go` `DatabaseSessionService`, `config/config.go` `state_dir` |
-| [2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})         | The offline gates and interactive run modes    | `mise.toml` tasks                                                                 |
+| Sub-page                                                              | What it teaches                                            | Owning module / symbol                                                                                                                     |
+| --------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [2.0. Concepts]({{< relref "/2. Agents/2.0. Concepts.md" >}})         | The ADK runtime loop and its object vocabulary             | `google.golang.org/adk/v2` (framework)                                                                                                     |
+| [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}})   | Composing and running `Compose.RootAgent()`                | `compose/composition.go` (composition root)                                                                                                |
+| [2.2. Models]({{< relref "/2. Agents/2.2. Models.md" >}})             | Provider selection behind `llmagent.Config.Model`          | `model/model.go` `model.Build`, `config/config.go` `ModelProvider`                                                                         |
+| [2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md" >}}) | The persona and rules behind `llmagent.Config.Instruction` | `compose/composition.go` `compose.Instruction()`                                                                                           |
+| [2.4. Sessions]({{< relref "/2. Agents/2.4. Sessions.md" >}})         | Persistent sessions and A2A task state                     | `a2aserver/a2aserver.go` `Config.SessionService`, `cmd/agent/session_store.go` `database.NewSessionService`, `config/config.go` `StateDir` |
+| [2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})         | The offline gates and interactive run modes                | `mise.toml` tasks                                                                                                                          |
 
 Tools and policy hooks are named here, not taught here. Owned by [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}).
 
@@ -57,12 +57,12 @@ This diagram maps the anatomy to its owners:
 ```mermaid
 flowchart TD
     concepts["Runtime concepts · 2.0<br/>Agent · Runner · Session · Events"]
-    subgraph agent["root_agent — assembled in compose/composition.go · 2.1"]
-        model["model = build_model() · 2.2"]
-        instr["instruction = _instruction() · 2.3"]
-        tools["tools = [reads, actions, memory, skills]<br/>policy plugin on App · Ch. 3 / 4.5"]
+    subgraph agent["Compose.RootAgent() — assembled in compose/composition.go · 2.1"]
+        model["Model = model.Build() · 2.2"]
+        instr["Instruction = compose.Instruction() · 2.3"]
+        tools["Tools = reads · actions · memory<br/>Toolsets = skills<br/>policy plugin on App · Ch. 3 / 4.5"]
     end
-    runtime["Persistent runtime · 2.4<br/>DatabaseSessionService · A2A tasks · a2aserver/a2aserver.go"]
+    runtime["Persistent runtime · 2.4<br/>Config.SessionService · A2A tasks · a2aserver/a2aserver.go"]
     loop["Dev loop · 2.5<br/>mise run test · run · web · a2a"]
     concepts --> agent
     agent --> runtime
@@ -71,7 +71,7 @@ flowchart TD
 
 **Diagram in words:** Runtime concepts lead to one agent assembled from a model, instruction, tools, and an app-level policy plugin; persistent runtime and the dev loop surround it.
 
-The `tools=` list and app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams. {{% /collapsible %}}
+The `llmagent.Config.Tools` and `.Toolsets` lists and the app plugin belong to later chapters: 2.1 shows the wiring, [Chapter 3]({{< relref "/3. Capabilities/_index.md" >}}) owns each tool, and [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}) owns policy. This page only names the seams. {{% /collapsible %}}
 
 ## What proves this chapter worked?
 
