@@ -666,4 +666,8 @@ run = [
 [tasks.clean]
 alias = "n"
 description = "Delete local build outputs; rerun `mise run install` afterwards"
-run = "rm -rf site/ agents/go/bin agents/go/coverage.out evals/bin evals/coverage.out tools/bin"
+# public/ and _vendor/ are not written by any task, which is exactly why they are swept
+# here: a bare `hugo` run (no --destination) leaves public/, and a stray `hugo mod vendor`
+# leaves _vendor/, which then shadows the go.mod-pinned theme and makes local builds
+# disagree with CI. Both are ignored, so nothing warns you they are there.
+run = "rm -rf site/ public/ _vendor/ agents/go/bin agents/go/coverage.out evals/bin evals/coverage.out tools/bin"
