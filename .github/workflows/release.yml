@@ -32,6 +32,8 @@ jobs:
   qualify:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      source_tree_digest: ${{ steps.contract.outputs.source_tree_digest }}
     permissions:
       actions: read
       contents: read
@@ -42,8 +44,22 @@ jobs:
         with:
           ref: ${{ inputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build the native qualification tools
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          install: false
+
+      - name: Compile the native qualification tools
+        run: |
+          mise install -y --locked go
+          cd tools
+          mkdir -p bin
+          GOBIN="$PWD/bin" go install ./cmd/...
 
       - name: Qualify protected main and exact-SHA evidence
+        id: contract
         env:
           GH_TOKEN: ${{ github.token }}
           FRESHNESS_EVIDENCE: ${{ inputs.freshness_evidence }}
@@ -56,8 +72,11 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$GITHUB_SHA" = "$SHA"
           test "$(git rev-parse HEAD)" = "$SHA"
+          source_identity="$(tools/bin/source-identity --root . --mode release)"
+          test "$(jq -er .revision <<<"$source_identity")" = "$SHA"
+          echo "source_tree_digest=$(jq -er .tree_digest <<<"$source_identity")" >> "$GITHUB_OUTPUT"
           test "$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)" = "$SHA"
-          python3 scripts/check_conventions.py release-metadata "$VERSION"
+          tools/bin/conventions release-metadata "$VERSION" "$GITHUB_REPOSITORY"
 
           freshness_arguments=()
           if [[ "$FRESHNESS_EVIDENCE" =~ ^issue:([1-9][0-9]*)$ ]]; then
@@ -77,7 +96,7 @@ jobs:
               --checklist-template-html freshness-template.html
             )
           fi
-          python3 scripts/release_freshness.py \
+          tools/bin/release-freshness \
             --evidence "$FRESHNESS_EVIDENCE" \
             --actor "$GITHUB_ACTOR" \
             --repository "$GITHUB_REPOSITORY" \
@@ -158,8 +177,7 @@ jobs:
                     updated_at: $run.updated_at,
                     head_branch: $run.head_branch,
                     head_sha: $run.head_sha,
-                    path: $run.path,
-                    url: $run.html_url
+                    path: $run.path
                   }]
                 ' <<<"$evidence"
             )"
@@ -192,6 +210,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ inputs.sha }}
+          TREE_DIGEST: ${{ steps.contract.outputs.source_tree_digest }}
         run: |
           eval_run="$(
             jq -er '.workflows[] | select(.workflow == "Eval") | .run_id' qualification.json
@@ -204,18 +223,23 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --pattern "eval-release-evidence-*" \
             --dir eval-artifact
-          mapfile -t model_files < <(find eval-artifact -type f -name model.json -print | sort)
-          mapfile -t verdict_files < <(find eval-artifact -type f -name verdict.json -print | sort)
-          test "${#model_files[@]}" -eq 1
-          test "${#verdict_files[@]}" -eq 1
-          model_file="${model_files[0]}"
-          verdict_file="${verdict_files[0]}"
-          python3 scripts/release_evidence.py \
-            --model "$model_file" \
-            --verdict "$verdict_file" \
-            --lock agents/python/uv.lock \
+          mapfile -t evaluation_files < <(find eval-artifact -type f -name eval-results.json -print | sort)
+          mapfile -t calibration_files < <(find eval-artifact -type f -name judge-calibration-results.json -print | sort)
+          mapfile -t cost_files < <(find eval-artifact -type f -name cost-observed.json -print | sort)
+          test "${#evaluation_files[@]}" -eq 1
+          test "${#calibration_files[@]}" -eq 1
+          test "${#cost_files[@]}" -eq 1
+          tools/bin/release-evidence \
+            --evaluation "${evaluation_files[0]}" \
+            --calibration "${calibration_files[0]}" \
+            --cost-observation "${cost_files[0]}" \
+            --cost-baseline evals/cost_baseline.json \
+            --evalset evals/ops.evalset.json \
+            --policy evals/release-policy.json \
+            --calibration-set evals/judge-calibration.json \
             --repository "$GITHUB_REPOSITORY" \
             --sha "$SHA" \
+            --tree-digest "$TREE_DIGEST" \
             --run-id "$eval_run" \
             --run-attempt "$eval_run_attempt" \
             > evaluation-evidence.json
@@ -241,6 +265,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha }}
+          persist-credentials: false
 
       - name: Read the shared container matrix
         id: matrix
@@ -260,6 +285,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha }}
+          persist-credentials: false
 
       - name: Resolve immutable build metadata
         id: metadata
@@ -279,7 +305,11 @@ jobs:
           file: ${{ matrix.dockerfile }}
           tags: ${{ steps.metadata.outputs.image }}:candidate-${{ inputs.sha }}
           build-args: |
+            AGENT_BUILD_MODE=release
             AGENT_SOURCE_COMMIT=${{ inputs.sha }}
+            AGENT_SOURCE_REVISION=${{ inputs.sha }}
+            AGENT_SOURCE_TREE_DIGEST=${{ needs.qualify.outputs.source_tree_digest }}
+            AGENT_SOURCE_DIRTY=false
             OCI_CREATED=${{ steps.metadata.outputs.created }}
             OCI_VERSION=${{ inputs.version }}
           outputs: type=docker,dest=${{ runner.temp }}/${{ matrix.name }}.tar
@@ -288,13 +318,46 @@ jobs:
 
       - name: Load, inspect, and runtime-smoke the built image
         env:
+          CREATED: ${{ steps.metadata.outputs.created }}
           IMAGE: ${{ steps.metadata.outputs.image }}:candidate-${{ inputs.sha }}
           NAME: ${{ matrix.name }}
+          REVISION: ${{ inputs.sha }}
           SMOKE: ${{ matrix.smoke }}
+          SOURCE_TREE_DIGEST: ${{ needs.qualify.outputs.source_tree_digest }}
+          VERSION: ${{ inputs.version }}
         run: |
           docker load --input "${RUNNER_TEMP}/${NAME}.tar"
           user="$(docker image inspect --format '{{.Config.User}}' "$IMAGE")"
           [[ -n "$user" && "${user%%:*}" != 0 ]]
+          binary_identity="$(docker run --rm --read-only "$IMAGE" version)"
+          jq -e \
+            --arg revision "$REVISION" \
+            --arg tree_digest "$SOURCE_TREE_DIGEST" \
+            --arg version "$VERSION" \
+            --arg created "$CREATED" '
+              .mode == "release" and
+              .version == $version and
+              .source_identity == $revision and
+              .revision == $revision and
+              .tree_digest == $tree_digest and
+              .build_timestamp == $created and
+              .dirty == false
+            ' <<<"$binary_identity" >/dev/null
+          image_labels="$(docker image inspect --format '{{json .Config.Labels}}' "$IMAGE")"
+          jq -e \
+            --arg revision "$REVISION" \
+            --arg tree_digest "$SOURCE_TREE_DIGEST" \
+            --arg version "$VERSION" \
+            --arg created "$CREATED" '
+              .["org.opencontainers.image.created"] == $created and
+              .["org.opencontainers.image.version"] == $version and
+              .["org.opencontainers.image.revision"] == $revision and
+              .["dev.fmind.agentops.build-mode"] == "release" and
+              .["dev.fmind.agentops.source-identity"] == $revision and
+              .["dev.fmind.agentops.source-revision"] == $revision and
+              .["dev.fmind.agentops.source-tree-digest"] == $tree_digest and
+              .["dev.fmind.agentops.source-dirty"] == "false"
+            ' <<<"$image_labels" >/dev/null
           # No interpreter and no shell in a distroless image: the smoke is a subcommand of
           # the image's own entrypoint, run under the same read-only root the manifests use.
           docker run --rm --read-only \
@@ -377,6 +440,12 @@ jobs:
       matrix:
         name: [agent]
     steps:
+      - name: Checkout the qualified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
       - name: Download the preflight artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -469,6 +538,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Select the pinned Go toolchain
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          install: false
+
+      - name: Compile the native release validators
+        run: |
+          mise install -y --locked go
+          cd tools
+          mkdir -p bin
+          GOBIN="$PWD/bin" go install ./cmd/...
 
       - name: Download the qualified source digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -611,6 +693,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Select the pinned Go toolchain
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          install: false
+
+      - name: Compile the native release validators
+        run: |
+          mise install -y --locked go
+          cd tools
+          mkdir -p bin
+          GOBIN="$PWD/bin" go install ./cmd/release-reconcile ./cmd/release-attestation
 
       - name: Download the recorded digest and attestations
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -659,7 +754,7 @@ jobs:
           index_file="${RUNNER_TEMP}/${NAME}.index.json"
           docker buildx imagetools inspect "${image}:${VERSION}" --raw \
             >"$index_file"
-          python3 scripts/release_reconcile.py \
+          tools/bin/release-reconcile \
             --validate-index-only \
             --index "$index_file" \
             --source-image "$source_image_file" \
@@ -682,7 +777,7 @@ jobs:
             --certificate-github-workflow-sha "$SHA" \
             --output json \
             "$exact_ref" >verified-sbom-attestation.json
-          python3 scripts/release_attestation.py \
+          tools/bin/release-attestation \
             --attestations verified-sbom-attestation.json \
             --sbom "assets/${NAME}.sbom.spdx.json"
 
@@ -709,7 +804,7 @@ jobs:
               ."org.opencontainers.image.documentation" == "https://agentops-open-course.fmind.dev/" and
               ."org.opencontainers.image.licenses" == "MIT" and
               ."org.opencontainers.image.revision" == $revision and
-              ."org.opencontainers.image.source" == "https://github.com/MLOps-Courses/agentops-open-course" and
+              ."org.opencontainers.image.source" == "https://github.com/MLOps-Courses/agentops-open-course-go" and
               ."org.opencontainers.image.version" == $version
             ' <<<"$labels" >/dev/null
 
@@ -762,6 +857,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Select the pinned Go toolchain
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          install: false
+
+      - name: Compile the native reconciliation tool
+        run: |
+          mise install -y --locked go
+          cd tools
+          mkdir -p bin
+          GOBIN="$PWD/bin" go install ./cmd/release-reconcile
 
       - name: Download the qualified source digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -889,7 +997,7 @@ jobs:
             elif [[ "$registry_absent" == true ]]; then
               ownership_arguments+=(--registry-absent)
             fi
-            ownership="$(python3 scripts/release_reconcile.py "${ownership_arguments[@]}")"
+            ownership="$(tools/bin/release-reconcile "${ownership_arguments[@]}")"
             if [[ "$(jq -er .state <<<"$ownership")" == absent ]]; then
               echo "::notice::${image}:${VERSION} has no reversible version index."
               continue
@@ -913,6 +1021,7 @@ jobs:
         with:
           ref: ${{ inputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Download qualification evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -944,14 +1053,35 @@ jobs:
           test "$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)" = "$SHA"
           test "$(git rev-parse HEAD)" = "$SHA"
 
-          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
-            test "$(git cat-file -t "refs/tags/${VERSION}")" = tag
-            test "$(git rev-list -n 1 "refs/tags/${VERSION}")" = "$SHA"
+          # The Git Database API keeps checkout credentials disabled while still
+          # creating the annotated tag object required by the release contract.
+          if tag_ref="$(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${VERSION}" 2>/dev/null
+          )"; then
+            tag_object_sha="$(jq -er '.object | select(.type == "tag") | .sha' <<<"$tag_ref")"
+            tag_object="$(
+              gh api "repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}"
+            )"
+            test "$(jq -er .tag <<<"$tag_object")" = "$VERSION"
+            test "$(jq -er '.object.type' <<<"$tag_object")" = commit
+            test "$(jq -er '.object.sha' <<<"$tag_object")" = "$SHA"
           else
-            git config user.name github-actions
-            git config user.email github-actions@github.com
-            git tag --annotate "$VERSION" "$SHA" --message "Release ${VERSION}"
-            git push origin "refs/tags/${VERSION}"
+            tag_object="$(
+              gh api \
+                --method POST \
+                "repos/${GITHUB_REPOSITORY}/git/tags" \
+                -f "tag=${VERSION}" \
+                -f "message=Release ${VERSION}" \
+                -f "object=${SHA}" \
+                -f "type=commit"
+            )"
+            tag_object_sha="$(jq -er .sha <<<"$tag_object")"
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${VERSION}" \
+              -f "sha=${tag_object_sha}" \
+              >/dev/null
           fi
 
           bare_version="${VERSION#v}"

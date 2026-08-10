@@ -132,6 +132,7 @@ services:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../../evals/grafana-dashboard.json:/var/lib/grafana/dashboards/evaluations.json:ro
       - grafana-data:/var/lib/grafana
     tmpfs:
       - /tmp:size=64m,mode=1777

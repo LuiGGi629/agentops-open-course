@@ -52,6 +52,34 @@ patches:
           ports:
             - port: 11434
               protocol: TCP
+  # The co-hosted PII webhook calls Ollama directly. It must not recurse through
+  # agentgateway, and the base agent egress stays default-deny for every other port.
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: agent-egress
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+          ports:
+            - port: 11434
+              protocol: TCP
+  - target:
+      group: kagent.dev
+      version: v1alpha2
+      kind: Agent
+      name: agentops-agent
+    patch: |-
+      - op: add
+        path: /spec/byo/deployment/env/-
+        value:
+          name: AGENT_PII_MODEL_BASE_URL
+          value: http://host.k3d.internal:11434/v1
 
 replacements:
   # Select both lists by their semantic names, so reordering either manifest

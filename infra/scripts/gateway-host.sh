@@ -11,7 +11,7 @@ readonly host_config_dir="${repo_root}/infra/agentgateway/host"
 readonly image="cr.agentgateway.dev/agentgateway:v1.4.1@sha256:efd79355b89094a8225a9db465d9a01dc656b377f0bab458761b935a13231d29"
 readonly managed_label="dev.fmind.agentops.host-gateway"
 readonly network_alias="agentops-gateway"
-readonly relay_script="${script_dir}/loopback-relay.py"
+readonly relay_binary="${AGENTOPS_GATEWAY_RELAY:-${repo_root}/tools/bin/loopback-relay}"
 
 readonly container_name="${AGENTOPS_GATEWAY_CONTAINER:-agentops-host-gateway}"
 # The wrapper owns its own bridge network instead of joining Docker's shared
@@ -40,11 +40,7 @@ fi
 readonly auth_dir_input
 readonly runtime_root="${AGENTOPS_GATEWAY_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agentops-open-course}"
 readonly relay_mode="${AGENTOPS_GATEWAY_LOOPBACK_RELAY:-auto}"
-# The relay is pure standard library, so the repository's own documentation-gate
-# environment runs it. It deliberately does not reach into a reference agent's
-# environment: the gateway wrapper must work whatever the agent is written in.
-readonly relay_python="${AGENTOPS_GATEWAY_PYTHON:-${repo_root}/.venv/bin/python}"
-
+readonly resilience_lab="${AGENTOPS_GATEWAY_RESILIENCE_LAB:-off}"
 usage() {
 	cat <<'EOF'
 Usage: infra/scripts/gateway-host.sh COMMAND
@@ -72,7 +68,8 @@ Environment:
   AGENTOPS_GATEWAY_CONFIG          Canonical config path or host-config basename.
   AGENTOPS_GATEWAY_AUTH_DIR        Source TLS/JWKS directory for secured configs.
   AGENTOPS_GATEWAY_LOOPBACK_RELAY  auto (default), on, or off.
-  AGENTOPS_GATEWAY_PYTHON          Installed Python used by the Linux relay.
+  AGENTOPS_GATEWAY_RELAY           Installed native loopback-relay binary.
+  AGENTOPS_GATEWAY_RESILIENCE_LAB  off (default) or timeout.
   AGENTOPS_MCP_UPSTREAM_PORT       Host MCP upstream port (8000).
   AGENTOPS_A2A_UPSTREAM_PORT       Host A2A upstream port (8080).
   AGENTOPS_MODEL_UPSTREAM_PORT     Host model upstream port (11434).
@@ -96,7 +93,7 @@ validate_port() {
 
 config_needs_auth() {
 	yq -e '
-		[.binds[].listeners[] | select(has("tls"))] | length > 0
+		[.gateways[] | select(has("tls"))] | length > 0
 	' "${canonical_config_input}" >/dev/null 2>&1
 }
 
@@ -109,6 +106,10 @@ validate_inputs() {
 	auto | on | off) ;;
 	*) die "AGENTOPS_GATEWAY_LOOPBACK_RELAY must be auto, on, or off" ;;
 	esac
+	case "${resilience_lab}" in
+	off | timeout) ;;
+	*) die "AGENTOPS_GATEWAY_RESILIENCE_LAB must be off or timeout" ;;
+	esac
 
 	validate_port AGENTOPS_GATEWAY_MCP_PORT "${mcp_port}"
 	validate_port AGENTOPS_GATEWAY_A2A_PORT "${a2a_port}"
@@ -120,11 +121,15 @@ validate_inputs() {
 	validate_port AGENTOPS_MODEL_UPSTREAM_PORT "${model_upstream_port}"
 
 	yq -e '
-		([.binds[] | select(.port == 3000)] | length == 1) and
-		([.binds[] | select(.port == 3001)] | length == 1) and
-		([.binds[] | select(.port == 4000)] | length == 1)
+		.binds == null and
+		(.gateways | keys | sort | join(",")) == "a2a,llm,mcp" and
+		(.gateways.mcp.port == 3000) and
+		(.gateways.a2a.port == 3001) and
+		(.gateways.llm.port == 4000) and
+		([.routes[].name] | sort | join(",")) == "a2a,llm,mcp" and
+		([.routes[] | (((.gateways | length) == 1) and (.name == .gateways[0]))] | all_c(.))
 	' "${canonical_config_input}" >/dev/null ||
-		die "canonical config must contain exactly one MCP, A2A, and model bind"
+		die "canonical config must contain exactly one named MCP, A2A, and model gateway route"
 
 	if config_needs_auth; then
 		[[ -d "${auth_dir_input}" ]] || die "secured config requires auth directory: ${auth_dir_input}"
@@ -135,30 +140,49 @@ validate_inputs() {
 	fi
 }
 
-render_base_config() {
+render_network_config() {
 	MCP_UPSTREAM_PORT="${mcp_upstream_port}" \
 		A2A_UPSTREAM_PORT="${a2a_upstream_port}" \
 		MODEL_UPSTREAM_PORT="${model_upstream_port}" \
 		yq '
 			(
-				.binds[] |
-				select(.port == 3000) |
-				.listeners[].routes[].backends[].mcp.targets[].mcp.host
+				.routes[] |
+				select(.name == "mcp") |
+				.backends[].mcp.targets[].mcp.host
 			) = ("http://host.docker.internal:" + strenv(MCP_UPSTREAM_PORT) + "/mcp") |
 			(
-				.binds[] |
-				select(.port == 3001) |
-				.listeners[].routes[].backends[].host
+				.routes[] |
+				select(.name == "a2a") |
+				.backends[].host
 			) = ("host.docker.internal:" + strenv(A2A_UPSTREAM_PORT)) |
 			(
-				.binds[] |
-				select(.port == 4000) |
-				.listeners[].routes[].backends[].ai.hostOverride
+				.routes[] |
+				select(.name == "llm") |
+				.backends[].ai.hostOverride
 			) = ("host.docker.internal:" + strenv(MODEL_UPSTREAM_PORT)) |
+			(
+				.routes[] |
+				select(.name == "llm") |
+				.policies.ai.promptGuard |
+				(.request[], .response[]) |
+				select(.webhook != null) |
+				.webhook.target.host
+			) = ("host.docker.internal:" + strenv(A2A_UPSTREAM_PORT)) |
 			.config.statsAddr = "0.0.0.0:15020" |
 			.config.readinessAddr = "0.0.0.0:15021" |
 			.config.adminAddr = "off"
 		' "${canonical_config_input}"
+}
+
+render_base_config() {
+	if [[ "${resilience_lab}" == "timeout" ]]; then
+		# Six seconds deterministically exceeds the MCP route five-second total
+		# deadline. The opt-in lab never reaches or retries a confirmed write.
+		render_network_config |
+			yq '(.routes[] | select(.name == "mcp") | .policies.delay) = {"duration": "6s"}' -
+		return
+	fi
+	render_network_config
 }
 
 render_config() {
@@ -170,17 +194,17 @@ render_config() {
 	render_base_config |
 		yq '
 			(
-				.binds[].listeners[] |
+				.gateways[] |
 				select(.tls.cert != null) |
 				.tls.cert
 			) = "/etc/agentgateway/auth/tls-cert.pem" |
 			(
-				.binds[].listeners[] |
+				.gateways[] |
 				select(.tls.key != null) |
 				.tls.key
 			) = "/etc/agentgateway/auth/tls-key.pem" |
 			(
-				.binds[].listeners[].routes[] |
+				.routes[] |
 				select(.policies.jwtAuth.jwks.file != null) |
 				.policies.jwtAuth.jwks.file
 			) = "/etc/agentgateway/auth/jwks.json"
@@ -403,7 +427,7 @@ stop_loopback_relay() {
 
 	if kill -0 "${pid}" >/dev/null 2>&1; then
 		command="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
-		if [[ "${command}" != *"${relay_script}"* || "${command}" != *"--token ${token}"* ]]; then
+		if [[ "${command}" != *"${relay_binary}"* || "${command}" != *"--token ${token}"* ]]; then
 			die "refusing to stop PID ${pid}: it is not this wrapper's loopback relay"
 		fi
 		kill -TERM "${pid}" >/dev/null 2>&1 || true
@@ -434,9 +458,8 @@ start_loopback_relay() {
 	local attempt
 
 	loopback_relay_required || return 0
-	[[ -x "${relay_python}" ]] ||
-		die "Linux loopback relay requires the installed agent Python; run 'mise run install' first"
-	[[ -f "${relay_script}" ]] || die "loopback relay helper not found: ${relay_script}"
+	[[ -x "${relay_binary}" ]] ||
+		die "Linux loopback relay requires the installed Go helper; run 'mise run install' first"
 	[[ -n "${host_alias_ip}" ]] ||
 		die "the dedicated network gateway was not resolved before the relay started"
 
@@ -447,7 +470,7 @@ start_loopback_relay() {
 	printf '%s\n' "${token}" >"${relay_dir}/token"
 	printf '%s\n' "${listen_host}" >"${relay_dir}/listen-host"
 
-	nohup "${relay_python}" "${relay_script}" \
+	nohup "${relay_binary}" \
 		--listen-host "${listen_host}" \
 		--target-host 127.0.0.1 \
 		--port "${mcp_upstream_port}" \

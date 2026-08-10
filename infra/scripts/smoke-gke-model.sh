@@ -18,13 +18,13 @@ cd "${repo_dir}" || exit
 
 head_commit="$(git rev-parse --verify 'HEAD^{commit}')"
 [[ ${head_commit} =~ ^[0-9a-f]{40}$ ]] || fail "HEAD did not resolve to a full commit SHA"
-source_tag="$(git rev-parse --short=7 "${head_commit}")"
+source_tag="${head_commit}"
 working_tree_status="$(git status --porcelain)"
 [[ -z ${working_tree_status} ]] || fail "GKE smoke requires a clean working tree"
 
 source_gateway_model="$(
 	yq -er \
-		'.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.provider.vertex.model' \
+		'.routes[] | select(.name == "llm") | .backends[].ai.provider.vertex.model' \
 		infra/agentgateway/gke/config.yaml
 )"
 [[ ${source_gateway_model} == google/* ]] ||
@@ -44,6 +44,26 @@ source_gateway_image="$(
 	fail "expected one source agentgateway image"
 [[ ${source_agent_model} == "${model}" && ${source_model_config} == "${model}" ]] ||
 	fail "the source gateway, Agent, and ModelConfig model owners disagree"
+source_a2a_max_llm_calls="$(
+	yq -er '
+      .spec.byo.deployment.env[]
+      | select(.name == "AGENT_A2A_MAX_LLM_CALLS")
+      | .value
+    ' infra/kagent/agent.yaml
+)"
+[[ ${source_a2a_max_llm_calls} =~ ^[1-9][0-9]?$|^100$ ]] ||
+	fail "source AGENT_A2A_MAX_LLM_CALLS must be an integer from 1 through 100"
+
+# The acceptance makes exactly two direct calls. Its single A2A request may
+# spend up to the explicit application cap above, so approval must cover the
+# worst case before any cloud endpoint or cluster is touched.
+readonly direct_model_call_count=2
+model_call_budget=${GCP_MODEL_CALL_BUDGET:-}
+[[ ${model_call_budget} =~ ^[1-9][0-9]*$ && ${#model_call_budget} -le 6 ]] ||
+	fail "GCP_MODEL_CALL_BUDGET must be a positive integer"
+smoke_model_call_worst_case=$((direct_model_call_count + 10#${source_a2a_max_llm_calls}))
+((10#${model_call_budget} >= smoke_model_call_worst_case)) ||
+	fail "GCP_MODEL_CALL_BUDGET ${model_call_budget} is below the smoke worst case ${smoke_model_call_worst_case}"
 
 project_id="$(tofu -chdir=infra/gcp output -raw project_id)"
 cluster_name="$(tofu -chdir=infra/gcp output -raw cluster_name)"
@@ -101,8 +121,16 @@ live_agent_model="$(
     ' <<<"${live_agent}"
 )"
 live_agent_image="$(jq -er '.spec.byo.deployment.image' <<<"${live_agent}")"
+live_agent_a2a_max_llm_calls="$(
+	jq -er '
+      [.spec.byo.deployment.env[] | select(.name == "AGENT_A2A_MAX_LLM_CALLS") | .value]
+      | if length == 1 then .[0] else error("expected one AGENT_A2A_MAX_LLM_CALLS") end
+    ' <<<"${live_agent}"
+)"
 [[ ${live_agent_model} == "${model}" ]] ||
 	fail "live Agent model ${live_agent_model} does not match source ${model}"
+[[ ${live_agent_a2a_max_llm_calls} == "${source_a2a_max_llm_calls}" ]] ||
+	fail "live Agent A2A model-call cap ${live_agent_a2a_max_llm_calls} does not match source ${source_a2a_max_llm_calls}"
 assert_agent_image "live Agent declaration" "${live_agent_image}"
 
 live_agent_deployment=""
@@ -129,12 +157,20 @@ done
 live_agent_deployment="$(kube get deployment/agentops-agent --output json)"
 live_workload_model="$(agent_workload_model <<<"${live_agent_deployment}")"
 live_workload_image="$(agent_workload_image <<<"${live_agent_deployment}")"
+live_workload_a2a_max_llm_calls="$(
+	jq -er '
+      [.spec.template.spec.containers[0].env[] | select(.name == "AGENT_A2A_MAX_LLM_CALLS") | .value]
+      | if length == 1 then .[0] else error("expected one workload AGENT_A2A_MAX_LLM_CALLS") end
+    ' <<<"${live_agent_deployment}"
+)"
 jq -e '.status.observedGeneration >= .metadata.generation' <<<"${live_agent_deployment}" >/dev/null ||
 	fail "the Agent workload has not observed its current generation"
 [[ ${live_workload_model} == "${model}" ]] ||
 	fail "live Agent workload model ${live_workload_model} does not match source ${model}"
 [[ ${live_workload_image} == "${live_agent_image}" ]] ||
 	fail "live Agent declaration and generated workload images disagree"
+[[ ${live_workload_a2a_max_llm_calls} == "${source_a2a_max_llm_calls}" ]] ||
+	fail "live Agent workload A2A model-call cap ${live_workload_a2a_max_llm_calls} does not match source ${source_a2a_max_llm_calls}"
 assert_agent_image "live Agent workload" "${live_workload_image}"
 
 live_gateway_deployment="$(kube get deployment/agentgateway --output json)"
@@ -165,7 +201,7 @@ gateway_config_map="$(kube get "configmap/${gateway_config_name}" --output json)
 live_gateway_config="$(jq -er '.data["config.yaml"]' <<<"${gateway_config_map}")"
 live_gateway_model="$(
 	yq -er \
-		'.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.provider.vertex.model' \
+		'.routes[] | select(.name == "llm") | .backends[].ai.provider.vertex.model' \
 		<<<"${live_gateway_config}"
 )"
 live_model_config="$(kube get modelconfig.kagent.dev/agentgateway --output json)"
@@ -257,6 +293,23 @@ get_incident_call_count() {
       END { printf "%.17g\n", total + 0 }
     ' "${metrics_file}"
 }
+
+model_request_count() {
+	local metrics_file="$1"
+
+	# agentgateway v1.4.1 records every completed HTTP request in this counter;
+	# protocol=llm isolates both direct probes and the Agent's provider calls.
+	awk '
+      /^agentgateway_requests_total\{/ && /protocol="llm"/ {
+        total += $NF
+      }
+      END { printf "%.0f\n", total + 0 }
+    ' "${metrics_file}"
+}
+
+campaign_metrics_before_file="${work_dir}/metrics-campaign-before.txt"
+scrape_metrics "${campaign_metrics_before_file}"
+model_requests_before="$(model_request_count "${campaign_metrics_before_file}")"
 
 model_endpoint="http://127.0.0.1:${model_port}/v1/chat/completions"
 first_payload="$(
@@ -457,5 +510,14 @@ if ! awk \
 	fail "get_incident counter delta was not exactly one: before=${get_incident_calls_before}, after=${get_incident_calls_after}"
 fi
 
-printf 'GKE model tool loop and read-only A2A retrieval passed for %s at %s\n' \
-	"${model}" "${head_commit}"
+model_requests_after="$(model_request_count "${metrics_after_file}")"
+model_request_delta=$((10#${model_requests_after} - 10#${model_requests_before}))
+((model_request_delta >= direct_model_call_count + 1)) ||
+	fail "model-request counter delta ${model_request_delta} did not include both direct calls and the A2A turn"
+((model_request_delta <= 10#${model_call_budget})) ||
+	fail "model-request counter delta ${model_request_delta} exceeds GCP_MODEL_CALL_BUDGET ${model_call_budget}"
+((model_request_delta <= smoke_model_call_worst_case)) ||
+	fail "model-request counter delta ${model_request_delta} exceeds the source-bound smoke worst case ${smoke_model_call_worst_case}"
+
+printf 'GKE model tool loop and read-only A2A retrieval passed for %s at %s; model requests %s/%s\n' \
+	"${model}" "${head_commit}" "${model_request_delta}" "${model_call_budget}"

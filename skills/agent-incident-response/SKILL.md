@@ -5,12 +5,12 @@ description: Run the operational loop for an LLM agent that is itself a producti
 
 # Agent Incident Response
 
-An operated agent is a running workload with incidents of its own: error-budget burn, latency regression, injection spikes, schema failures, cost blowouts, thumbs-down clusters. Close each one not when service is restored, but when the smallest repeatable check or evidence path would expose it again.
+An operated agent is a running workload with incidents of its own: error-budget burn, latency regression, injection spikes, schema failures, cost blowouts, and reviewed quality regressions. Close each one only when the smallest repeatable check or evidence path would expose it again.
 
 ## When to use
 
 - An agent workload fires an alert (error budget, p95, cost, guardrail spike, schema failure).
-- A quality or cost incident with no alert (thumbs-down cluster, a change that doubled tokens).
+- A quality or cost incident with no alert, such as repeated reviewer findings or doubled token usage.
 - You want every outage to leave behind a test, eval case, alert, or baseline.
 
 ## The loop: detect → triage → mitigate → review → prevent
@@ -23,10 +23,11 @@ An operated agent is a running workload with incidents of its own: error-budget 
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
+From the AgentOps Open Course:
 
 - Course chapter `7.7. Incident Response` (the full loop and a postmortem template).
-- Startup configuration and rollback controls across `4.5. Guardrails`, `7.0. Reproducibility`, and `7.3. Costs`.
+- `agents/go/policy/`, `agents/go/state/`, and `evals/` for startup controls, recovery, and regression evidence.
+- Rollback controls across `4.5. Guardrails`, `7.0. Reproducibility`, and `7.3. Costs`.
 
 ## Verify
 

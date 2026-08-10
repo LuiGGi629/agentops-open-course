@@ -20,14 +20,15 @@ Score an agent's _behavior_ over fixed cases, not one exact string. Let model-fr
 1. **Add a groundedness check.** Require every recognized claim to appear in that turn's retrieved evidence or the user's question. Document the recognizer's vocabulary; use a broader extractor or judge for claims it cannot parse.
 1. **Tripwire the cost.** Record per-case tokens and model-call counts against a committed baseline; fail when a change exceeds a tolerance. Trajectory scores tolerate waste, so this is the only thing that catches a correct-but-expensive regression.
 1. **A/B prompt versions.** Run the eval set under two pinned prompt versions in isolated processes and print a per-scorer delta; promote or roll back on the numbers.
-1. **Split gates from evidence.** Deterministic, model-free checks gate CI; model-backed evals (judge, cost, groundedness) run on a schedule where a failure means "investigate", not "blocked".
+1. **Split gates from evidence.** Deterministic, model-free checks gate CI; model-backed evaluations run as commit-scoped evidence with explicit qualification policy.
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`, eval scripts under `agents/python/evals/`):
+From the AgentOps Open Course:
 
-- `evals/mlflow_eval.py` — deterministic trajectory/response scorers + optional judge.
-- `evals/groundedness_eval.py`, `evals/cost_eval.py`, `evals/prompt_ab.py`.
+- `evals/turn.go` and `evals/client.go` — typed REST/A2A capture and partial-safe usage folding.
+- `evals/trajectory.go`, `evals/groundedness.go`, `evals/cost.go`, and `evals/schema.go` — deterministic scorers.
+- `evals/judge.go` and `evals/evidence.go` — calibrated gateway verdicts and sanitized OTel evidence.
 - Course chapter `4.4. Evaluations`.
 
 ## Verify

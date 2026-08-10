@@ -1,7 +1,7 @@
 # https://git-scm.com/docs/gitattributes
 
 # The self-hosted browser bundles are pinned by sha256 in assets/js/vendor/versions.json and
-# verified by scripts/check_conventions.py:check_theme_pin. Git's end-of-line normalization
+# verified by the native documentation conventions gate. Git's end-of-line normalization
 # would rewrite the bytes on checkout and break that digest on a fresh clone, so these files
 # are stored and checked out verbatim.
 assets/js/vendor/*.js -text

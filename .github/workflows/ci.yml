@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install the pinned toolchain
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
@@ -34,23 +36,15 @@ jobs:
           # The install tasks pull exactly the two tiers CI needs.
           install: false
 
-      - name: Restore uv download cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'agents/python/uv.lock') }}
-          restore-keys: |
-            uv-${{ runner.os }}-${{ runner.arch }}-
-
-      # Both the module cache and the build cache: `go test -race ./...` recompiles the whole
-      # dependency graph otherwise, which is the dominant cost of the Go half of `check`+`test`.
+      # Both the module cache and the build cache: race-enabled tests otherwise
+      # recompile all three module graphs for check and test.
       - name: Restore Go module and build caches
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('agents/go/go.sum') }}
+          key: go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('agents/go/go.sum', 'evals/go.sum', 'tools/go.sum') }}
           restore-keys: |
             go-${{ runner.os }}-${{ runner.arch }}-
 
@@ -63,27 +57,26 @@ jobs:
       - name: Format sources
         run: mise run format
 
-      # The only network-permitted gate in the chain: `check` fans out to `check:vuln`, whose two
-      # children audit the Python lock exports with pip-audit and the Go module with govulncheck.
+      # The only network-permitted gate in the chain: `check` fans out to the
+      # reachability-aware vulnerability audit for every Go module.
       # The hooks run `check:core` instead, which omits both so an offline commit still succeeds.
       - name: Run static checks
         run: mise run check
 
-      # Fans out to both reference agent suites (test:go, test:python).
+      # Fans out to the agent, evaluation, and repository-tool modules.
       - name: Run offline tests
         run: mise run test
 
       - name: Smoke-test the account-free host path
         run: mise run smoke:host
 
-      # Both suites already run inside `mise run test`; these dedicated steps make
-      # a red-team or evalset regression a named merge-gate signal instead of one
-      # line in the full run. Both are deterministic and offline — no model, no key.
+      # Both suites already run inside the aggregate; these dedicated steps make
+      # red-team and evalset regressions named merge-gate signals.
       - name: Run the deterministic red-team suite
-        run: cd agents/python && mise run redteam
+        run: mise run redteam
 
       - name: Validate the evalset against the seed data
-        run: cd agents/python && mise run eval:validate
+        run: mise run eval:validate
 
       - name: Verify generated files are committed
         run: |
@@ -98,23 +91,25 @@ jobs:
 
   critical-stability:
     name: Critical stability
-    if: github.event_name == 'schedule' && github.repository == 'MLOps-Courses/agentops-open-course'
+    if: github.event_name == 'schedule' && github.repository == 'MLOps-Courses/agentops-open-course-go'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Select the pinned tool manager
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
         with:
           install: false
 
-      - name: Install only the Python toolchain
+      - name: Install the production Go test toolchain
         run: |
-          mise install uv
-          cd agents/python
+          mise install -y --locked go gotestsum
+          cd agents/go
           mise run install
 
       - name: Repeat critical offline regressions without retries
-        run: cd agents/python && mise run test:critical
+        run: cd agents/go && gotestsum --format pkgname -- -race -count=5 ./a2aserver ./data ./policy ./state

@@ -3,7 +3,7 @@
 #
 # Hextra loads Mermaid and FlexSearch from jsDelivr by default. The course self-hosts its
 # assets, so both bundles are vendored and their versions and digests recorded in
-# versions.json, which scripts/check_conventions.py:check_theme_pin verifies on every run.
+# versions.json, which the native conventions source check verifies on every run.
 #
 # Usage: scripts/vendor-assets.sh [mermaid-version] [flexsearch-version]
 set -euo pipefail

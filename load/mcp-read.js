@@ -1,7 +1,7 @@
 // MCP read path: JSON-RPC `tools/call` through the agentgateway MCP listener.
 //
 // Target (host quickstart default): http://localhost:3000/mcp — agentgateway
-// proxies to the raw FastMCP server on :8000/mcp. The script speaks MCP
+// proxies to the raw Go MCP server on :8000/mcp. The script speaks MCP
 // streamable HTTP: each VU performs the `initialize` handshake once, echoes
 // the negotiated `MCP-Protocol-Version` and any `Mcp-Session-Id` the gateway
 // issues, then loops `tools/call` on a read-only tool. Responses may arrive as
@@ -13,7 +13,7 @@
 // (HTTP 429), not the platform. Raise `maxTokens` in
 // infra/agentgateway/host/config.yaml to turn this into a real capacity probe,
 // or point MCP_URL at the raw server (http://localhost:8000/mcp) to isolate
-// FastMCP + SQLite from the gateway.
+// the Go MCP server + SQLite from the gateway.
 //
 // Safety: only point this script at your own local stack.
 //
@@ -100,9 +100,8 @@ function handshake() {
       id: `init-${__VU}`,
       method: 'initialize',
       params: {
-        // Keep in step with the pinned Python client's LATEST_PROTOCOL_VERSION (mcp in uv.lock).
-        // MCP negotiates per revision, so a stale value here silently exercises an older contract
-        // than the agent itself speaks.
+        // Keep in step with the protocol revision exercised by the pinned Go MCP SDK.
+        // A stale value silently exercises an older contract than the agent itself speaks.
         protocolVersion: '2025-11-25',
         capabilities: {},
         clientInfo: { name: 'agentops-k6-mcp-read', version: '1.0.0' },

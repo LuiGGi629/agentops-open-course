@@ -78,7 +78,7 @@ promote_one() {
 
 	[[ ${source_digest} =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
 	[[ ${version_digest} =~ ^sha256:[0-9a-f]{64}$ && ${version_digest} != "${source_digest}" ]] || return 1
-	python3 scripts/release_reconcile.py \
+	tools/bin/release-reconcile \
 		--validate-index-only \
 		--index "${index_file}" \
 		--source-image "${source_image_file}" \

@@ -36,6 +36,13 @@ patches:
       - op: replace
         path: /spec/byo/deployment/resources/requests/cpu
         value: 100m
+      # Vertex has no local Ollama for the optional named-entity webhook. The
+      # deterministic in-process PII layer and GKE gateway rejection stay active.
+      - op: add
+        path: /spec/byo/deployment/env/-
+        value:
+          name: AGENT_PII_MODEL_ENABLED
+          value: "false"
   # Vertex exception: Google API endpoints publish no stable CIDR, so the
   # rule is port-scoped HTTPS. This cluster uses Calico, whose GKE metadata
   # endpoint requires both TCP 987 and 988 for Workload Identity Federation.

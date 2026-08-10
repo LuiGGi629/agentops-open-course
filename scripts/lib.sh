@@ -59,6 +59,64 @@ require_cmd() {
 	fail "missing ${command_name}: run 'mise install' to materialize the pinned toolchain"
 }
 
+# require_host_cmd <command> <remedy> — assert a prerequisite intentionally
+# owned by the host rather than pretending a repository installer can provide it.
+require_host_cmd() {
+	local command_name="$1"
+	local remedy="$2"
+
+	command -v "${command_name}" >/dev/null 2>&1 || fail "missing ${command_name}: ${remedy}"
+}
+
+# sha256_file <path> — print one portable SHA-256 digest.
+sha256_file() {
+	local path="$1"
+
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "${path}" | awk '{ print $1 }'
+	elif command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "${path}" | awk '{ print $1 }'
+	else
+		fail "missing SHA-256 tool: install sha256sum or shasum from a reviewed host package source"
+	fi
+}
+
+# verify_sha256 <path> <expected> <label> — fail closed on unreviewed bytes.
+verify_sha256() {
+	local path="$1"
+	local wanted_digest="$2"
+	local label="$3"
+	local actual
+
+	actual="$(sha256_file "${path}")"
+	[[ ${actual} == "${wanted_digest}" ]] ||
+		fail "${label} checksum mismatch (expected ${wanted_digest}, got ${actual})"
+}
+
+# verify_git_binary_install <dir> <commit> <binary> <sha256> <label> — bind
+# repeat installs to a clean reviewed checkout and the exact bytes Helm executes.
+verify_git_binary_install() {
+	local directory="$1"
+	local wanted_commit="$2"
+	local binary="$3"
+	local wanted_sha256="$4"
+	local label="$5"
+	local actual_commit
+	local worktree_status
+
+	[[ -d ${directory} && ! -L ${directory} ]] || fail "${label} directory is missing or is a link"
+	actual_commit="$(git -C "${directory}" rev-parse HEAD 2>/dev/null)" ||
+		fail "${label} source commit is unavailable"
+	[[ ${actual_commit} == "${wanted_commit}" ]] ||
+		fail "${label} source commit mismatch (expected ${wanted_commit}, got ${actual_commit})"
+	worktree_status="$(git -C "${directory}" status --porcelain=v1 --untracked-files=all 2>/dev/null)" ||
+		fail "${label} source checkout status is unavailable"
+	[[ -z ${worktree_status} ]] || fail "${label} source checkout is dirty"
+	[[ -f ${directory}/${binary} && ! -L ${directory}/${binary} ]] ||
+		fail "${label} executable is missing or is a link"
+	verify_sha256 "${directory}/${binary}" "${wanted_sha256}" "${label} executable"
+}
+
 # require_cgroup_v2 <cgroup-root> — Kubernetes 1.35 removed cgroup v1 support.
 # Check the host before the pinned k3s line creates a partial cluster.
 require_cgroup_v2() {

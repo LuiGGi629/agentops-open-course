@@ -19,7 +19,6 @@ license:
   # UNKNOWN. These entries are reviewed OSS runtime dependencies; every other
   # HIGH/CRITICAL or UNKNOWN license still fails the dedicated license gate.
   ignored:
-    - "Apache-2.0 AND CNRI-Python"
     - blessing
     - CC-PDDC
     - GPL-1.0-only
@@ -29,8 +28,5 @@ license:
     - "GPL-3.0-or-later WITH GCC-exception-3.1"
     - LGPL-2.1-or-later
     - LGPL-3.0-only
-    - "MIT AND PSF-2.0"
     - MIT-0
     - MIT-CMU
-    - PSF-2.0
-    - "Python Software Foundation License"

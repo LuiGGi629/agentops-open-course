@@ -26,7 +26,6 @@ connectors:
     dimensions:
       - name: gen_ai.operation.name
       - name: gen_ai.request.model
-      - name: error.type
 
 exporters:
   # `otlp_http` is the collector's OTLP-over-HTTP exporter (`otlphttp` is the

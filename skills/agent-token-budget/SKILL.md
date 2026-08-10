@@ -15,16 +15,16 @@ Every agent loop step is another model call, so cost and latency compound. Give 
 
 ## Steps
 
-1. **Accumulate usage into session state.** After each model response, add its input/output tokens to a running per-session total that persists across turns (no `temp:` prefix if your session store honors one).
+1. **Accumulate usage into session state.** After each final model response, add input and output tokens to a running per-session total that persists across turns. Exclude streaming partials.
 1. **Enforce a hard ceiling before the model call.** In a before-model hook, if the session total has reached the limit, short-circuit with a clear message ("start a new session, or raise the limit") instead of a silent failure or an open-ended bill.
 1. **Attribute, don't just count.** Emit tokens as an OTel counter (graph throughput) and as span attributes (per-turn detail); compute cost from configurable per-1k prices that default to 0 for local models — never hardcode a provider's pricing.
 1. **Make the budget cover the whole conversation.** In multi-agent/delegation flows, keep the totals in shared session state so hops between sub-agents accumulate against one ceiling rather than each starting fresh.
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
+From the AgentOps Open Course:
 
-- `budget.py` — `record_token_usage`, `enforce_token_budget`, `estimate_cost`; OTel counter + span attributes.
+- `agents/go/policy/budget.go` — session usage, hard ceiling, configurable cost estimate, and OTel evidence.
 - Course chapters `7.3. Costs` and `3.7. Multi-Agent`.
 
 ## Verify

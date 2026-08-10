@@ -16,16 +16,13 @@ require_cmd tofu gcp
 require_cmd tflint gcp
 require_cmd promtool platform
 
+# The Dockerfile must exercise the binary's shared build-info validator inside
+# the builder. Shell-shape guards alone cannot enforce the typed release tuple.
+grep -Fq '/out/agent version >/dev/null' agents/go/Dockerfile ||
+	fail "agent Dockerfile does not validate its linked build identity"
+
 mkdir -p .agents/tmp
 tmp_dir=$(mktemp -d .agents/tmp/infra-check.XXXXXX)
-readonly kagent_schema_location='infra/kagent/schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-
-# Rendering must never consult the maintainer's active cluster. Skaffold and
-# Helmfile inspect KUBECONFIG even for offline renders, which can otherwise
-# trigger cloud authentication or make the result depend on the current context.
-export KUBECONFIG=/dev/null
-export AGENT_SOURCE_COMMIT
-AGENT_SOURCE_COMMIT="$(git rev-parse HEAD)"
 
 # The secured host profile references demo TLS/JWT material that stays
 # gitignored. Generate it on demand for validation, but remove it again when
@@ -36,7 +33,48 @@ cleanup_gateway_auth=0
 if [[ ! -d "${gateway_auth_dir}" ]]; then
 	cleanup_gateway_auth=1
 fi
-trap 'rm -rf "${tmp_dir}"; [[ "${cleanup_gateway_auth}" == "0" ]] || rm -rf "${gateway_auth_dir}"' EXIT
+
+# Arm cleanup before the first tool runs. Every command below can fail, and a
+# trap installed later leaves `.agents/tmp/infra-check.*` behind on that path.
+# INT and TERM exit explicitly so the EXIT trap still runs when a parallel task
+# runner cancels this one.
+cleanup() {
+	rm -rf "${tmp_dir}"
+	[[ ${cleanup_gateway_auth} == "0" ]] || rm -rf "${gateway_auth_dir}"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+readonly kagent_schema_location='infra/kagent/schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
+# Rendering must never consult the maintainer's active cluster. Skaffold and
+# Helmfile inspect KUBECONFIG even for offline renders, which can otherwise
+# trigger cloud authentication or make the result depend on the current context.
+export KUBECONFIG=/dev/null
+source_identity_json="$(go -C tools run ./cmd/source-identity --root .. --mode development)"
+export AGENT_BUILD_MODE=development
+export AGENT_SOURCE_COMMIT
+export AGENT_SOURCE_DIRTY
+export AGENT_IMAGE_TAG
+export AGENT_SOURCE_REVISION
+export AGENT_SOURCE_TREE_DIGEST
+export OCI_CREATED
+export OCI_VERSION=development
+AGENT_SOURCE_COMMIT="$(jq -er '.display' <<<"${source_identity_json}")"
+AGENT_SOURCE_REVISION="$(jq -er '.revision // ""' <<<"${source_identity_json}")"
+AGENT_SOURCE_TREE_DIGEST="$(jq -er '.tree_digest' <<<"${source_identity_json}")"
+AGENT_SOURCE_DIRTY="$(jq -er '.dirty' <<<"${source_identity_json}")"
+AGENT_IMAGE_TAG="development-${AGENT_SOURCE_TREE_DIGEST#sha256:}"
+OCI_CREATED="$(git show -s --format=%cI HEAD)"
+
+skaffold_tag_template="$(yq -r '.build.tagPolicy.envTemplate.template' infra/skaffold.yaml)"
+assert_eq "Skaffold source-identity tag" "${skaffold_tag_template}" '{{.AGENT_IMAGE_TAG}}'
+skaffold_build_plan="$(cd infra && skaffold build --filename skaffold.yaml --profile local --dry-run --quiet)"
+skaffold_rendered_tag="$(jq -er '.builds[0].tag' <<<"${skaffold_build_plan}")"
+assert_eq "Skaffold rendered development tag" \
+	"${skaffold_rendered_tag}" \
+	"agentops-agent:${AGENT_IMAGE_TAG}"
 
 # One source of truth for the alerting rules (Ch. 7.2): the Compose stack's file
 # is a symlink to the overlay's, so both planes evaluate identical expressions.
@@ -215,12 +253,20 @@ for overlay in local gke; do
 	agent_model="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_MODEL") | .value' "${rendered}")"
 	agent_provider="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_MODEL_PROVIDER") | .value' "${rendered}")"
 	agent_bind_host="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_A2A_BIND_HOST") | .value' "${rendered}")"
+	agent_a2a_max_llm_calls="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_A2A_MAX_LLM_CALLS") | .value' "${rendered}")"
+	agent_writes_disabled="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_WRITES_DISABLED") | .value' "${rendered}")"
+	adk_capture_message_content="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS") | .value' "${rendered}")"
+	otel_traces_sampler="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "OTEL_TRACES_SAMPLER") | .value' "${rendered}")"
 	retired_gateway_flag="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env | map(select(.name == "AGENT_GATEWAY_ENABLED")) | length' "${rendered}")"
 	model_config="$(yq -r 'select(.kind == "ModelConfig" and .metadata.name == "agentgateway") | .spec.model' "${rendered}")"
 	pod_quota="$(yq -r 'select(.kind == "ResourceQuota" and .metadata.name == "agentops-compute") | .spec.hard.pods' "${rendered}")"
 	assert_eq "${overlay} pod quota" "${pod_quota}" "13"
 	assert_eq "${overlay} agent model provider" "${agent_provider}" "openai-compatible"
 	assert_eq "${overlay} A2A bind host" "${agent_bind_host}" "0.0.0.0"
+	assert_eq "${overlay} A2A model-call cap" "${agent_a2a_max_llm_calls}" "4"
+	assert_eq "${overlay} agent writes disabled" "${agent_writes_disabled}" "true"
+	assert_eq "${overlay} ADK message content capture" "${adk_capture_message_content}" "false"
+	assert_eq "${overlay} OTel trace sampler" "${otel_traces_sampler}" "always_off"
 	assert_eq "${overlay} retired gateway flag count" "${retired_gateway_flag}" "0"
 
 	backup_state_read_only="$(yq -r 'select(.kind == "CronJob" and .metadata.name == "agentops-state-backup") | .spec.jobTemplate.spec.template.spec.containers[] | select(.name == "backup") | .volumeMounts[] | select(.name == "state") | (.readOnly // false)' "${rendered}")"
@@ -237,9 +283,18 @@ for overlay in local gke; do
 	if [[ "${overlay}" == "local" ]]; then
 		assert_eq "local agent model" "${agent_model}" "qwen3:4b-instruct"
 		assert_eq "local ModelConfig model" "${model_config}" "qwen3:4b-instruct"
+		agent_pii_base_url="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_PII_MODEL_BASE_URL") | .value' "${rendered}")"
+		pii_egress_rule='select(.kind == "NetworkPolicy" and .metadata.name == "agent-egress") | .spec.egress[] | select(.ports[]?.port == 11434)'
+		pii_egress_count="$(yq -r "${pii_egress_rule} | .ports[0].port" "${rendered}" | awk 'NF { count++ } END { print count + 0 }')"
+		pii_egress_cidr="$(yq -r "${pii_egress_rule} | .to[0].ipBlock.cidr" "${rendered}")"
+		assert_eq "local PII model URL" "${agent_pii_base_url}" "http://host.k3d.internal:11434/v1"
+		assert_eq "local PII model egress rule count" "${pii_egress_count}" "1"
+		assert_eq "local PII model egress CIDR" "${pii_egress_cidr}" "0.0.0.0/0"
 	else
 		assert_eq "GKE agent model" "${agent_model}" "gemini-3.5-flash"
 		assert_eq "GKE ModelConfig model" "${model_config}" "gemini-3.5-flash"
+		agent_pii_enabled="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.env[] | select(.name == "AGENT_PII_MODEL_ENABLED") | .value' "${rendered}")"
+		assert_eq "GKE PII model disabled" "${agent_pii_enabled}" "false"
 
 		gateway_gsa="$(yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "agentgateway") | .metadata.annotations."iam.gke.io/gcp-service-account"' "${rendered}")"
 		# agentgateway is the only workload with a Google identity: it is the sole
@@ -259,7 +314,7 @@ for overlay in local gke; do
 		agent_cpu="$(yq -r 'select(.kind == "Agent" and .metadata.name == "agentops-agent") | .spec.byo.deployment.resources.requests.cpu' "${rendered}")"
 		assert_eq "GKE agent CPU request" "${agent_cpu}" "100m"
 
-		vertex_backend_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.provider.vertex.model' infra/agentgateway/gke/config.yaml)"
+		vertex_backend_model="$(yq -r '.routes[] | select(.name == "llm") | .backends[].ai.provider.vertex.model' infra/agentgateway/gke/config.yaml)"
 		assert_eq "GKE Vertex backend model" "${vertex_backend_model}" "google/gemini-3.5-flash"
 
 		dns_service_cidr="$(yq -r 'select(.kind == "NetworkPolicy" and .metadata.name == "dns-egress") | .spec.egress[].to[]? | select(.ipBlock) | .ipBlock.cidr' "${rendered}")"
@@ -295,6 +350,31 @@ done
 # this check prevents a future selector change from admitting non-emitters.
 kagent_chart_render="${tmp_dir}/kagent-chart.yaml"
 helmfile --file infra/helmfile.yaml --quiet template >"${kagent_chart_render}"
+kagent_workload_images="$({
+	yq -r '
+		select(
+			.kind == "Deployment" or
+			.kind == "StatefulSet" or
+			.kind == "DaemonSet" or
+			.kind == "Job"
+		) |
+		.spec.template.spec |
+		(.initContainers[]?.image, .containers[]?.image)
+	' "${kagent_chart_render}"
+	yq -r '
+		select(.kind == "CronJob") |
+		.spec.jobTemplate.spec.template.spec |
+		(.initContainers[]?.image, .containers[]?.image)
+	' "${kagent_chart_render}"
+} | rg -v '^---$' | sort -u)"
+[[ -n "${kagent_workload_images}" ]]
+while IFS= read -r image; do
+	# A digest-pinned chart is insufficient when its rendered workloads still
+	# select mutable tags. Validate the actual PodSpecs that Kubernetes receives.
+	if [[ ! "${image}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+		fail "kagent chart renders a mutable workload image: ${image}"
+	fi
+done <<<"${kagent_workload_images}"
 kagent_otel_sources="$(
 	yq -r '
 		select(
@@ -337,9 +417,82 @@ exercise_ports="$(yq -r '.spec.ingress[0].ports[].port' infra/k8s/exercises/otel
 [[ "${exercise_policy_name}" == "exercise-broad-otel-ingress" ]]
 [[ "${exercise_sources}" == "agentops,kagent" ]]
 [[ "${exercise_ports}" == "4317,4318,8889" ]]
+# Select the name rather than asserting with `yq -e`: a clean overlay is the
+# expected outcome here, and `-e` reports that absence as a scary `Error: no
+# matches found` line in an otherwise passing gate. A malformed rendered file
+# still exits non-zero and fails the script under `set -e`.
 for rendered in "${tmp_dir}/local.yaml" "${tmp_dir}/gke.yaml"; do
-	if yq -e 'select(.kind == "NetworkPolicy" and .metadata.name == "exercise-broad-otel-ingress")' "${rendered}" >/dev/null; then
+	leaked_exercise_policy="$(yq -r '
+	  select(.kind == "NetworkPolicy" and .metadata.name == "exercise-broad-otel-ingress")
+	  | .metadata.name
+	' "${rendered}")"
+	[[ -z ${leaked_exercise_policy} ]] ||
 		fail "${rendered}: temporary broad-ingress exercise leaked into a deployable overlay"
+done
+
+# The declarative specialist is an opt-in comparison, not a second required
+# runtime. Validate both its exact kagent references and the permissions that
+# disappear with `kubectl delete -f` while keeping it out of every overlay.
+kagent_interop_exercise=infra/kagent/exercises/incident-reader.yaml
+kubeconform \
+	-strict \
+	-kubernetes-version 1.36.0 \
+	-schema-location default \
+	-schema-location "${kagent_schema_location}" \
+	-summary \
+	"${kagent_interop_exercise}"
+kube-linter lint --fail-if-no-objects-found --with-color=false "${kagent_interop_exercise}"
+yq -e '
+  select(.kind == "Agent" and .metadata.name == "incident-reader") |
+  .spec.type == "Declarative" and
+  .spec.declarative.runtime == "go" and
+  .spec.declarative.modelConfig == "agentgateway" and
+  (.spec.declarative.tools | length) == 1 and
+  .spec.declarative.tools[0].type == "McpServer" and
+  .spec.declarative.tools[0].mcpServer.name == "agentops-tools" and
+  .spec.declarative.tools[0].mcpServer.kind == "RemoteMCPServer" and
+  .spec.declarative.tools[0].mcpServer.apiGroup == "kagent.dev" and
+  (.spec.declarative.tools[0].mcpServer.toolNames | join(",")) ==
+    "list_incidents,get_incident,get_service_status,search_service_logs,get_runbook,search_runbooks" and
+  .spec.declarative.tools[0].mcpServer.requireApproval == null and
+  (.spec.declarative.deployment.env | length) == 1 and
+  .spec.declarative.deployment.env[0].name == "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT" and
+  .spec.declarative.deployment.env[0].value == "false" and
+  .spec.declarative.memory == null and
+  .spec.skills == null and
+  .spec.sandbox == null
+' "${kagent_interop_exercise}" >/dev/null
+interop_resource_count="$(yq -r -N 'select(.metadata.labels."agentops.course/exercise" == "kagent-interop") | .kind' "${kagent_interop_exercise}" | wc -l)"
+interop_policy_count="$(yq -r -N 'select(.kind == "NetworkPolicy" and .metadata.labels."agentops.course/exercise" == "kagent-interop") | .metadata.name' "${kagent_interop_exercise}" | wc -l)"
+assert_eq "kagent interop removable resource count" "${interop_resource_count}" "4"
+assert_eq "kagent interop NetworkPolicy count" "${interop_policy_count}" "3"
+yq -e '
+  select(.kind == "NetworkPolicy" and .metadata.name == "incident-reader-ingress") |
+  .spec.podSelector.matchLabels."app.kubernetes.io/name" == "incident-reader" and
+  .spec.ingress[0].from[0].namespaceSelector.matchLabels."kubernetes.io/metadata.name" == "kagent" and
+  .spec.ingress[0].from[0].podSelector.matchLabels."app.kubernetes.io/component" == "controller" and
+  .spec.ingress[0].ports[0].port == 8080
+' "${kagent_interop_exercise}" >/dev/null
+yq -e '
+  select(.kind == "NetworkPolicy" and .metadata.name == "incident-reader-egress") |
+  .spec.podSelector.matchLabels."app.kubernetes.io/name" == "incident-reader" and
+  ([.spec.egress[].ports[].port] | sort | join(",")) == "3000,4000,8083"
+' "${kagent_interop_exercise}" >/dev/null
+yq -e '
+  select(.kind == "NetworkPolicy" and .metadata.name == "incident-reader-egress") |
+  .spec.egress[] | select(.ports[].port == 8083) |
+  [
+    .to[0].namespaceSelector.matchLabels."kubernetes.io/metadata.name",
+    .to[0].podSelector.matchLabels."app.kubernetes.io/instance",
+    .to[0].podSelector.matchLabels."app.kubernetes.io/component"
+  ] | join(",") | . == "kagent,kagent,controller"
+' "${kagent_interop_exercise}" >/dev/null
+for rendered in "${tmp_dir}/local.yaml" "${tmp_dir}/gke.yaml"; do
+	if yq -e 'select(
+      (.kind == "Agent" and .metadata.name == "incident-reader") or
+      .metadata.labels."agentops.course/exercise" == "kagent-interop"
+    )' "${rendered}" >/dev/null 2>&1; then
+		fail "${rendered}: optional kagent interoperability exercise leaked into a deployable overlay"
 	fi
 done
 
@@ -367,6 +520,7 @@ backup_args="$(
 [[ "${backup_command}" == "unset" ]]
 [[ "${backup_args}" == "state,backup,--state-dir,/app/state,--backup-root,/backups,--keep,7" ]]
 ./infra/scripts/backup-drill.sh
+./infra/scripts/test-assert-platform-build-info.sh
 
 # SOPS guard rail (Ch. 6.5): every manifest under infra/**/secrets/ must be
 # ciphertext — sops metadata present and each data/stringData value ENC[...] —
@@ -404,23 +558,93 @@ sed 's/__GCP_PROJECT_ID__/agentops-course-check/g' \
 	infra/agentgateway/gke/config.yaml >"${gke_gateway_config}"
 agentgateway --validate-only -f "${gke_gateway_config}"
 
+# Standalone v1.4 names each gateway and attaches top-level routes explicitly.
+# Keep this structural check separate from schema validation: `binds` remains
+# accepted for compatibility, so a valid file can still teach the deprecated API.
+for gateway_config in \
+	infra/agentgateway/host/config.yaml \
+	infra/agentgateway/host/config-auth.yaml \
+	infra/agentgateway/k3d/config.yaml \
+	infra/agentgateway/gke/config.yaml; do
+	yq -e '
+      .binds == null and
+      (.gateways | keys | sort | join(",")) == "a2a,llm,mcp" and
+      ([.gateways[].port] | sort | join(",")) == "3000,3001,4000" and
+      ([.routes[].name] | sort | join(",")) == "a2a,llm,mcp" and
+      ([.routes[] | (((.gateways | length) == 1) and (.name == .gateways[0]))] | all_c(.))
+    ' "${gateway_config}" >/dev/null
+
+	mcp_policy='.routes[] | select(.name == "mcp") | .policies'
+	yq -e "
+      (${mcp_policy}.timeout.requestTimeout == \"5s\") and
+      (${mcp_policy}.timeout.backendRequestTimeout == \"2s\") and
+      (${mcp_policy}.retry.attempts == 2) and
+      (${mcp_policy}.retry.backoff == \"100ms\") and
+      (${mcp_policy}.retry.codes | join(\",\")) == \"502,503,504\" and
+      (${mcp_policy}.delay == null) and
+      ([.routes[] | select(.name != \"mcp\") | .policies.retry == null] | all_c(.))
+    " "${gateway_config}" >/dev/null
+done
+
+# A self-hosted Ollama token has no provider fee. The local catalog therefore
+# records exact zero-dollar rates for attribution while GKE stays unpriced until
+# an owner supplies a dated provider catalog; neither value claims a bill.
+for gateway_config in \
+	infra/agentgateway/host/config.yaml \
+	infra/agentgateway/host/config-auth.yaml \
+	infra/agentgateway/k3d/config.yaml; do
+	yq -e '
+      (.config.modelCatalog | length) == 1 and
+      (.config.modelCatalog[0].inline.providers | keys | join(",")) == "openai" and
+      (.config.modelCatalog[0].inline.providers.openai.models | keys | join(",")) == "qwen3:4b-instruct" and
+      .config.modelCatalog[0].inline.providers.openai.models."qwen3:4b-instruct".rates.input == "0" and
+      .config.modelCatalog[0].inline.providers.openai.models."qwen3:4b-instruct".rates.output == "0"
+    ' "${gateway_config}" >/dev/null
+done
+yq -e '.config.modelCatalog == null' infra/agentgateway/gke/config.yaml >/dev/null
+
 # The host file stays the canonical process-oriented profile. The Docker
 # wrapper derives a network-correct copy without committing a second config.
 host_container_config="${tmp_dir}/host-container.yaml"
 infra/scripts/gateway-host.sh render >"${host_container_config}"
 agentgateway --validate-only -f "${host_container_config}"
-container_mcp="$(yq -r '.binds[] | select(.port == 3000) | .listeners[].routes[].backends[].mcp.targets[].mcp.host' "${host_container_config}")"
-container_a2a="$(yq -r '.binds[] | select(.port == 3001) | .listeners[].routes[].backends[].host' "${host_container_config}")"
-container_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.hostOverride' "${host_container_config}")"
+container_mcp="$(yq -r '.routes[] | select(.name == "mcp") | .backends[].mcp.targets[].mcp.host' "${host_container_config}")"
+container_a2a="$(yq -r '.routes[] | select(.name == "a2a") | .backends[].host' "${host_container_config}")"
+container_model="$(yq -r '.routes[] | select(.name == "llm") | .backends[].ai.hostOverride' "${host_container_config}")"
+container_pii_webhooks="$(yq -r '
+  .routes[] | select(.name == "llm") | .policies.ai.promptGuard |
+  [.request[], .response[]] | map(select(.webhook != null).webhook.target.host) | join(",")
+' "${host_container_config}")"
 container_stats_addr="$(yq -r '.config.statsAddr' "${host_container_config}")"
 container_readiness_addr="$(yq -r '.config.readinessAddr' "${host_container_config}")"
 container_admin_addr="$(yq -r '.config.adminAddr' "${host_container_config}")"
 assert_eq "host container MCP upstream" "${container_mcp}" "http://host.docker.internal:8000/mcp"
 assert_eq "host container A2A upstream" "${container_a2a}" "host.docker.internal:8080"
 assert_eq "host container model upstream" "${container_model}" "host.docker.internal:11434"
+assert_eq "host container PII webhooks" "${container_pii_webhooks}" "host.docker.internal:8080,host.docker.internal:8080"
 assert_eq "host container stats address" "${container_stats_addr}" "0.0.0.0:15020"
 assert_eq "host container readiness address" "${container_readiness_addr}" "0.0.0.0:15021"
 assert_eq "host container admin address" "${container_admin_addr}" "off"
+
+# The resilience lab is a deterministic render of the same read-only MCP route:
+# its six-second delay exceeds the existing five-second total timeout. Keeping
+# this opt-in proves the exact policy without slowing or weakening normal turns.
+host_resilience_config="${tmp_dir}/host-resilience.yaml"
+AGENTOPS_GATEWAY_RESILIENCE_LAB=timeout \
+	infra/scripts/gateway-host.sh render >"${host_resilience_config}"
+agentgateway --validate-only -f "${host_resilience_config}"
+host_resilience_delay="$(yq -r '.routes[] | select(.name == "mcp") | .policies.delay.duration' "${host_resilience_config}")"
+host_resilience_timeout="$(yq -r '.routes[] | select(.name == "mcp") | .policies.timeout.requestTimeout' "${host_resilience_config}")"
+host_resilience_attempts="$(yq -r '.routes[] | select(.name == "mcp") | .policies.retry.attempts' "${host_resilience_config}")"
+assert_eq "host resilience delay" \
+	"${host_resilience_delay}" \
+	"6s"
+assert_eq "host resilience total timeout" \
+	"${host_resilience_timeout}" \
+	"5s"
+assert_eq "host resilience attempts" \
+	"${host_resilience_attempts}" \
+	"2"
 
 # Secured host mode uses the same container contract, but stages only the
 # serving certificate/key and public JWKS into a private runtime directory.
@@ -432,18 +656,23 @@ host_auth_validation_config="${tmp_dir}/host-auth-validation.yaml"
 sed "s#/etc/agentgateway/auth/#${gateway_auth_dir}/#g" \
 	"${host_auth_container_config}" >"${host_auth_validation_config}"
 agentgateway --validate-only -f "${host_auth_validation_config}"
-auth_certs="$(yq -r '.binds[].listeners[] | select(.tls != null) | .tls.cert' "${host_auth_container_config}" | sort -u)"
-auth_keys="$(yq -r '.binds[].listeners[] | select(.tls != null) | .tls.key' "${host_auth_container_config}" | sort -u)"
-auth_jwks="$(yq -r '.binds[].listeners[].routes[] | select(.policies.jwtAuth.jwks.file != null) | .policies.jwtAuth.jwks.file' "${host_auth_container_config}" | sort -u)"
-auth_mcp="$(yq -r '.binds[] | select(.port == 3000) | .listeners[].routes[].backends[].mcp.targets[].mcp.host' "${host_auth_container_config}")"
-auth_a2a="$(yq -r '.binds[] | select(.port == 3001) | .listeners[].routes[].backends[].host' "${host_auth_container_config}")"
-auth_model="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].backends[].ai.hostOverride' "${host_auth_container_config}")"
+auth_certs="$(yq -r '.gateways[] | select(.tls != null) | .tls.cert' "${host_auth_container_config}" | sort -u)"
+auth_keys="$(yq -r '.gateways[] | select(.tls != null) | .tls.key' "${host_auth_container_config}" | sort -u)"
+auth_jwks="$(yq -r '.routes[] | select(.policies.jwtAuth.jwks.file != null) | .policies.jwtAuth.jwks.file' "${host_auth_container_config}" | sort -u)"
+auth_mcp="$(yq -r '.routes[] | select(.name == "mcp") | .backends[].mcp.targets[].mcp.host' "${host_auth_container_config}")"
+auth_a2a="$(yq -r '.routes[] | select(.name == "a2a") | .backends[].host' "${host_auth_container_config}")"
+auth_model="$(yq -r '.routes[] | select(.name == "llm") | .backends[].ai.hostOverride' "${host_auth_container_config}")"
+auth_pii_webhooks="$(yq -r '
+  .routes[] | select(.name == "llm") | .policies.ai.promptGuard |
+  [.request[], .response[]] | map(select(.webhook != null).webhook.target.host) | join(",")
+' "${host_auth_container_config}")"
 assert_eq "host auth certificate mount" "${auth_certs}" "/etc/agentgateway/auth/tls-cert.pem"
 assert_eq "host auth key mount" "${auth_keys}" "/etc/agentgateway/auth/tls-key.pem"
 assert_eq "host auth JWKS mount" "${auth_jwks}" "/etc/agentgateway/auth/jwks.json"
 assert_eq "host auth MCP upstream" "${auth_mcp}" "http://host.docker.internal:8000/mcp"
 assert_eq "host auth A2A upstream" "${auth_a2a}" "host.docker.internal:8080"
 assert_eq "host auth model upstream" "${auth_model}" "host.docker.internal:11434"
+assert_eq "host auth PII webhooks" "${auth_pii_webhooks}" "host.docker.internal:8080,host.docker.internal:8080"
 
 # Inspect the actual argument array produced by the wrapper, rather than a
 # parallel policy description that could drift from `docker run`.
@@ -490,7 +719,8 @@ auth_mount="$(grep -F "dst=/etc/agentgateway/auth,readonly" "${host_auth_contain
 # The three-profile gateway contract (Ch. 5.0). Host, k3d, and GKE may differ
 # only in upstream address, model identity, caller authentication, and tracing;
 # the ports, the MCP allowlist, the MCP failure mode, the token buckets, the
-# prompt guards, and the browser origin are invariant across all three. Twenty-six
+# browser origin are invariant across all three. The two OpenAI profiles also
+# share mask+webhook guards; Vertex stays reject-only because it has no local Ollama. Twenty-six
 # hand-copied occurrences used to be verified by eye at the end of 5.0.
 #
 # The allowlist is compared against the list the agent's MCP client really pins, not
@@ -519,20 +749,21 @@ GO
 mcp_read_tools="$(cd agents/go && go run "${mcp_read_tools_program}")"
 [[ -n "${mcp_read_tools}" ]]
 mcp_read_tool_count="$(printf '%s\n' "${mcp_read_tools}" | tr ',' '\n' | wc -l)"
-gateway_prompt_guard="$(
-	yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].policies.ai.promptGuard' \
-		infra/agentgateway/host/config.yaml
-)"
+prompt_guard_shape='
+  .routes[] | select(.name == "llm") | .policies.ai.promptGuard |
+  ((.request[], .response[]) | select(.webhook != null) | .webhook.target.host) = "WEBHOOK_TARGET"
+'
+gateway_prompt_guard="$(yq -r "${prompt_guard_shape}" infra/agentgateway/host/config.yaml)"
 [[ -n "${gateway_prompt_guard}" ]]
 
 for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/k3d/config.yaml infra/agentgateway/gke/config.yaml; do
-	gateway_ports="$(yq -r '.binds[].port' "${gateway_config}" | sort -n | paste -sd, -)"
+	gateway_ports="$(yq -r '.gateways[].port' "${gateway_config}" | sort -n | paste -sd, -)"
 	[[ "${gateway_ports}" == "3000,3001,4000" ]]
 
 	# Only rules of the exact `mcp.tool.name == "<tool>"` shape survive the sed,
 	# so a broadened or misspelled rule drops out and fails the set comparison;
 	# the count then catches an extra rule the sed dropped.
-	mcp_rules='.binds[] | select(.port == 3000) | .listeners[].routes[].policies.mcpAuthorization.rules'
+	mcp_rules='.routes[] | select(.name == "mcp") | .policies.mcpAuthorization.rules'
 	gateway_tools="$(yq -r "${mcp_rules}[]" "${gateway_config}" |
 		sed -n 's/^mcp\.tool\.name == "\([a-z_]*\)"$/\1/p' | sort | paste -sd, -)"
 	gateway_rule_count="$(yq -r "${mcp_rules} | length" "${gateway_config}")"
@@ -540,14 +771,14 @@ for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/k3d
 	[[ "${gateway_rule_count}" == "${mcp_read_tool_count}" ]]
 
 	# An unreachable tool server must deny the request, never forward it.
-	gateway_failure_mode="$(yq -r '.binds[] | select(.port == 3000) | .listeners[].routes[].backends[].mcp.failureMode' "${gateway_config}" | sort -u)"
+	gateway_failure_mode="$(yq -r '.routes[] | select(.name == "mcp") | .backends[].mcp.failureMode' "${gateway_config}" | sort -u)"
 	[[ "${gateway_failure_mode}" == "failClosed" ]]
 
-	# Exactly one token bucket per listener, with the same numbers everywhere:
-	# 120/60s MCP, 60/60s A2A, 30/60s model. A second bucket on a listener would
+	# Exactly one token bucket per route, with the same numbers everywhere:
+	# 120/60s MCP, 60/60s A2A, 30/60s model. A second bucket on a route would
 	# make these lists comma-joined and fail.
-	for gateway_bucket in 3000:120 3001:60 4000:30; do
-		rate_limit=".binds[] | select(.port == ${gateway_bucket%%:*}) | .listeners[].routes[].policies.localRateLimit"
+	for gateway_bucket in mcp:120 a2a:60 llm:30; do
+		rate_limit=".routes[] | select(.name == \"${gateway_bucket%%:*}\") | .policies.localRateLimit"
 		bucket_max_tokens="$(yq -r "${rate_limit}[].maxTokens" "${gateway_config}" | paste -sd, -)"
 		bucket_tokens_per_fill="$(yq -r "${rate_limit}[].tokensPerFill" "${gateway_config}" | paste -sd, -)"
 		bucket_fill_interval="$(yq -r "${rate_limit}[].fillInterval" "${gateway_config}" | paste -sd, -)"
@@ -556,13 +787,28 @@ for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/k3d
 		[[ "${bucket_fill_interval}" == "60s" ]]
 	done
 
-	# Same request and response prompt guards on the model listener.
-	profile_prompt_guard="$(yq -r '.binds[] | select(.port == 4000) | .listeners[].routes[].policies.ai.promptGuard' "${gateway_config}")"
-	[[ "${profile_prompt_guard}" == "${gateway_prompt_guard}" ]]
+	# The OpenAI-compatible profiles share one policy shape while their webhook
+	# targets remain network-specific. Normalize only that address before the
+	# structural comparison so a policy change still fails this contract.
+	profile_prompt_guard="$(yq -r "${prompt_guard_shape}" "${gateway_config}")"
+	if [[ "${gateway_config}" != infra/agentgateway/gke/config.yaml ]]; then
+		[[ "${profile_prompt_guard}" == "${gateway_prompt_guard}" ]]
+	else
+		gke_guard_shape="$(yq -r '
+          [.request[], .response[]] |
+          {"count": length, "actions": map(.regex.action), "webhooks": map(select(.webhook != null)) | length}
+        ' <<<"${profile_prompt_guard}")"
+		gke_guard_count="$(yq -r '.count' <<<"${gke_guard_shape}")"
+		gke_guard_actions="$(yq -r '.actions | join(",")' <<<"${gke_guard_shape}")"
+		gke_guard_webhooks="$(yq -r '.webhooks' <<<"${gke_guard_shape}")"
+		[[ "${gke_guard_count}" == "2" ]]
+		[[ "${gke_guard_actions}" == "reject,reject" ]]
+		[[ "${gke_guard_webhooks}" == "0" ]]
+	fi
 
 	# The browser client is served from one fixed loopback origin. Keep every
 	# port-forwardable A2A profile usable without opening CORS to arbitrary sites.
-	cors='.binds[] | select(.port == 3001) | .listeners[].routes[].policies.cors'
+	cors='.routes[] | select(.name == "a2a") | .policies.cors'
 	cors_origins=$(yq -r "${cors} | .allowOrigins | join(\",\")" "${gateway_config}")
 	cors_methods=$(yq -r "${cors} | .allowMethods | join(\",\")" "${gateway_config}")
 	cors_headers=$(yq -r "${cors} | .allowHeaders | join(\",\")" "${gateway_config}")
@@ -665,6 +911,12 @@ gateway_service_ports="$(yq -r 'select(.kind == "Service" and .metadata.name == 
 helmfile --file infra/helmfile.yaml --quiet lint --args '--quiet'
 
 tofu -chdir=infra/gcp fmt -check -recursive
-tofu -chdir=infra/gcp init -backend=false -input=false -lockfile=readonly
-tofu -chdir=infra/gcp validate
+# TF_DATA_DIR must be absolute: `-chdir` moves OpenTofu into infra/gcp first, so
+# a repository-relative path would create (and leave behind) a second scratch
+# tree under infra/gcp instead of the one this script removes on exit.
+tofu_data_dir="${PWD}/${tmp_dir}/tofu-data"
+TF_DATA_DIR="${tofu_data_dir}" tofu -chdir=infra/gcp \
+	init -backend=false -input=false -lockfile=readonly
+TF_DATA_DIR="${tofu_data_dir}" tofu -chdir=infra/gcp validate
+TF_DATA_DIR="${tofu_data_dir}" tofu -chdir=infra/gcp test
 tflint --chdir=infra/gcp --minimum-failure-severity=warning

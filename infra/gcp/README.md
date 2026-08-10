@@ -2,7 +2,7 @@
 
 This OpenTofu module targets an existing billing-enabled project supplied through the required `project_id` variable. It creates a zonal GKE Standard cluster with one Spot `e2-standard-2` node, a VPC-native subnet, Artifact Registry, and one Workload Identity service account for agentgateway. It creates no Cloud NAT, Ingress, or public LoadBalancer.
 
-Before planning, run `mise run install:gcp`, authenticate Application Default Credentials, run `GCP_PROJECT_ID=<project-id> mise run doctor:gcp` from the repository root, and set the same project plus your public `/32` in a gitignored `terraform.tfvars` based on `terraform.tfvars.example`. An approved disposable lab also snapshots the project's enabled APIs, service accounts, and IAM policy before planning:
+Before planning, install `gcloud` and `gke-gcloud-auth-plugin` from the same reviewed Cloud SDK or host package source, run `mise run install:platform`, authenticate Application Default Credentials, and run `GCP_PROJECT_ID=<project-id> mise run doctor:gcp` from the repository root. Set the same project plus your public `/32` in a gitignored `terraform.tfvars` based on `terraform.tfvars.example`. An approved disposable lab also snapshots the project's enabled APIs, service accounts, and IAM policy before planning:
 
 ```bash
 set -euo pipefail

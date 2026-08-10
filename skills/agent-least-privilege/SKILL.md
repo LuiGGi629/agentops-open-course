@@ -26,9 +26,9 @@ Most of the time. Every delegation is an extra model call and another candidate 
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
+From the AgentOps Open Course:
 
-- `delegation.py` — a coordinator with read-only and write-only specialists.
+- `agents/go/compose/delegation.go` — a coordinator with structurally restricted specialists.
 - Course chapter `3.7. Multi-Agent`.
 
 ## Verify

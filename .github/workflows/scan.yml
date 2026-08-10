@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Read the shared container matrix
         id: matrix
@@ -39,6 +41,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history so gitleaks can inspect every commit
+          persist-credentials: false
 
       - name: Install the pinned security tools
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
@@ -46,7 +49,7 @@ jobs:
           install: false
 
       - name: Install only repository scanners
-        run: mise install gitleaks trivy
+        run: mise install -y --locked gitleaks trivy
 
       - name: Scan history, dependencies, secrets, and infrastructure
         run: mise run secure
@@ -61,24 +64,42 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select the pinned Go toolchain
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          install: false
 
       - name: Build ${{ matrix.name }} image
         env:
-          VERSION: scan-${{ github.sha }}
+          CONTEXT: ${{ matrix.context }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          IMAGE: ${{ matrix.image }}
         run: |
+          mise install -y --locked go
+          source_identity="$(go -C tools run ./cmd/source-identity --root .. --mode development)"
           docker build \
-            --build-arg "AGENT_SOURCE_COMMIT=${GITHUB_SHA}" \
+            --build-arg "AGENT_BUILD_MODE=development" \
+            --build-arg "AGENT_SOURCE_COMMIT=$(jq -er .display <<<"$source_identity")" \
+            --build-arg "AGENT_SOURCE_REVISION=$(jq -er '.revision // ""' <<<"$source_identity")" \
+            --build-arg "AGENT_SOURCE_TREE_DIGEST=$(jq -er .tree_digest <<<"$source_identity")" \
+            --build-arg "AGENT_SOURCE_DIRTY=$(jq -er .dirty <<<"$source_identity")" \
             --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
-            --build-arg "OCI_VERSION=${VERSION}" \
-            --file "${{ matrix.dockerfile }}" \
-            --tag "${{ matrix.image }}" \
-            "${{ matrix.context }}"
+            --build-arg "OCI_VERSION=development" \
+            --file "$DOCKERFILE" \
+            --tag "$IMAGE" \
+            "$CONTEXT"
 
       # The distroless image carries no interpreter and no shell, so the smoke is a
       # subcommand of the image's own entrypoint: config:check builds the same fail-fast
       # configuration every surface loads at startup and exits non-zero when it is invalid.
       - name: Smoke-test ${{ matrix.name }} image runtime
-        run: docker run --rm "${{ matrix.image }}" "${{ matrix.smoke }}"
+        env:
+          IMAGE: ${{ matrix.image }}
+          SMOKE: ${{ matrix.smoke }}
+        run: docker run --rm "$IMAGE" "$SMOKE"
 
       - name: Scan ${{ matrix.name }} image
         uses: ./.github/actions/scan-image

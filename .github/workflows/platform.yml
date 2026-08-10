@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Guard forks and mirrors: a 60-minute cluster acceptance run only makes
     # sense on the canonical repository. Elsewhere the job is skipped, not failed.
-    if: github.repository == 'MLOps-Courses/agentops-open-course'
+    if: github.repository == 'MLOps-Courses/agentops-open-course-go'
     timeout-minutes: 60
     env:
       BACKUP_EVIDENCE_MARKER: platform-backup-canary
@@ -41,6 +41,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Select the pinned tool manager
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
@@ -51,8 +53,30 @@ jobs:
 
       - name: Install only the account-free platform dependencies
         run: |
-          mise install uv k3d kubectl helm helmfile skaffold jq
+          mise install -y --locked go golangci-lint gotestsum dprint k3d kubectl helm helmfile skaffold jq
+          (cd tools && mise run install)
           ./scripts/install-helm-diff.sh
+
+      - name: Resolve the clean candidate build identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          source_identity="$(tools/bin/source-identity --root . --mode release)"
+          revision="$(jq -er .revision <<<"$source_identity")"
+          test "$revision" = "$EXPECTED_SHA"
+          commit_timestamp="$(git show -s --format=%ct HEAD)"
+          [[ "$commit_timestamp" =~ ^[0-9]+$ ]]
+          created="$(date --utc --date="@${commit_timestamp}" +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo "AGENT_BUILD_MODE=release"
+            echo "AGENT_SOURCE_COMMIT=$revision"
+            echo "AGENT_SOURCE_REVISION=$revision"
+            echo "AGENT_IMAGE_TAG=$revision"
+            echo "AGENT_SOURCE_TREE_DIGEST=$(jq -er .tree_digest <<<"$source_identity")"
+            echo "AGENT_SOURCE_DIRTY=false"
+            echo "OCI_CREATED=$created"
+            echo "OCI_VERSION=$(tr -d '\n' < VERSION)"
+          } >> "$GITHUB_ENV"
 
       - name: Verify the cgroup-v2 and container prerequisites
         run: |
@@ -71,15 +95,13 @@ jobs:
             docker network inspect k3d-local \
               --format '{{(index .IPAM.Config 0).Gateway}}'
           )"
-          nohup uv run --script load/fake_model.py --host "${bridge}" \
+          nohup tools/bin/fake-model --host "${bridge}" \
             >"${RUNNER_TEMP}/fake-model.log" 2>&1 &
           echo "$!" >"${RUNNER_TEMP}/fake-model.pid"
           timeout 60 bash -c \
             "until curl -fsS 'http://${bridge}:11434/healthz' >/dev/null; do sleep 1; done"
 
       - name: Build and deploy the local overlay
-        env:
-          AGENT_SOURCE_COMMIT: ${{ github.sha }}
         run: |
           cd infra
           SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 \
@@ -317,14 +339,20 @@ jobs:
           RATE: "2"
           PROMPT: ${{ env.TELEMETRY_SENTINEL }}
         run: |
+          traffic_window_start="$(date +%s)"
+          printf '%s\n' "$((traffic_window_start - 1))" \
+            >"${RUNNER_TEMP}/traffic-window-start"
           mise run load:health
           DURATION=15s RATE=12 mise run load:mcp
           ITERATIONS=1 mise run load:a2a
+          traffic_window_end="$(date +%s)"
+          printf '%s\n' "$((traffic_window_end + 1))" \
+            >"${RUNNER_TEMP}/traffic-window-end"
 
-      # Read the capture defaults off the *running process*, not off the manifest: the image
-      # bakes them, so a pod spec would not show them and a rebuilt image that dropped them
-      # would pass unnoticed. An ephemeral container with `--target agent` shares the agent's
-      # process namespace, which is what makes /proc/1/environ readable from a second image.
+      # Read the effective privacy defaults off the running process. The image supplies the
+      # capture defaults, the platform pins the risk gate and sampler, and startup applies the
+      # gate before ADK constructs its provider. An ephemeral container with `--target agent`
+      # shares the process namespace, so it can verify the final /proc/1/environ composition.
       - name: Verify the telemetry capture defaults on the running agent
         run: |
           agent_pod="$(
@@ -338,6 +366,7 @@ jobs:
             --container capture-defaults-probe --attach=false --quiet -- \
             sh -c 'environ="$(tr "\0" "\n" </proc/1/environ)"
                    echo "${environ}" | grep -qx "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+                   echo "${environ}" | grep -qx "OTEL_TRACES_SAMPLER=always_off"
                    echo "${environ}" | grep -qx "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false"'
           timeout 120 bash -c "
             until kubectl get pod --namespace agentops '${agent_pod}' -o json |
@@ -349,44 +378,31 @@ jobs:
                    | select(.name == "capture-defaults-probe")
                    | .state.terminated.exitCode == 0'
 
-      - name: Prove traces, metrics, and logs contain the expected evidence
+      - name: Prove default agent tracing remains off after traffic
         run: |
-          # TraceQL `{status = ok}` is the Tempo equivalent of MLflow's
-          # trace-level "OK" state: it matches traces carrying a non-errored span.
-          # Search only sees a trace once its live block is cut (Tempo's
-          # max_block_duration, 30s by default), so poll rather than assert once.
-          search_window_start="$(($(date +%s) - 3600))"
-          search_window_end="$(($(date +%s) + 60))"
-          for _ in {1..60}; do
+          traffic_window_start="$(<"${RUNNER_TEMP}/traffic-window-start")"
+          traffic_window_end="$(<"${RUNNER_TEMP}/traffic-window-end")"
+          [[ "$traffic_window_start" =~ ^[0-9]+$ ]]
+          [[ "$traffic_window_end" =~ ^[0-9]+$ ]]
+          ((traffic_window_start <= traffic_window_end))
+          # A zero immediately after traffic can race Tempo's block flush. Observe
+          # the closed traffic window for a full minute and fail on any agent span.
+          for _ in {1..30}; do
             curl -fsS -G http://127.0.0.1:3200/api/search \
-              --data-urlencode 'q={status = ok}' \
+              --data-urlencode 'q={ resource.service.name = "agentops-agent" }' \
               --data-urlencode 'limit=100' \
-              --data-urlencode "start=${search_window_start}" \
-              --data-urlencode "end=${search_window_end}" \
+              --data-urlencode "start=${traffic_window_start}" \
+              --data-urlencode "end=${traffic_window_end}" \
               >"${RUNNER_TEMP}/tempo-traces.json"
-            jq -e '.traces | length > 0' \
-              "${RUNNER_TEMP}/tempo-traces.json" >/dev/null && break
+            jq -e '
+              (.traces | type == "array") and
+              (.traces | length == 0)
+            ' "${RUNNER_TEMP}/tempo-traces.json" >/dev/null
             sleep 2
           done
-          jq -e '.traces | length > 0' \
-            "${RUNNER_TEMP}/tempo-traces.json" >/dev/null
-          jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
-            'tostring | contains($sentinel) | not' \
-            "${RUNNER_TEMP}/tempo-traces.json" >/dev/null
-          # Tempo strips a trace id's leading zeroes, so read the id back from the
-          # search result instead of reconstructing it.
-          trace_id="$(
-            jq -er '.traces | first | .traceID' \
-              "${RUNNER_TEMP}/tempo-traces.json"
-          )"
-          curl -fsS "http://127.0.0.1:3200/api/traces/${trace_id}" \
-            >"${RUNNER_TEMP}/tempo-trace.json"
-          jq -e '[.batches[].scopeSpans[].spans[]] | length > 0' \
-            "${RUNNER_TEMP}/tempo-trace.json" >/dev/null
-          jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
-            'tostring | contains($sentinel) | not' \
-            "${RUNNER_TEMP}/tempo-trace.json" >/dev/null
 
+      - name: Prove metrics and logs contain the expected evidence
+        run: |
           prometheus_dir="${RUNNER_TEMP}/prometheus"
           mkdir -p "$prometheus_dir"
           for metric in \
@@ -428,7 +444,45 @@ jobs:
             "${RUNNER_TEMP}/loki.json" >/dev/null
 
       - name: Prove the in-cluster backup restores every persistent evidence type
-        run: ./infra/scripts/platform-backup-drill.sh
+        run: |
+          work_dir="${RUNNER_TEMP}/platform-backup-drill"
+          docker_config="${work_dir}/docker"
+          [[ ! -e "${work_dir}" && ! -L "${work_dir}" ]]
+          umask 077
+          mkdir -m 700 -- "${work_dir}"
+          cleanup_work_dir() {
+            primary_status=$?
+            cleanup_status=0
+            trap - EXIT
+            set +e
+            for artifact in "${work_dir}"/platform-*.json; do
+              [[ -f "${artifact}" && ! -L "${artifact}" ]] || continue
+              cp -- "${artifact}" "${RUNNER_TEMP}/$(basename -- "${artifact}")" || cleanup_status=1
+            done
+            if [[ "${work_dir}" == "${RUNNER_TEMP}/platform-backup-drill" &&
+              -d "${work_dir}" && ! -L "${work_dir}" ]]; then
+              rm -r -- "${work_dir}" || cleanup_status=1
+            else
+              echo "::error::Refusing to clean invalid platform backup work directory ${work_dir}." >&2
+              cleanup_status=1
+            fi
+            if ((primary_status != 0)); then
+              exit "${primary_status}"
+            fi
+            exit "${cleanup_status}"
+          }
+          trap cleanup_work_dir EXIT
+          mkdir -m 700 -- "${docker_config}"
+          printf '%s\n' '{"auths":{}}' >"${docker_config}/config.json"
+          chmod 600 "${docker_config}/config.json"
+          ./infra/scripts/platform-backup-drill.sh \
+            --context k3d-local \
+            --work-dir "${work_dir}" \
+            --source-revision "${AGENT_SOURCE_REVISION}" \
+            --reader-image "${CURL_IMAGE}" \
+            --agent-card-url http://127.0.0.1:8080/.well-known/agent-card.json \
+            --docker-config "${docker_config}" \
+            --evidence-marker "${BACKUP_EVIDENCE_MARKER}"
       - name: Collect sanitized failure diagnostics
         if: failure()
         run: |
@@ -510,6 +564,7 @@ jobs:
           cp "${RUNNER_TEMP}"/tempo-*.json "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/prometheus.json "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/loki.json "${diagnostics}/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}"/platform-*.json "${diagnostics}/" 2>/dev/null || true
 
       - name: Upload failure diagnostics
         if: failure()

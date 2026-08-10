@@ -3,9 +3,8 @@
 # Dependabot keeps the repository's pin-everything policy current instead of pinned-and-forgotten.
 # It is native to GitHub and needs no token, no app install, and no self-hosted workflow.
 #
-# Dependabot does not support globs in `directory`, so each project gets its own entry: the docs
-# root and the Python agent are two independent uv projects, and the repository root and the Go
-# agent are two independent Go modules (the root one exists only to pin the Hextra theme).
+# Dependabot does not support globs in `directory`, so each Go module gets its
+# own entry. The root module exists only to pin the Hextra Hugo theme.
 #
 # Nothing auto-merges. The offline gate cannot see model or protocol drift, so every update goes
 # through the local validation playbook in docs 8.2. Releases.
@@ -28,42 +27,8 @@ updates:
       github-actions:
         patterns:
           - "*"
-
-  - package-ecosystem: uv
-    directory: / # documentation gates and the authoring toolchain
-    schedule:
-      interval: weekly
-      day: monday
-    commit-message:
-      prefix: "chore(deps)"
-    open-pull-requests-limit: 5
-    groups:
-      docs-dependencies:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: uv
-    directory: /agents/python # the reference agent, its tests, and its evaluations
-    schedule:
-      interval: weekly
-      day: monday
-    commit-message:
-      prefix: "chore(deps)"
-    open-pull-requests-limit: 5
-    groups:
-      agent-dependencies:
-        patterns:
-          - "*"
-        exclude-patterns:
-          # Coordinated pins reviewed on their own, never inside the weekly batch.
-          - "google-adk*"
-          - "mlflow*"
-        update-types:
-          - minor
-          - patch
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: gomod
     directory: /agents/go # the Go reference agent, its tests, and its go.mod tool directive
@@ -79,11 +44,15 @@ updates:
           - "*"
         exclude-patterns:
           # Coordinated pins reviewed on their own, never inside the weekly batch.
-          - "google.golang.org/adk/*"
+          - "github.com/openai/openai-go/v3"
+          - "go.opentelemetry.io/otel*"
+          - "google.golang.org/adk/v2"
           - "google.golang.org/genai"
         update-types:
           - minor
           - patch
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: gomod
     directory: / # the Hextra theme, consumed as a Hugo Module through the root go.mod
@@ -100,6 +69,44 @@ updates:
         update-types:
           - minor
           - patch
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: gomod
+    directory: /evals # standalone black-box evaluation harness
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      evaluation-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: gomod
+    directory: /tools # native authoring, browser, and release tooling
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
+    groups:
+      repository-tool-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: docker
     directory: /agents/go # agent image build and distroless runtime stages
@@ -116,17 +123,5 @@ updates:
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
-
-  - package-ecosystem: docker
-    directory: /agents/python # retired agent image base stages
-    schedule:
-      interval: weekly
-      day: monday
-    commit-message:
-      prefix: "chore(deps)"
-    open-pull-requests-limit: 5
-    ignore:
-      - dependency-name: python
-        update-types:
-          - version-update:semver-major
-          - version-update:semver-minor
+    cooldown:
+      default-days: 7

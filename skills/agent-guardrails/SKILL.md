@@ -17,18 +17,18 @@ Put a guardrail at each boundary an untrusted signal can cross: input, model, to
 ## Steps
 
 1. **Validate tool arguments at the boundary.** Parse and reject malformed or out-of-policy arguments before a tool runs — never pass raw model output straight into an action.
-1. **Redact PII before the model and before persistence.** Run a local redactor (e.g. Presidio) on outbound model requests, inbound responses, tool output, and anything you persist. Treat streaming as a weaker boundary (entities can span chunks).
+1. **Redact PII before the model and before persistence.** Keep deterministic in-process masking on every path. Add a gateway webhook for semantic named entities only as defense in depth; bound it and fail closed. Treat streaming as a weaker boundary because entities can span chunks.
 1. **Spotlight untrusted tool output.** Normalize (NFKC), neutralize known injection markers, and wrap free-text tool results in a marked prefix so the model treats them as data, not instructions. This is best-effort defense-in-depth, not a guarantee.
 1. **Require attributable human approval for writes.** Gate every state-changing tool on a human confirmation that carries the approver's identity and rationale, and record who approved, why, and the decision context in the same transaction as the mutation.
 1. **Ship a kill-switch.** Read one flag (e.g. `AGENT_WRITES_DISABLED`) at process startup and refuse every model-callable write before persistence; guarded actions should stop before approval. Document the restart or workload rollout needed to apply it.
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
+From the AgentOps Open Course:
 
-- `guardrails.py` — argument validation, injection neutralization, spotlighting, safe error handlers.
-- `pii.py` — Presidio-based redaction at each boundary.
-- `actions.py` — attributable HITL approval and the `AGENT_WRITES_DISABLED` kill-switch.
+- `agents/go/policy/pii.go` — deterministic request, response, tool, note, and audit redaction.
+- `agents/go/piiwebhook/` — bounded model-backed person, location, and organization masking for agentgateway.
+- `agents/go/tools/action.go` — attributable confirmation and the `AGENT_WRITES_DISABLED` kill-switch.
 - Course chapters `4.5. Guardrails` and `4.6. Security`.
 
 ## Verify
