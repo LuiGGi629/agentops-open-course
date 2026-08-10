@@ -30,9 +30,8 @@ const (
 	coordinatorDescription = "On-call coordinator that triages incidents and delegates diagnosis and remediation."
 )
 
-// The three delegation instructions, carried across byte for byte: the strict
-// evalsets assert both their digests and several literal phrases, so a reword
-// is a behavior change that has to be re-evaluated, not a copy edit.
+// The three delegation instructions are pinned through direct behavioral
+// invariants: least privilege, confirmation, attribution, and post-action proof.
 const (
 	diagnosisInstruction = "You are a diagnosis specialist. Given an incident id, use get_incident for its details and runbook, " +
 		"get_runbook for the runbook body, and get_service_status for the service. Explain the likely root " +

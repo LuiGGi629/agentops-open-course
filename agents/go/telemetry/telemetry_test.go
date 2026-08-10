@@ -1,11 +1,30 @@
 package telemetry_test
 
 import (
+	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	adktelemetry "google.golang.org/adk/v2/telemetry"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
 )
+
+func testBuildInfo() buildinfo.Info {
+	revision := strings.Repeat("a", 40)
+	return buildinfo.Info{
+		Timestamp:      time.Date(2026, 8, 9, 10, 11, 12, 0, time.UTC),
+		Mode:           buildinfo.Release,
+		Version:        "v9.9.9",
+		SourceIdentity: revision,
+		Revision:       revision,
+		TreeDigest:     "sha256:" + strings.Repeat("b", 64),
+	}
+}
 
 // clearOTLPEnvironment removes every variable the gates read, so a test starts
 // from "nothing configured" whatever the developer's shell exports.
@@ -25,11 +44,69 @@ func clearOTLPEnvironment(t *testing.T) {
 		telemetry.EnvOTLPLogsEndpoint,
 		telemetry.EnvADKCaptureMessageContent,
 		telemetry.EnvGenAICaptureMessageContent,
+		telemetry.EnvTracesSampler,
 	} {
 		t.Setenv(name, "")
 		if err := os.Unsetenv(name); err != nil {
 			t.Fatalf("unsetting %s: %v", name, err)
 		}
+	}
+}
+
+// TestADKTraceRiskGateControlsThePinnedProvider proves the environment guard
+// at the public ADK provider seam, rather than only checking an environment
+// string. The default path must create non-recording spans even when a caller
+// requested always-on sampling; the explicit risk-acceptance path may record.
+func TestADKTraceRiskGateControlsThePinnedProvider(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		capture       string
+		wantRecording bool
+	}{
+		"default rejects trace recording": {
+			capture: telemetry.ContentCaptureDisabled,
+		},
+		"explicit risk acceptance permits trace recording": {
+			capture:       telemetry.ContentCaptureEnabled,
+			wantRecording: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearOTLPEnvironment(t)
+			t.Setenv(telemetry.EnvADKCaptureMessageContent, testCase.capture)
+			t.Setenv(telemetry.EnvTracesSampler, "always_on")
+			if err := telemetry.SetContentCaptureDefaults(); err != nil {
+				t.Fatalf("SetContentCaptureDefaults() error = %v, want nil", err)
+			}
+
+			recorder := tracetest.NewSpanRecorder()
+			providers, err := adktelemetry.New(
+				t.Context(), adktelemetry.WithSpanProcessors(recorder),
+			)
+			if err != nil {
+				t.Fatalf("adktelemetry.New() error = %v, want nil", err)
+			}
+			t.Cleanup(func() {
+				if shutdownErr := providers.Shutdown(context.Background()); shutdownErr != nil {
+					t.Errorf("providers.Shutdown() error = %v, want nil", shutdownErr)
+				}
+			})
+			if providers.TracerProvider == nil {
+				t.Fatal("ADK tracer provider = nil, want the configured provider")
+			}
+
+			_, span := providers.TracerProvider.Tracer("gcp.vertex.agent").Start(t.Context(), "execute_tool synthetic")
+			if got := span.IsRecording(); got != testCase.wantRecording {
+				t.Errorf("span.IsRecording() = %v, want %v", got, testCase.wantRecording)
+			}
+			span.End()
+			wantEnded := 0
+			if testCase.wantRecording {
+				wantEnded = 1
+			}
+			if got := len(recorder.Ended()); got != wantEnded {
+				t.Errorf("ended spans = %d, want %d", got, wantEnded)
+			}
+		})
 	}
 }
 
@@ -165,7 +242,8 @@ func TestExportGatesFollowTheStandardEnvironment(t *testing.T) {
 func TestResourcePinsTheServiceIdentity(t *testing.T) {
 	t.Parallel()
 
-	res := telemetry.Resource("9.9.9")
+	build := testBuildInfo()
+	res := telemetry.Resource(build)
 
 	// An empty schema URL is what lets ADK merge this into its own resource:
 	// resource.Merge fails outright on two different non-empty schema URLs, and
@@ -180,7 +258,19 @@ func TestResourcePinsTheServiceIdentity(t *testing.T) {
 	if got := attributes["service.name"]; got != telemetry.ServiceName {
 		t.Errorf("service.name = %q, want %q", got, telemetry.ServiceName)
 	}
-	if got := attributes["service.version"]; got != "9.9.9" {
-		t.Errorf("service.version = %q, want %q", got, "9.9.9")
+	if got := attributes["service.version"]; got != build.Version {
+		t.Errorf("service.version = %q, want %q", got, build.Version)
+	}
+	for key, want := range map[string]string{
+		"agentops.build.mode":         string(build.Mode),
+		"agentops.build.timestamp":    build.Timestamp.Format(time.RFC3339),
+		"agentops.source.identity":    build.SourceIdentity,
+		"agentops.source.revision":    build.Revision,
+		"agentops.source.tree_digest": build.TreeDigest,
+		"agentops.source.dirty":       "false",
+	} {
+		if got := attributes[key]; got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
 }

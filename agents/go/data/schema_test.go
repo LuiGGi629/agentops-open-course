@@ -708,6 +708,54 @@ func TestReadPathFailsWhenNeitherDatabaseExists(t *testing.T) {
 	}
 }
 
+func TestReadAndProbeRejectASymlinkedRuntimeInsteadOfFollowingOrFallingBack(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	if err := os.MkdirAll(store.StateDir(), stateDirPerm); err != nil {
+		t.Fatalf("create state directory: %v", err)
+	}
+	if err := os.Symlink(store.SeedPath(), store.RuntimePath()); err != nil {
+		t.Skipf("create a runtime symlink on this platform: %v", err)
+	}
+	for name, operation := range map[string]func() error{
+		"read path": func() error { _, err := store.readPath(); return err },
+		"probe":     func() error { _, err := store.ProbeRuntimeDatabase(t.Context()); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := operation()
+			if !errors.Is(err, ErrDataAccess) || !strings.Contains(err.Error(), "regular file") {
+				t.Fatalf("operation error = %v, want no-follow regular-file refusal", err)
+			}
+		})
+	}
+}
+
+func TestPrepareRejectsAReplacementBetweenInspectionAndSQLiteConnect(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	runtimePath := publishedRuntime(t, store)
+	outside := filepath.Join(filepath.Dir(store.StateDir()), "outside.db")
+	copyTestFile(t, runtimePath, outside)
+	outsideBefore := takeSnapshot(t, outside)
+	store.beforeDatabaseConnect = func(path string) {
+		store.beforeDatabaseConnect = nil
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("replace runtime database: %v", err)
+		}
+		if err := os.Symlink(outside, path); err != nil {
+			t.Skipf("replace runtime database with a symlink on this platform: %v", err)
+		}
+	}
+
+	_, err := store.PrepareRuntimeDatabase(t.Context())
+	if !errors.Is(err, ErrDataAccess) || !strings.Contains(err.Error(), "changed while") {
+		t.Fatalf("PrepareRuntimeDatabase() error = %v, want replacement-race refusal", err)
+	}
+	outsideBefore.assertUnchanged(t, outside)
+}
+
 func TestPrepareRejectsAnUnexpectedVersionColumnDefinition(t *testing.T) {
 	t.Parallel()
 	store := newTestStore(t)

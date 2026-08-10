@@ -13,13 +13,10 @@ const AgentDescription = "An on-call AgentOps Agent that triages and resolves in
 // rootInstruction is the persona and the operating rules, kept explicit so
 // behavior is reproducible and evaluable.
 //
-// It is course content a learner reads, and the evalsets depend on the exact
-// ordering and confirmation semantics it states, so it is carried across from
-// the Python track byte for byte — TestRootInstructionPromptContract pins the
-// same SHA-256 digest the Python suite pins. The backticks around tool names
-// and the em dash are part of the text. Go has no raw string literal that can
-// contain a backtick, so the lines are concatenated instead; the trailing "\n"
-// on the last line is the closing newline of Python's triple-quoted string.
+// It is course content a learner reads, and deterministic tests pin its
+// behavioral invariants: authority, evidence ordering, direct skill loading,
+// confirmation, attribution, planning bounds, and refusal.
+// --8<-- [start:instruction]
 const rootInstruction = "You are the AgentOps Agent, an on-call assistant for a fictional online platform.\n" +
 	"You help engineers triage and resolve incidents quickly and safely.\n" +
 	"\n" +
@@ -36,8 +33,8 @@ const rootInstruction = "You are the AgentOps Agent, an on-call assistant for a 
 	"- For diagnosis, start with the affected service's unfiltered sample logs by calling\n" +
 	"  `search_service_logs` with only the service. Filter only after reading that result, and never\n" +
 	"  infer a cause from an empty filtered result.\n" +
-	"- Skill discovery returns only names and summaries. When a procedure applies or the engineer asks\n" +
-	"  to load one, call `list_skills`, then `load_skill`, and follow the loaded body.\n" +
+	"- The reviewed skill catalog is already present in your system context. When a procedure applies or\n" +
+	"  the engineer asks to load one, call `load_skill` directly by its exact name and follow the loaded body.\n" +
 	"- When you learn something durable (attempted fix, outcome, decision), call `save_incident_note`.\n" +
 	"- To recommend a fix, consult the runbooks: an incident carries a `runbook` slug — fetch it with\n" +
 	"  `get_runbook`, or use `search_runbooks` to find guidance by symptom. Cite the runbook you used.\n" +
@@ -65,6 +62,8 @@ const rootInstruction = "You are the AgentOps Agent, an on-call assistant for a 
 // owns the vocabulary.
 func Instruction() string { return rootInstruction }
 
+// --8<-- [end:instruction]
+
 // readTools returns the read and runbook surface the conversational agent binds
 // — the MCP-versus-local switch.
 //
@@ -82,6 +81,7 @@ func (c *Compose) readTools() (localTools []tool.Tool, toolsets []tool.Toolset) 
 
 // conversationalConfig is the conversational agent as a value, so the wiring
 // can be asserted without a running model.
+// --8<-- [start:root-agent]
 func (c *Compose) conversationalConfig() llmagent.Config {
 	localReads, readToolsets := c.readTools()
 
@@ -95,6 +95,8 @@ func (c *Compose) conversationalConfig() llmagent.Config {
 func (c *Compose) ConversationalAgent() (agent.Agent, error) {
 	return newAgent(c.conversationalConfig())
 }
+
+// --8<-- [end:root-agent]
 
 // concatTools joins tool groups into one fresh slice, preserving order.
 //

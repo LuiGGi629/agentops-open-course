@@ -24,13 +24,14 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
+	agenttools "github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
 )
 
-// The wire contract, exercised over net/http/httptest against the real handler.
-// These are rewrites rather than translations of test_server.py (MIGRATE.md §9):
-// the shapes a2a-go produces are its own, and asserting Python's shapes would
-// pin a fiction.
+// The native a2a-go wire contract, exercised over net/http/httptest against the
+// real handler and consumed by the checked-in browser and evaluator clients.
 
 func TestConversationCompletesOverJSONRPC(t *testing.T) {
 	t.Parallel()
@@ -209,6 +210,157 @@ func TestGuardedActionPausesForConfirmationAndResumes(t *testing.T) {
 	}
 }
 
+// TestUnauthenticatedA2AConfirmationCannotMutateTheRealStore joins the wire
+// confirmation flow to the shipped guarded tool and transactional state store.
+// The generic protocol test above proves ADK resumes a confirmed function; this
+// test proves that resumption alone grants no network write authority.
+func TestUnauthenticatedA2AConfirmationCannotMutateTheRealStore(t *testing.T) {
+	t.Parallel()
+
+	inventory := domain.Reference().Services.Inventory
+	model := &scriptedLLM{turns: [][]*adkmodel.LLMResponse{
+		toolCallTurn("restart-call", agenttools.RestartServiceToolName, map[string]any{"name": inventory}),
+		textTurn("The unauthenticated restart was refused."),
+	}}
+	fixture := newRealRestartFixture(t, model, "")
+	server := fixture.serve(t)
+
+	paused := streamResults(t, server, textMessage("m1", "Restart "+inventory+"."))
+	last := paused[len(paused)-1]
+	if got := states(paused); got[len(got)-1] != "input-required" {
+		t.Fatalf("task states = %v, want the turn to pause", got)
+	}
+	call := confirmationCall(t, last)
+	resumed := streamResults(t, server,
+		confirmationMessage(last, call, "anonymous confirmation is not authorization"))
+	if got := states(resumed); got[len(got)-1] != "completed" {
+		t.Fatalf("resumed states = %v, want a completed refusal", got)
+	}
+
+	name, err := domain.NormalizeSlug(inventory)
+	if err != nil {
+		t.Fatalf("NormalizeSlug() error = %v, want nil", err)
+	}
+	service, err := fixture.store.GetService(t.Context(), name)
+	if err != nil || service == nil {
+		t.Fatalf("GetService() = %+v, %v, want %s", service, err, inventory)
+	}
+	if service.Status() != domain.ServiceStatusDown {
+		t.Errorf("%s status = %q, want %q", inventory, service.Status(), domain.ServiceStatusDown)
+	}
+	pool := openRaw(t, filepath.Join(fixture.stateDir, "incidents.db"))
+	var auditRows int
+	if scanErr := pool.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM audit_log").Scan(&auditRows); scanErr != nil {
+		t.Fatalf("count audit rows: %v", scanErr)
+	}
+	if auditRows != 0 {
+		t.Errorf("audit rows = %d, want no record for a refused write", auditRows)
+	}
+	encoded, err := json.Marshal(model.observedRequests())
+	if err != nil {
+		t.Fatalf("marshal observed requests: %v", err)
+	}
+	if !strings.Contains(string(encoded), "network action requires an authenticated principal") {
+		t.Errorf("model requests do not contain the authorization refusal: %s", encoded)
+	}
+}
+
+// TestAuthenticatedA2AConfirmationMutatesAndAuditsTheRealStore proves the
+// positive half of the boundary: the subject authenticated on both HTTP turns
+// survives ADK's pause/resume flow and owns the committed audit row.
+func TestAuthenticatedA2AConfirmationMutatesAndAuditsTheRealStore(t *testing.T) {
+	t.Parallel()
+
+	inventory := domain.Reference().Services.Inventory
+	model := &scriptedLLM{turns: [][]*adkmodel.LLMResponse{
+		toolCallTurn("restart-call", agenttools.RestartServiceToolName, map[string]any{"name": inventory}),
+		textTurn("The authenticated restart completed."),
+	}}
+	fixture := newRealRestartFixture(t, model, identityHeader)
+	server := fixture.serve(t)
+	authenticated := [2]string{identityHeader, "alice@example.test"}
+
+	paused := streamMethod(t, server, a2aserver.RootPath, "message/stream",
+		textMessage("m1", "Restart "+inventory+"."), authenticated)
+	last := paused[len(paused)-1]
+	if got := states(paused); got[len(got)-1] != "input-required" {
+		t.Fatalf("task states = %v, want the turn to pause", got)
+	}
+	call := confirmationCall(t, last)
+	resumed := streamMethod(t, server, a2aserver.RootPath, "message/stream",
+		confirmationMessage(last, call, "verified operator approved the simulated restart"), authenticated)
+	if got := states(resumed); got[len(got)-1] != "completed" {
+		t.Fatalf("resumed states = %v, want a completed action", got)
+	}
+
+	name, err := domain.NormalizeSlug(inventory)
+	if err != nil {
+		t.Fatalf("NormalizeSlug() error = %v, want nil", err)
+	}
+	service, err := fixture.store.GetService(t.Context(), name)
+	if err != nil || service == nil {
+		t.Fatalf("GetService() = %+v, %v, want %s", service, err, inventory)
+	}
+	if service.Status() != domain.ServiceStatusOperational {
+		t.Errorf("%s status = %q, want %q", inventory, service.Status(), domain.ServiceStatusOperational)
+	}
+	pool := openRaw(t, filepath.Join(fixture.stateDir, "incidents.db"))
+	var approvedBy string
+	if err := pool.QueryRowContext(t.Context(),
+		"SELECT approved_by FROM audit_log ORDER BY id DESC LIMIT 1").Scan(&approvedBy); err != nil {
+		t.Fatalf("read audit approver: %v", err)
+	}
+	if approvedBy != "alice@example.test" {
+		t.Errorf("audit approved_by = %q, want authenticated subject", approvedBy)
+	}
+}
+
+func newRealRestartFixture(t *testing.T, model *scriptedLLM, trustedHeader string) *fixture {
+	t.Helper()
+
+	return newFixture(t, func(opts *fixtureOptions) {
+		opts.model = model
+		opts.options = func(options *a2aserver.Options) { options.TrustedIdentityHeader = trustedHeader }
+		opts.agentFactory = func(script *scriptedLLM, store *data.Store) agent.Agent {
+			realTools, err := agenttools.New(agenttools.Config{
+				Store: store,
+				Guard: func(ctx context.Context, _ string, call func(context.Context) error) error {
+					return call(ctx)
+				},
+				Redact: func(text string) string { return text },
+			})
+			if err != nil {
+				t.Fatalf("tools.New() error = %v, want nil", err)
+			}
+			return newAgent(t, script, func(cfg *llmagent.Config) {
+				cfg.Tools = []tool.Tool{realTools.RestartService()}
+			})
+		}
+	})
+}
+
+func confirmationMessage(last, call map[string]any, rationale string) map[string]any {
+	return map[string]any{"message": map[string]any{
+		"kind":      "message",
+		"messageId": "m2",
+		"role":      "user",
+		"contextId": last["contextId"],
+		"taskId":    last["taskId"],
+		"parts": []any{map[string]any{
+			"kind": "data",
+			"data": map[string]any{
+				"id":   call["id"],
+				"name": call["name"],
+				"response": map[string]any{
+					"confirmed": true,
+					"payload":   map[string]any{"rationale": rationale},
+				},
+			},
+			"metadata": map[string]any{"adk_type": "function_response"},
+		}},
+	}}
+}
+
 // TestSessionSurvivesAcrossTurns proves the contextId is the session: the
 // second turn's request carries the first turn's exchange, which is what makes
 // a conversation over A2A a conversation.
@@ -256,9 +408,13 @@ func TestSessionSurvivesAcrossTurns(t *testing.T) {
 func TestTaskIsPersistedAndSurvivesARestart(t *testing.T) {
 	t.Parallel()
 
-	fixture := newFixture(t)
+	fixture := newFixture(t, func(opts *fixtureOptions) {
+		opts.options = func(options *a2aserver.Options) { options.TrustedIdentityHeader = identityHeader }
+	})
 	server := fixture.serve(t)
-	results := streamResults(t, server, textMessage("m1", "Hello."))
+	authenticated := [2]string{identityHeader, testOwner}
+	results := streamMethod(t, server, a2aserver.RootPath, "message/stream",
+		textMessage("m1", "Hello."), authenticated)
 	taskID, _ := results[0]["id"].(string)
 	if taskID == "" {
 		t.Fatal("the stream produced no task id")
@@ -284,7 +440,9 @@ func TestTaskIsPersistedAndSurvivesARestart(t *testing.T) {
 // canceled event, so there is nothing to subclass — but the guarantee still has
 // to be proven end to end.
 func TestCancellationEndsTheTaskCanceled(t *testing.T) {
-	t.Parallel()
+	// This five-second assertion measures cancellation, not scheduler or SQLite
+	// throughput. Keep the integration fixture serial inside this package so the
+	// race suite cannot spend its entire deadline opening parallel databases.
 
 	started := make(chan struct{})
 	model := &scriptedLLM{
@@ -294,12 +452,17 @@ func TestCancellationEndsTheTaskCanceled(t *testing.T) {
 			<-ctx.Done()
 		}},
 	}
-	fixture := newFixture(t, func(opts *fixtureOptions) { opts.model = model })
+	fixture := newFixture(t, func(opts *fixtureOptions) {
+		opts.model = model
+		opts.options = func(options *a2aserver.Options) { options.TrustedIdentityHeader = identityHeader }
+	})
 	server := fixture.serve(t)
+	authenticated := [2]string{identityHeader, testOwner}
 
 	streamed := make(chan []map[string]any, 1)
 	go func() {
-		streamed <- streamResults(t, server, textMessage("m1", "Wait for cancellation."))
+		streamed <- streamMethod(t, server, a2aserver.RootPath, "message/stream",
+			textMessage("m1", "Wait for cancellation."), authenticated)
 	}()
 	select {
 	case <-started:
@@ -308,7 +471,7 @@ func TestCancellationEndsTheTaskCanceled(t *testing.T) {
 	}
 
 	taskID := latestTaskID(t, fixture)
-	envelope := rpc(t, server, a2aserver.RootPath, "tasks/cancel", map[string]any{"id": taskID})
+	envelope := rpc(t, server, a2aserver.RootPath, "tasks/cancel", map[string]any{"id": taskID}, authenticated)
 	result, ok := envelope["result"].(map[string]any)
 	if !ok {
 		t.Fatalf("tasks/cancel returned %v, want a task", envelope)
@@ -328,8 +491,9 @@ func TestCancellationEndsTheTaskCanceled(t *testing.T) {
 	}
 
 	// The terminal state is durable, not only streamed: an operator inspecting
-	// the store after the fact must see the same answer the client saw.
-	stored := mustGet(t, fixture.server.TaskStore(), a2a.TaskID(taskID))
+	// the store through the same authenticated owner must see the same answer.
+	inspector := openTaskStoreAt(t, filepath.Join(fixture.stateDir, a2aserver.TaskDatabaseName))
+	stored := mustGet(t, inspector, a2a.TaskID(taskID))
 	if stored.Task.Status.State.String() != "TASK_STATE_CANCELED" {
 		t.Errorf("persisted state = %q, want the canceled task", stored.Task.Status.State)
 	}

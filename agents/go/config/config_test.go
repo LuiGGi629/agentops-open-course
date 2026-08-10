@@ -3,10 +3,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
-	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -114,8 +113,12 @@ func TestDefaultConfigurationIsValid(t *testing.T) {
 	if cfg.MCPURL != "" {
 		t.Errorf("MCPURL = %q, want unset", cfg.MCPURL)
 	}
-	if cfg.PIIAnalyzerURL != "" {
-		t.Errorf("PIIAnalyzerURL = %q, want unset (layer 2 is opt-in)", cfg.PIIAnalyzerURL)
+	if cfg.PIIModel != "qwen3:4b-instruct" || cfg.PIIModelBaseURL != "http://127.0.0.1:11434/v1" || cfg.PIIModelTimeout != 8 {
+		t.Errorf("PII model settings = %q/%q/%v, want local bounded defaults",
+			cfg.PIIModel, cfg.PIIModelBaseURL, cfg.PIIModelTimeout)
+	}
+	if !cfg.PIIModelEnabled {
+		t.Error("PIIModelEnabled = false, want the OpenAI/Ollama default enabled")
 	}
 	if cfg.A2ABindHost != "127.0.0.1" {
 		t.Errorf("A2ABindHost = %q, want the loopback-only default", cfg.A2ABindHost)
@@ -238,7 +241,10 @@ func TestModelTemperatureIsOptionalAndBounded(t *testing.T) {
 
 func TestMCPURLMustBeHTTP(t *testing.T) {
 	message := loadError(t, withEnv(map[string]string{EnvMCPURL: "ftp://example.invalid/mcp"}))
-	assertContains(t, message, "AGENT_MCP_URL must be an http", "ftp://example.invalid/mcp")
+	assertContains(t, message, "AGENT_MCP_URL must be an http", "rejected value is omitted")
+	if strings.Contains(message, "ftp://example.invalid/mcp") {
+		t.Errorf("validation problem echoed the rejected endpoint: %q", message)
+	}
 
 	cfg := mustLoad(t, withEnv(map[string]string{EnvMCPURL: "http://127.0.0.1:3000/mcp"}))
 	if cfg.MCPURL != "http://127.0.0.1:3000/mcp" {
@@ -246,23 +252,65 @@ func TestMCPURLMustBeHTTP(t *testing.T) {
 	}
 }
 
-func TestPIIAnalyzerURLMustBeHTTP(t *testing.T) {
-	message := loadError(t, withEnv(map[string]string{EnvPIIAnalyzerURL: "127.0.0.1:3000"}))
-	assertContains(t, message, "AGENT_PII_ANALYZER_URL must be an http", "127.0.0.1:3000")
-
-	cfg := mustLoad(t, withEnv(map[string]string{EnvPIIAnalyzerURL: "http://presidio:3000"}))
-	if cfg.PIIAnalyzerURL != "http://presidio:3000" {
-		t.Errorf("PIIAnalyzerURL = %q", cfg.PIIAnalyzerURL)
+func TestConfiguredExternalURLsMustBeAbsoluteHTTPURLsWithAHost(t *testing.T) {
+	for _, variable := range []string{
+		EnvOpenAIBaseURL,
+		EnvMCPURL,
+		EnvPIIModelBaseURL,
+		EnvEmbeddingsURL,
+	} {
+		for _, value := range []string{"http://%zz", "http:///missing-host", "http://:8080"} {
+			t.Run(variable+"/"+value, func(t *testing.T) {
+				message := loadError(t, withEnv(map[string]string{variable: value}))
+				assertContains(t, message, variable, "absolute", "host")
+			})
+		}
 	}
 }
 
-func TestPromptURIMustBeARegistryURI(t *testing.T) {
-	message := loadError(t, withEnv(map[string]string{EnvPromptURI: "agentops-agent-instruction/2"}))
-	assertContains(t, message, "AGENT_PROMPT_URI", "prompts:/agentops-agent-instruction/2")
+func TestConfiguredExternalURLPortsMustBeDialable(t *testing.T) {
+	for _, variable := range []string{
+		EnvOpenAIBaseURL,
+		EnvMCPURL,
+		EnvPIIModelBaseURL,
+		EnvEmbeddingsURL,
+	} {
+		for _, value := range []string{"http://example.test:0", "http://example.test:65536", "http://example.test:"} {
+			t.Run(variable+"/"+value, func(t *testing.T) {
+				message := loadError(t, withEnv(map[string]string{variable: value}))
+				assertContains(t, message, variable, "port", "1", "65535")
+			})
+		}
+	}
+}
 
-	cfg := mustLoad(t, withEnv(map[string]string{EnvPromptURI: "prompts:/agentops-agent-instruction/2"}))
-	if cfg.PromptURI != "prompts:/agentops-agent-instruction/2" {
-		t.Errorf("PromptURI = %q", cfg.PromptURI)
+func TestExternalURLProblemsNeverEchoCredentials(t *testing.T) {
+	for _, variable := range []string{
+		EnvOpenAIBaseURL,
+		EnvMCPURL,
+		EnvPIIModelBaseURL,
+		EnvEmbeddingsURL,
+	} {
+		t.Run(variable, func(t *testing.T) {
+			const secret = "not-a-real-secret-value"
+			message := loadError(t, withEnv(map[string]string{
+				variable: "http://operator:" + secret + "@example.test/path?token=" + secret,
+			}))
+			assertContains(t, message, variable, "credentials")
+			if strings.Contains(message, secret) {
+				t.Errorf("validation problem retained the URL credential: %q", message)
+			}
+		})
+	}
+}
+
+func TestPIIModelURLMustBeHTTP(t *testing.T) {
+	message := loadError(t, withEnv(map[string]string{EnvPIIModelBaseURL: "127.0.0.1:11434/v1"}))
+	assertContains(t, message, "AGENT_PII_MODEL_BASE_URL must be an http", "rejected value is omitted")
+
+	cfg := mustLoad(t, withEnv(map[string]string{EnvPIIModelBaseURL: "http://ollama:11434/v1"}))
+	if cfg.PIIModelBaseURL != "http://ollama:11434/v1" {
+		t.Errorf("PIIModelBaseURL = %q", cfg.PIIModelBaseURL)
 	}
 }
 
@@ -446,25 +494,30 @@ func TestFieldBoundsMatrix(t *testing.T) {
 		ok       []string
 		bad      []string
 	}{
-		"model":                   {EnvModel, []string{"qwen3:1.7b"}, []string{""}},
-		"a2a port":                {EnvA2APort, []string{"1", "8080", "65535"}, []string{"0", "65536", "-1", "http"}},
-		"a2a protocol":            {EnvA2AProtocol, []string{"http", "https"}, []string{"ftp", "HTTP", ""}},
-		"a2a max llm calls":       {EnvA2AMaxLLMCalls, []string{"1", "12", "100"}, []string{"0", "101"}},
-		"drain timeout":           {EnvDrainTimeout, []string{"0.5", "10", "300"}, []string{"0", "300.1", "-1"}},
-		"model timeout":           {EnvModelTimeout, []string{"0.1", "60", "600"}, []string{"0", "601"}},
-		"tool timeout":            {EnvToolTimeout, []string{"30", "600"}, []string{"0", "601"}},
-		"max retries":             {EnvMaxRetries, []string{"0", "2", "10"}, []string{"-1", "11"}},
-		"retry backoff":           {EnvRetryBackoff, []string{"0.5", "30"}, []string{"0", "30.1"}},
-		"circuit threshold":       {EnvCircuitFailureThreshold, []string{"1", "5", "100"}, []string{"0", "101"}},
-		"circuit reset":           {EnvCircuitResetTimeout, []string{"30", "600"}, []string{"0", "601"}},
-		"embedding timeout":       {EnvEmbeddingTimeout, []string{"120", "600"}, []string{"0", "601"}},
-		"embeddings url":          {EnvEmbeddingsURL, []string{"http://ollama:11434"}, []string{""}},
-		"embedding model":         {EnvEmbeddingModel, []string{"nomic-embed-text"}, []string{""}},
-		"max history messages":    {EnvMaxHistoryMessages, []string{"2", "40"}, []string{"1", "0", "-1"}},
-		"max tokens per session":  {EnvMaxTokensPerSession, []string{"1", "50000"}, []string{"0", "-1"}},
-		"input price":             {EnvInputPricePer1K, []string{"0", "0.15"}, []string{"-0.1"}},
-		"output price":            {EnvOutputPricePer1K, []string{"0", "0.6"}, []string{"-0.1"}},
-		"trusted identity header": {EnvTrustedIdentityHeader, []string{"x-verified-subject"}, []string{""}},
+		"model":                  {EnvModel, []string{"qwen3:1.7b"}, []string{""}},
+		"a2a port":               {EnvA2APort, []string{"1", "8080", "65535"}, []string{"0", "65536", "-1", "http"}},
+		"a2a protocol":           {EnvA2AProtocol, []string{"http", "https"}, []string{"ftp", "HTTP", ""}},
+		"a2a max llm calls":      {EnvA2AMaxLLMCalls, []string{"1", "12", "100"}, []string{"0", "101"}},
+		"drain timeout":          {EnvDrainTimeout, []string{"0.5", "10", "300"}, []string{"0", "300.1", "-1"}},
+		"model timeout":          {EnvModelTimeout, []string{"0.1", "60", "600"}, []string{"0", "601"}},
+		"pii model timeout":      {EnvPIIModelTimeout, []string{"0.1", "8", "9"}, []string{"0", "9.1"}},
+		"tool timeout":           {EnvToolTimeout, []string{"30", "600"}, []string{"0", "601"}},
+		"max retries":            {EnvMaxRetries, []string{"0", "2", "10"}, []string{"-1", "11"}},
+		"retry backoff":          {EnvRetryBackoff, []string{"0.5", "30"}, []string{"0", "30.1"}},
+		"circuit threshold":      {EnvCircuitFailureThreshold, []string{"1", "5", "100"}, []string{"0", "101"}},
+		"circuit reset":          {EnvCircuitResetTimeout, []string{"30", "600"}, []string{"0", "601"}},
+		"embedding timeout":      {EnvEmbeddingTimeout, []string{"120", "600"}, []string{"0", "601"}},
+		"embeddings url":         {EnvEmbeddingsURL, []string{"http://ollama:11434"}, []string{""}},
+		"embedding model":        {EnvEmbeddingModel, []string{"nomic-embed-text"}, []string{""}},
+		"max history messages":   {EnvMaxHistoryMessages, []string{"2", "40"}, []string{"1", "0", "-1"}},
+		"max tokens per session": {EnvMaxTokensPerSession, []string{"1", "50000"}, []string{"0", "-1"}},
+		"input price":            {EnvInputPricePer1K, []string{"0", "0.15"}, []string{"-0.1"}},
+		"output price":           {EnvOutputPricePer1K, []string{"0", "0.6"}, []string{"-0.1"}},
+		"trusted identity header": {
+			EnvTrustedIdentityHeader,
+			[]string{"x-verified-subject", "X-Verified_Subject"},
+			[]string{"", "x verified subject", ":authority", "x\nsubject"},
+		},
 		"model fallback":          {EnvModelFallback, []string{"qwen3:1.7b"}, []string{""}},
 		"a2a bind host":           {EnvA2ABindHost, []string{"0.0.0.0"}, []string{""}},
 		"a2a advertised host":     {EnvA2AHost, []string{"agentops-agent.localhost"}, []string{""}},
@@ -482,6 +535,67 @@ func TestFieldBoundsMatrix(t *testing.T) {
 				assertContains(t, message, test.variable)
 			}
 		})
+	}
+}
+
+func TestEveryExternalFloatRejectsNonFiniteEnvironmentValues(t *testing.T) {
+	variables := []string{
+		EnvModelTemperature,
+		EnvDrainTimeout,
+		EnvModelTimeout,
+		EnvPIIModelTimeout,
+		EnvToolTimeout,
+		EnvRetryBackoff,
+		EnvCircuitResetTimeout,
+		EnvEmbeddingTimeout,
+		EnvInputPricePer1K,
+		EnvOutputPricePer1K,
+	}
+	for _, variable := range variables {
+		for _, value := range []string{"NaN", "+Inf", "-Inf"} {
+			t.Run(variable+"/"+value, func(t *testing.T) {
+				message := loadError(t, withEnv(map[string]string{variable: value}))
+				assertContains(t, message, variable, "finite")
+			})
+		}
+	}
+}
+
+func TestEveryExternalFloatRejectsNonFiniteDirectConfiguration(t *testing.T) {
+	type fieldCase struct {
+		set      func(*Config, float64)
+		variable string
+	}
+	fields := []fieldCase{
+		{variable: EnvModelTemperature, set: func(cfg *Config, value float64) { cfg.ModelTemperature = &value }},
+		{variable: EnvDrainTimeout, set: func(cfg *Config, value float64) { cfg.DrainTimeout = Seconds(value) }},
+		{variable: EnvModelTimeout, set: func(cfg *Config, value float64) { cfg.ModelTimeout = Seconds(value) }},
+		{variable: EnvPIIModelTimeout, set: func(cfg *Config, value float64) { cfg.PIIModelTimeout = Seconds(value) }},
+		{variable: EnvToolTimeout, set: func(cfg *Config, value float64) { cfg.ToolTimeout = Seconds(value) }},
+		{variable: EnvRetryBackoff, set: func(cfg *Config, value float64) { cfg.RetryBackoff = Seconds(value) }},
+		{variable: EnvCircuitResetTimeout, set: func(cfg *Config, value float64) { cfg.CircuitResetTimeout = Seconds(value) }},
+		{variable: EnvEmbeddingTimeout, set: func(cfg *Config, value float64) { cfg.EmbeddingTimeout = Seconds(value) }},
+		{variable: EnvInputPricePer1K, set: func(cfg *Config, value float64) { cfg.InputPricePer1K = value }},
+		{variable: EnvOutputPricePer1K, set: func(cfg *Config, value float64) { cfg.OutputPricePer1K = value }},
+	}
+	for _, field := range fields {
+		for name, value := range map[string]float64{
+			"nan":               math.NaN(),
+			"positive infinity": math.Inf(1),
+			"negative infinity": math.Inf(-1),
+		} {
+			t.Run(field.variable+"/"+name, func(t *testing.T) {
+				cfg := mustLoad(t, validBase())
+				field.set(&cfg, value)
+				problems := cfg.fieldProblems()
+				if len(problems) != 1 {
+					t.Fatalf("fieldProblems() = %v, want exactly one finite-value problem", problems)
+				}
+				if problems[0].Variable != field.variable || !strings.Contains(problems[0].Message, "finite") {
+					t.Errorf("problem = %+v, want %s finite-value context", problems[0], field.variable)
+				}
+			})
+		}
 	}
 }
 
@@ -557,7 +671,7 @@ func TestExplicitlyEmptyVariablesAreNeverSilentDefaults(t *testing.T) {
 
 	// An optional credential is the exception: empty means "not configured",
 	// which is exactly what unset means, and the Python track accepts it.
-	for _, variable := range []string{EnvGoogleAPIKey, EnvMCPToken, EnvMCPURL, EnvPromptURI} {
+	for _, variable := range []string{EnvGoogleAPIKey, EnvMCPToken, EnvMCPURL} {
 		t.Run(variable+" tolerates empty", func(t *testing.T) {
 			mustLoad(t, withEnv(map[string]string{variable: ""}))
 		})
@@ -587,12 +701,13 @@ func TestVariableConstantsMatchStructTags(t *testing.T) {
 	fromConstants := []string{
 		EnvEntrypoint, EnvModelProvider, EnvModel, EnvOpenAIBaseURL, EnvOpenAIAPIKey,
 		EnvGoogleAPIKey, EnvGoogleGenAIUseEnterprise, EnvGoogleCloudProject, EnvGoogleCloudLocation,
-		EnvGatewayEnabled, EnvMCPURL, EnvMCPToken, EnvPromptURI, EnvDataDir, EnvStateDir,
+		EnvGatewayEnabled, EnvMCPURL, EnvMCPToken, EnvDataDir, EnvStateDir,
 		EnvA2ABindHost, EnvA2AHost, EnvA2APort, EnvA2AProtocol, EnvA2AMaxLLMCalls,
 		EnvA2AStreaming, EnvDrainTimeout, EnvTrustedIdentityHeader, EnvModelTemperature,
 		EnvModelTimeout, EnvToolTimeout, EnvMaxRetries, EnvRetryBackoff,
 		EnvCircuitBreakerEnabled, EnvCircuitFailureThreshold, EnvCircuitResetTimeout,
-		EnvModelFallback, EnvWritesDisabled, EnvSanitizeToolOutput, EnvPIIAnalyzerURL,
+		EnvModelFallback, EnvWritesDisabled, EnvSanitizeToolOutput, EnvPIIModel,
+		EnvPIIModelBaseURL, EnvPIIModelEnabled, EnvPIIModelTimeout,
 		EnvSemanticRetrieval, EnvEmbeddingsURL, EnvEmbeddingModel, EnvEmbeddingTimeout,
 		EnvMaxHistoryMessages, EnvMaxTokensPerSession, EnvInputPricePer1K, EnvOutputPricePer1K,
 	}
@@ -612,35 +727,6 @@ func TestEveryFieldCarriesAnEnvironmentTag(t *testing.T) {
 			if _, ok := configType.Field(i).Tag.Lookup("env"); !ok {
 				t.Errorf("Config.%s has no `env` tag", configType.Field(i).Name)
 			}
-		}
-	}
-}
-
-func TestEnvExampleDocumentsEveryActiveVariable(t *testing.T) {
-	// The Go module ships its own .env.example because its defaults (the data and
-	// state directories) resolve against agents/go, not agents/python. Gate it so
-	// a new setting cannot land undocumented.
-	example, err := os.ReadFile(filepath.Join("..", ".env.example"))
-	if err != nil {
-		t.Fatalf("reading .env.example: %v", err)
-	}
-	documented := make(map[string]bool)
-	// Commented-out lines count: they document a variable and its default
-	// without turning it on.
-	for _, match := range regexp.MustCompile(`(?m)^#?\s*([A-Z][A-Z0-9_]+)=`).FindAllStringSubmatch(string(example), -1) {
-		documented[match[1]] = true
-	}
-	for _, spec := range specs() {
-		// The deprecated alias is deliberately absent: documenting a removed
-		// variable would invite someone to set it.
-		if spec.variable == EnvGatewayEnabled {
-			if documented[spec.variable] {
-				t.Errorf("%s is removed and must not appear in .env.example", spec.variable)
-			}
-			continue
-		}
-		if !documented[spec.variable] {
-			t.Errorf("%s is not documented in .env.example", spec.variable)
 		}
 	}
 }

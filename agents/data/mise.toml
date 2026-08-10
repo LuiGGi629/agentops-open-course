@@ -3,9 +3,6 @@
 # `incidents.db` is generated from sql/schema.sql + sql/seed.sql and committed so the
 # agent runs offline out of the box; regenerate it whenever the SQL changes.
 
-[tools]
-sqlite = "3.53.4" # exact writer version required to reproduce the committed incidents.db byte-for-byte
-
 [tasks.build]
 alias = "b"
 description = "(Re)build incidents.db from sql/schema.sql + sql/seed.sql"

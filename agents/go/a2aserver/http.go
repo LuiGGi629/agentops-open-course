@@ -7,6 +7,8 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/piiwebhook"
 )
 
 // health is the body both probes return.
@@ -42,30 +44,36 @@ func (s *Server) buildHandler() (http.Handler, error) {
 	}
 	requestHandler := a2asrv.NewHandler(s.executor(), options...)
 
-	mux := http.NewServeMux()
+	a2aMux := http.NewServeMux()
 	// The probes are registered outside the protocol on purpose: kubelet speaks
 	// HTTP, not JSON-RPC, and a probe that had to open a task would report that
 	// task's health rather than the server's.
-	mux.HandleFunc("GET "+ReadinessPath, s.handleReadiness)
-	mux.HandleFunc("GET "+LivenessPath, s.handleLiveness)
-	mux.HandleFunc("GET "+CardPath, s.handleCard)
+	a2aMux.HandleFunc("GET "+ReadinessPath, s.handleReadiness)
+	a2aMux.HandleFunc("GET "+LivenessPath, s.handleLiveness)
+	a2aMux.HandleFunc("GET "+CardPath, s.handleCard)
 
 	// Protocol 1.0 and 0.3 over the same request handler, so the two bindings
 	// can never diverge in behavior — only in wire shape.
-	mux.Handle("POST "+InvokePath, a2asrv.NewJSONRPCHandler(requestHandler))
-	mux.Handle("POST "+CompatInvokePath, a2av0.NewJSONRPCHandler(requestHandler))
+	a2aMux.Handle("POST "+InvokePath, a2asrv.NewJSONRPCHandler(requestHandler))
+	a2aMux.Handle("POST "+CompatInvokePath, a2av0.NewJSONRPCHandler(requestHandler))
 	// "{$}" anchors the pattern to the exact root path. A bare "POST /" would
 	// be a catch-all that answered every unrouted POST with the protocol —
 	// including a typo'd gateway route, which would then look like it worked.
-	mux.Handle("POST "+RootPath+"{$}", a2av0.NewJSONRPCHandler(requestHandler))
+	a2aMux.Handle("POST "+RootPath+"{$}", a2av0.NewJSONRPCHandler(requestHandler))
 
-	var handler http.Handler = mux
-	if header := s.options.TrustedIdentityHeader; header != "" {
-		// Outermost, so the subject is bound before any route — including the
-		// probes, which must not be reachable under a forged identity either.
-		handler = bindVerifiedIdentity(header, s.logger, handler)
+	var a2aHandler http.Handler = a2aMux
+	// Outermost on the A2A surface, so every protocol request is marked as a
+	// network call before execution. The prompt-guard webhook is a private
+	// machine-to-machine route and deliberately sits outside this middleware.
+	a2aHandler = bindVerifiedIdentity(s.options.TrustedIdentityHeader, s.logger, a2aHandler)
+
+	mux := http.NewServeMux()
+	if s.promptGuardHandler != nil {
+		mux.Handle("POST "+piiwebhook.RequestPath, s.promptGuardHandler)
+		mux.Handle("POST "+piiwebhook.ResponsePath, s.promptGuardHandler)
 	}
-	return handler, nil
+	mux.Handle(RootPath, a2aHandler)
+	return mux, nil
 }
 
 // handleCard serves the public agent card.
@@ -112,6 +120,12 @@ func (s *Server) handleReadiness(writer http.ResponseWriter, request *http.Reque
 	if err := probeStateStores(probeCtx, s.options.StateDir); err != nil {
 		s.logger.WarnContext(ctx, "readiness: the session or task store is invalid", "error", err)
 		problems = append(problems, fmt.Sprintf("session/task store invalid: %T", err))
+	}
+	if s.promptGuardReadiness != nil {
+		if err := s.promptGuardReadiness(ctx); err != nil {
+			s.logger.WarnContext(ctx, "readiness: the named-entity model is unavailable", "error", err)
+			problems = append(problems, fmt.Sprintf("named-entity model unavailable: %T", err))
+		}
 	}
 
 	if len(problems) > 0 {

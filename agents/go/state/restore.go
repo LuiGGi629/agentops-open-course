@@ -38,6 +38,24 @@ type RestoreOptions struct {
 	// production behavior during a restore must never depend on an ambient
 	// variable somebody could set on the way in.
 	BeforePublish func(installed int) error
+
+	// mkdir and syncDir are deterministic failure seams for the three
+	// pre-journal durability boundaries. They stay unexported so production
+	// callers cannot replace filesystem semantics.
+	mkdir   func(string, os.FileMode) error
+	syncDir func(string) error
+}
+
+func (o RestoreOptions) filesystem() (func(string, os.FileMode) error, func(string) error) {
+	mkdir := o.mkdir
+	if mkdir == nil {
+		mkdir = os.Mkdir
+	}
+	syncDir := o.syncDir
+	if syncDir == nil {
+		syncDir = fsyncDir
+	}
+	return mkdir, syncDir
 }
 
 // RestoreState restores one complete generation with durable crash recovery
@@ -55,6 +73,9 @@ func RestoreState(ctx context.Context, snapshot, stateDir string, opts RestoreOp
 	// is what makes every rejection leave live state untouched.
 	entries, err := validateInventory(ctx, snapshot)
 	if err != nil {
+		return nil, err
+	}
+	if err := RecoverInterruptedRestore(stateDir, RecoverOptions{Logger: logger}); err != nil {
 		return nil, err
 	}
 	if mkdirErr := os.MkdirAll(stateDir, dirPerm); mkdirErr != nil {
@@ -81,6 +102,7 @@ func RestoreState(ctx context.Context, snapshot, stateDir string, opts RestoreOp
 
 // publishRestore runs one restore transaction under the generation lock.
 func publishRestore(snapshot, stateDir string, entries []manifestEntry, opts RestoreOptions) (err error) {
+	mkdir, syncDir := opts.filesystem()
 	transactionID, err := newTransactionID()
 	if err != nil {
 		return err
@@ -89,20 +111,14 @@ func publishRestore(snapshot, stateDir string, entries []manifestEntry, opts Res
 	quarantine := filepath.Join(stateDir, quarantinePrefix+transactionID)
 	// Mkdir, not MkdirAll: the transaction id is fresh, so an existing directory
 	// under either name means something is very wrong and must not be reused.
-	if mkdirErr := os.Mkdir(staging, dirPerm); mkdirErr != nil {
+	if mkdirErr := mkdir(staging, dirPerm); mkdirErr != nil {
 		return fmt.Errorf("%w: Could not create the restore staging directory %s: %w", ErrSnapshot, staging, mkdirErr)
 	}
-	if mkdirErr := os.Mkdir(quarantine, dirPerm); mkdirErr != nil {
-		return fmt.Errorf("%w: Could not create the restore quarantine directory %s: %w",
-			ErrSnapshot, quarantine, mkdirErr)
-	}
-	if syncErr := fsyncDir(stateDir); syncErr != nil {
-		return syncErr
-	}
-
 	// journal is nil until the durable journal actually exists on disk, which is
 	// what tells the unwind below whether a rollback is possible or whether the
-	// two directories above are the only thing to clean up.
+	// transaction directories are the only owned evidence to discard. Install
+	// this immediately: a failed quarantine mkdir or state-dir fsync must not
+	// strand unexplained residue that the next startup correctly refuses.
 	var journal *restoreJournal
 	defer func() {
 		recovered := recover()
@@ -125,6 +141,13 @@ func publishRestore(snapshot, stateDir string, entries []manifestEntry, opts Res
 		}
 		panic(recovered)
 	}()
+	if mkdirErr := mkdir(quarantine, dirPerm); mkdirErr != nil {
+		return fmt.Errorf("%w: Could not create the restore quarantine directory %s: %w",
+			ErrSnapshot, quarantine, mkdirErr)
+	}
+	if syncErr := syncDir(stateDir); syncErr != nil {
+		return syncErr
+	}
 
 	published, err := stageGeneration(snapshot, staging, entries)
 	if err != nil {

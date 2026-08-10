@@ -40,7 +40,6 @@ const (
 	EnvGatewayEnabled           = "AGENT_GATEWAY_ENABLED"
 	EnvMCPURL                   = "AGENT_MCP_URL"
 	EnvMCPToken                 = "AGENT_MCP_TOKEN"
-	EnvPromptURI                = "AGENT_PROMPT_URI"
 	EnvDataDir                  = "AGENT_DATA_DIR"
 	EnvStateDir                 = "AGENT_STATE_DIR"
 	EnvA2ABindHost              = "AGENT_A2A_BIND_HOST"
@@ -62,7 +61,10 @@ const (
 	EnvModelFallback            = "AGENT_MODEL_FALLBACK"
 	EnvWritesDisabled           = "AGENT_WRITES_DISABLED"
 	EnvSanitizeToolOutput       = "AGENT_SANITIZE_TOOL_OUTPUT"
-	EnvPIIAnalyzerURL           = "AGENT_PII_ANALYZER_URL"
+	EnvPIIModel                 = "AGENT_PII_MODEL"
+	EnvPIIModelBaseURL          = "AGENT_PII_MODEL_BASE_URL"
+	EnvPIIModelEnabled          = "AGENT_PII_MODEL_ENABLED"
+	EnvPIIModelTimeout          = "AGENT_PII_MODEL_TIMEOUT_S"
 	EnvSemanticRetrieval        = "AGENT_SEMANTIC_RETRIEVAL"
 	EnvEmbeddingsURL            = "AGENT_EMBEDDINGS_URL"
 	EnvEmbeddingModel           = "AGENT_EMBEDDING_MODEL"
@@ -91,10 +93,11 @@ type Config struct {
 	// ---- Optional overrides, where unset differs from zero ----------------
 
 	// Name of the request header carrying a gateway-verified caller identity
-	// (Ch. 5.5 / 7.6). Unset keeps the unauthenticated synthetic A2A id. Only
-	// set this when a trusted gateway validates the JWT and *sets* this header
-	// itself, overwriting any client-supplied copy — a raw client could
-	// otherwise forge it. When set, the value becomes the audit approved_by.
+	// (Ch. 5.5 / 7.6). Unset keeps a synthetic A2A id for session and memory
+	// scoping but grants no guarded-action authority. Only set this when a
+	// trusted gateway validates the JWT and *sets* this header itself,
+	// overwriting any client-supplied copy — a raw client could otherwise forge
+	// it. A verified value becomes the audit approved_by.
 	TrustedIdentityHeader *string `env:"AGENT_TRUSTED_IDENTITY_HEADER"`
 
 	// Unset preserves each provider's sampling default; evaluations opt into
@@ -125,6 +128,7 @@ type Config struct {
 
 	// ---- Names, endpoints and paths --------------------------------------
 
+	// --8<-- [start:settings-provider-fields]
 	Entrypoint    Entrypoint    `env:"AGENT_ENTRYPOINT"     envDefault:"agent"`
 	ModelProvider ModelProvider `env:"AGENT_MODEL_PROVIDER" envDefault:"openai-compatible"`
 	Model         string        `env:"AGENT_MODEL"          envDefault:"qwen3:4b-instruct"`
@@ -140,17 +144,12 @@ type Config struct {
 	GoogleAPIKey        Secret `env:"GOOGLE_API_KEY"`
 	GoogleCloudProject  string `env:"GOOGLE_CLOUD_PROJECT"`
 	GoogleCloudLocation string `env:"GOOGLE_CLOUD_LOCATION"`
+	// --8<-- [end:settings-provider-fields]
 
 	// Governed MCP route (Ch. 5.5). Unset calls the six read tools directly, in
 	// process; the token is only needed for a JWT/API-key-secured route.
 	MCPURL   string `env:"AGENT_MCP_URL"`
 	MCPToken Secret `env:"AGENT_MCP_TOKEN"`
-
-	// Optional dev/eval prompt-registry pin (Ch. 7.0), e.g.
-	// prompts:/agentops-agent-instruction/2. The registry lives in the offline
-	// evaluation harness; unset uses the committed instruction and needs no
-	// registry server at all.
-	PromptURI string `env:"AGENT_PROMPT_URI"`
 
 	// The committed dataset is immutable input; runtime SQLite state is
 	// disposable. Both defaults are relative to the working directory, which
@@ -166,11 +165,10 @@ type Config struct {
 	A2AHost     string `env:"AGENT_A2A_HOST"      envDefault:"localhost"`
 	A2AProtocol string `env:"AGENT_A2A_PROTOCOL"  envDefault:"http"`
 
-	// Optional PII analyzer service (Ch. 4.5, defense-in-depth layer 2). Empty
-	// disables it and leaves the always-on in-process redactor as the only
-	// layer, which is what keeps the account-free path and the pure-Go binary
-	// intact. When set, the redactor fails closed if the service is unreachable.
-	PIIAnalyzerURL string `env:"AGENT_PII_ANALYZER_URL"`
+	// Layer-2 NER calls Ollama directly rather than recursively entering the
+	// gateway whose promptGuard invoked it.
+	PIIModel        string `env:"AGENT_PII_MODEL"          envDefault:"qwen3:4b-instruct"`
+	PIIModelBaseURL string `env:"AGENT_PII_MODEL_BASE_URL" envDefault:"http://127.0.0.1:11434/v1"`
 
 	// Endpoint and model for the opt-in semantic runbook retrieval below.
 	EmbeddingsURL  string `env:"AGENT_EMBEDDINGS_URL"  envDefault:"http://127.0.0.1:11434"`
@@ -187,10 +185,11 @@ type Config struct {
 
 	// Bounded retries with exponential backoff for idempotent reads and model
 	// calls; guarded write actions are never retried (Ch. 4.5).
-	ModelTimeout Seconds `env:"AGENT_MODEL_TIMEOUT_S" envDefault:"60"`
-	ToolTimeout  Seconds `env:"AGENT_TOOL_TIMEOUT_S"  envDefault:"30"`
-	MaxRetries   int     `env:"AGENT_MAX_RETRIES"     envDefault:"2"`
-	RetryBackoff Seconds `env:"AGENT_RETRY_BACKOFF_S" envDefault:"0.5"`
+	ModelTimeout    Seconds `env:"AGENT_MODEL_TIMEOUT_S" envDefault:"60"`
+	PIIModelTimeout Seconds `env:"AGENT_PII_MODEL_TIMEOUT_S" envDefault:"8"`
+	ToolTimeout     Seconds `env:"AGENT_TOOL_TIMEOUT_S"  envDefault:"30"`
+	MaxRetries      int     `env:"AGENT_MAX_RETRIES"     envDefault:"2"`
+	RetryBackoff    Seconds `env:"AGENT_RETRY_BACKOFF_S" envDefault:"0.5"`
 
 	// Consecutive failures that open the circuit, and how long it stays open
 	// before one trial call tests recovery. Only meaningful when
@@ -235,6 +234,10 @@ type Config struct {
 	// Default-on prompt-injection hardening for tool/retrieval content (Ch. 4.6):
 	// spotlight untrusted text and neutralize known injection markers.
 	SanitizeToolOutput bool `env:"AGENT_SANITIZE_TOOL_OUTPUT" envDefault:"true"`
+
+	// The three OpenAI/Ollama gateway profiles enable the NER webhook. The GKE
+	// Vertex profile explicitly disables it because no local Ollama is present.
+	PIIModelEnabled bool `env:"AGENT_PII_MODEL_ENABLED" envDefault:"true"`
 
 	// Opt-in semantic runbook retrieval (Ch. 3.4). Off by default so the test
 	// gate stays deterministic and model-free; requires a local Ollama with the

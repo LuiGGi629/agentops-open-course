@@ -5,17 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"log/slog"
 
-	"github.com/glebarez/sqlite"
 	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/session"
-	"google.golang.org/adk/v2/session/database"
 	adktelemetry "google.golang.org/adk/v2/telemetry"
 	"google.golang.org/adk/v2/tool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
@@ -47,8 +43,13 @@ type agentRuntime struct {
 	// exists, so [agentRuntime.close] needs no guard.
 	shutdown func(context.Context) error
 
-	version string
-	config  config.Config
+	// sessions is non-nil only for the ADK launcher family, whose lifecycle
+	// this runtime owns. The standalone A2A server owns its own closeable store.
+	sessions  *sessionStore
+	recovered recoveredState
+
+	build  buildinfo.Info
+	config config.Config
 }
 
 // newAgentRuntime assembles every plane, in dependency order.
@@ -56,7 +57,7 @@ type agentRuntime struct {
 // The order is not incidental. The skill toolset has to exist before the policy
 // plane, because the trust carve-out is keyed on the identity of the load_skill
 // tool that toolset built. The policy plane has to exist before the
-// observability plane, because the OTLP log path redacts through it — and the
+// observability plane, because every durable log path redacts through it — and the
 // observability plane has to come before everything else, because a record
 // written before slog.SetDefault reaches an uncorrelated, unexported handler.
 // The policy plane also has to exist before the tools, because a rationale is
@@ -67,8 +68,15 @@ type agentRuntime struct {
 // ownsProviders selects who installs the OpenTelemetry tracer and logger
 // providers; see [processInstallsProviders].
 func newAgentRuntime(
-	ctx context.Context, cfg config.Config, console io.Writer, ownsProviders bool,
+	ctx context.Context,
+	cfg config.Config,
+	recovered recoveredState,
+	console io.Writer,
+	ownsProviders bool,
 ) (assembled *agentRuntime, err error) {
+	if recoveryErr := recovered.require(cfg.StateDir); recoveryErr != nil {
+		return nil, recoveryErr
+	}
 	guard, err := newGuard(cfg)
 	if err != nil {
 		return nil, err
@@ -88,8 +96,11 @@ func newAgentRuntime(
 		return nil, err
 	}
 
-	version := buildVersion()
-	shutdown, options, telemetryErr := installTelemetry(ctx, console, governance, version, ownsProviders)
+	build, err := buildinfo.Current()
+	if err != nil {
+		return nil, fmt.Errorf("reading build information: %w", err)
+	}
+	shutdown, options, telemetryErr := installTelemetry(ctx, console, governance, build, ownsProviders)
 	// The flush is registered before the error is checked, because it is never
 	// nil, and it runs on every failing path, because the records that describe
 	// a startup failure are exactly the ones worth exporting. A caller that is
@@ -129,7 +140,6 @@ func newAgentRuntime(
 		// local even when the six reads are served over MCP, because the note
 		// store is scoped per user and per application.
 		Memory:     memories.MemoryTools(),
-		PromptURI:  cfg.PromptURI,
 		Entrypoint: cfg.Entrypoint,
 	})
 	if err != nil {
@@ -143,13 +153,21 @@ func newAgentRuntime(
 		store:            store,
 		telemetryOptions: options,
 		shutdown:         shutdown,
-		version:          version,
+		recovered:        recovered,
+		build:            build,
 		config:           cfg,
 	}, nil
 }
 
-// close releases the observability plane this runtime installed.
+// close releases every resource this runtime owns. A launcher session pool is
+// closed here; the standalone A2A server closes the pool handed to it itself.
 func (r *agentRuntime) close(ctx context.Context) {
+	if r.sessions != nil {
+		if err := r.sessions.Close(); err != nil {
+			slog.WarnContext(ctx, "releasing the session store failed", "error", err)
+		}
+		r.sessions = nil
+	}
 	flushTelemetry(ctx, r.shutdown)
 }
 
@@ -238,16 +256,7 @@ func newGuard(cfg config.Config) (*resilience.Guard, error) {
 // instruction rather than attacker-influenceable data. A process that runs no
 // model passes none: there is no instruction boundary there to carve out.
 func newPolicy(cfg config.Config, trusted []tool.Tool) (*policy.Policy, error) {
-	var analyzer *policy.Analyzer
-	if cfg.PIIAnalyzerURL != "" {
-		var err error
-		analyzer, err = policy.NewAnalyzer(policy.AnalyzerConfig{Endpoint: cfg.PIIAnalyzerURL})
-		if err != nil {
-			return nil, fmt.Errorf("building the PII analyzer client: %w", err)
-		}
-	}
 	governance, err := policy.New(policy.Config{
-		Analyzer:            analyzer,
 		MaxHistoryMessages:  cfg.MaxHistoryMessages,
 		MaxTokensPerSession: cfg.MaxTokensPerSession,
 		ActionableError:     actionableError,
@@ -268,20 +277,26 @@ func newPolicy(cfg config.Config, trusted []tool.Tool) (*policy.Policy, error) {
 	return governance, nil
 }
 
-// actionableError classifies the failures whose own message is safe to hand
-// back to the model verbatim.
+// actionableError extracts repository-authored summaries from typed failures.
 //
-// These four are first-party, carry no untrusted content, and name the setting
-// to change. Everything else stays opaque, because an arbitrary message may
-// embed a query, a path or a driver detail that should not reach a model.
-func actionableError(err error) bool {
+// The matched value, not the outer error chain, owns the summary. In particular,
+// a retry error retains its last dependency failure for errors.Is/As but omits
+// that untrusted cause from the text returned to the model. Broad data-access
+// failures stay opaque because their fields can contain paths and driver text.
+func actionableError(err error) (string, bool) {
 	var circuitOpen *resilience.CircuitOpenError
+	if errors.As(err, &circuitOpen) {
+		return circuitOpen.Error(), true
+	}
 	var deadline *resilience.DeadlineError
+	if errors.As(err, &deadline) {
+		return deadline.Error(), true
+	}
 	var exhausted *resilience.RetriesExhaustedError
-	return errors.As(err, &circuitOpen) ||
-		errors.As(err, &deadline) ||
-		errors.As(err, &exhausted) ||
-		errors.Is(err, data.ErrDataAccess)
+	if errors.As(err, &exhausted) {
+		return exhausted.SafeSummary(), true
+	}
+	return "", false
 }
 
 // newMCPToolset builds the governed MCP route, or nil when no URL is set.
@@ -326,44 +341,4 @@ func newAgentLoader(compositions *compose.Compose) (adkagent.Loader, error) {
 		return nil, fmt.Errorf("publishing the agents: %w", err)
 	}
 	return loader, nil
-}
-
-// openSessionStore opens the persistent session store without migrating it.
-//
-// Sessions are durable state, not dataset: they live in AGENT_STATE_DIR beside
-// the runtime incident database, never in the committed dataset directory. The
-// driver is the pure-Go SQLite dialector, so the binary keeps one SQLite
-// implementation and no cgo, and the connection parameters come from the A2A
-// package so both surfaces open the same file the same way — see
-// a2aserver.SessionDataSourceName for why both of them are load-bearing.
-func openSessionStore(cfg config.Config) (session.Service, error) {
-	if err := os.MkdirAll(cfg.StateDir, 0o750); err != nil {
-		return nil, fmt.Errorf("creating the state directory %s: %w", cfg.StateDir, err)
-	}
-	sessions, err := database.NewSessionService(sqlite.Open(a2aserver.SessionDataSourceName(cfg.StateDir)))
-	if err != nil {
-		return nil, fmt.Errorf("opening the session store in %s: %w", cfg.StateDir, err)
-	}
-	return sessions, nil
-}
-
-// newSessionService opens the session store and creates ADK's schema.
-//
-// It is the launcher path's store. The A2A path deliberately does not use it:
-// there the migration is a startup step that must run *after* an interrupted
-// state restore has been recovered, because until recovery has run a
-// half-published generation is indistinguishable from a healthy one.
-func newSessionService(cfg config.Config) (session.Service, error) {
-	sessions, err := openSessionStore(cfg)
-	if err != nil {
-		return nil, err
-	}
-	// ADK never migrates for you; the launcher will not either.
-	if err := database.AutoMigrate(sessions); err != nil {
-		return nil, fmt.Errorf(
-			"migrating the session store %s: %w",
-			filepath.Join(cfg.StateDir, a2aserver.SessionDatabaseName), err,
-		)
-	}
-	return sessions, nil
 }

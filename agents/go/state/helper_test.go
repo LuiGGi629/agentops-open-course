@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 )
 
 // repositoryDataset is the committed dataset, relative to this package.
@@ -29,6 +31,20 @@ const fixedStamp = "20990101T000000Z"
 // hash, so the manifest's source identity is exercised rather than defaulted.
 var fixedCommit = strings.Repeat("a", 40)
 
+var fixedTreeDigest = "sha256:" + strings.Repeat("b", 64)
+
+func fixedBuild() buildinfo.Info {
+	return buildinfo.Info{
+		Timestamp:      time.Date(2026, 8, 9, 10, 11, 12, 0, time.UTC),
+		Mode:           buildinfo.Development,
+		Version:        buildinfo.DevelopmentVersion,
+		SourceIdentity: fixedCommit,
+		Revision:       fixedCommit,
+		TreeDigest:     fixedTreeDigest,
+		Dirty:          false,
+	}
+}
+
 // quietLogger keeps a passing test's output empty. Nothing in the Python suite
 // asserts on a log line, and a restore emits one per database.
 func quietLogger() *slog.Logger {
@@ -39,10 +55,7 @@ func quietLogger() *slog.Logger {
 // commit, and the default retention.
 func backupOptions() BackupOptions {
 	return BackupOptions{
-		Logger:       quietLogger(),
-		Keep:         defaultKeep,
-		Timestamp:    fixedStamp,
-		SourceCommit: fixedCommit,
+		Logger: quietLogger(), Keep: defaultKeep, Timestamp: fixedStamp, Build: fixedBuild(),
 	}
 }
 

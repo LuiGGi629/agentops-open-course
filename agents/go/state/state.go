@@ -54,6 +54,8 @@ import (
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/safefile"
 )
 
 // SnapshotFormatVersion is the on-disk snapshot format this binary writes and
@@ -82,15 +84,10 @@ const (
 	stampLockPrefix  = ".lock-"
 )
 
-// applicationName is the provenance stamped into every manifest.
-//
-// It is the Python distribution's name rather than this module's path, and
-// deliberately so: the two tracks share one snapshot format, and a snapshot
-// taken by either one must read as the same application to the other.
+// applicationName is the stable product identity stamped into every manifest.
+// It is intentionally independent from the Go module path so repository
+// ownership changes cannot silently invalidate a state snapshot.
 const applicationName = "agentops-agent"
-
-// unknownCommit is what the manifest records when the build did not stamp one.
-const unknownCommit = "unknown"
 
 // stampLayout is the snapshot directory name format, YYYYMMDDTHHMMSSZ. The
 // trailing Z is a literal here — Go only reads it as a zone offset when it is
@@ -140,14 +137,17 @@ func resolveLogger(logger *slog.Logger) *slog.Logger {
 
 // sha256File returns the hex SHA-256 of a file's contents.
 func sha256File(path string) (string, error) {
-	file, err := os.Open(path)
+	opened, err := safefile.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open %s for hashing: %w", path, err)
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { _ = opened.Close() }()
 	digest := sha256.New()
-	if _, err := io.CopyBuffer(digest, file, make([]byte, hashChunkSize)); err != nil {
+	if _, err := io.CopyBuffer(digest, opened.File(), make([]byte, hashChunkSize)); err != nil {
 		return "", fmt.Errorf("read %s for hashing: %w", path, err)
+	}
+	if err := opened.Verify(); err != nil {
+		return "", fmt.Errorf("verify %s after hashing: %w", path, err)
 	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }

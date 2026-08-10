@@ -214,6 +214,7 @@ const tokenBudgetExhaustedCode = "TOKEN_BUDGET_EXHAUSTED"
 // It accumulates into session state and publishes the accounting through the
 // configured recorder. It returns nil on purpose, so the response continues to
 // the redaction guard unchanged.
+// --8<-- [start:record-session-usage]
 func (p *Policy) RecordTokenUsage(
 	ctx agent.Context, response *model.LLMResponse, responseErr error,
 ) (*model.LLMResponse, error) {
@@ -263,3 +264,5 @@ func (p *Policy) RecordTokenUsage(
 	}
 	return nil, nil
 }
+
+// --8<-- [end:record-session-usage]

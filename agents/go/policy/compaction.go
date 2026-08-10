@@ -45,6 +45,7 @@ const markerRole = "user"
 // request's contents from the stored session events every turn, so nothing is
 // deleted from the session, no marker ever accumulates, and each call compacts
 // the full history afresh.
+// --8<-- [start:compact-history]
 func (p *Policy) CompactHistory(_ agent.Context, request *model.LLMRequest) (*model.LLMResponse, error) {
 	// Compaction depends only on the outgoing request, never on the context.
 	if p.maxHistoryMessages == nil || request == nil {
@@ -67,6 +68,8 @@ func (p *Policy) CompactHistory(_ agent.Context, request *model.LLMRequest) (*mo
 	request.Contents = slices.Concat([]*genai.Content{compactionMarker(contents[:cut])}, contents[cut:])
 	return nil, nil
 }
+
+// --8<-- [end:compact-history]
 
 // hasFunctionResponse reports whether a message carries a tool result.
 func hasFunctionResponse(content *genai.Content) bool {

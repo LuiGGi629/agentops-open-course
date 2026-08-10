@@ -8,10 +8,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 )
 
 // BackupOptions carries the settings a snapshot records or is bounded by.
@@ -27,9 +28,10 @@ type BackupOptions struct {
 	// as YYYYMMDDTHHMMSSZ; a value that does not parse in that layout is
 	// rejected before anything is published.
 	Timestamp string
-	// SourceCommit is the build provenance recorded in the manifest. Empty
-	// records "unknown".
-	SourceCommit string
+	// Build is the validated binary identity recorded in the manifest. Its zero
+	// value resolves through buildinfo.Current, so direct callers and the CLI use
+	// the same linker-owned authority.
+	Build buildinfo.Info
 	// Keep bounds retention: the newest Keep completed snapshots survive and the
 	// rest are pruned. It must be positive.
 	Keep int
@@ -47,13 +49,24 @@ func BackupState(ctx context.Context, stateDir, backupRoot string, opts BackupOp
 	if opts.Keep <= 0 {
 		return "", snapshotErrorf("Snapshot retention must be positive, got %d.", opts.Keep)
 	}
+	build, err := resolveBuildInfo(opts.Build)
+	if err != nil {
+		return "", err
+	}
+	opts.Build = build
+	// This is intentionally before even the existence check below. A crashed
+	// restore can leave a half-published generation that must not be inspected
+	// as if it were ordinary live state.
+	if recoveryErr := RecoverInterruptedRestore(stateDir, RecoverOptions{Logger: logger}); recoveryErr != nil {
+		return "", recoveryErr
+	}
 	if info, statErr := os.Stat(stateDir); statErr != nil || !info.IsDir() {
 		return "", snapshotErrorf("State directory not found: %s", stateDir)
 	}
 	// Both guards run before the backup root is created: a rejected invocation
 	// must not leave a directory behind that suggests a snapshot was attempted.
 	var snapshot string
-	err := withRestoreLock(filepath.Join(stateDir, restoreLockName), func() error {
+	err = withRestoreLock(filepath.Join(stateDir, restoreLockName), func() error {
 		if recoverErr := recoverRestoreLocked(stateDir, logger); recoverErr != nil {
 			return recoverErr
 		}
@@ -110,7 +123,7 @@ func backupLocked(
 		backupRoot: backupRoot,
 		snapshot:   snapshot,
 		stamp:      stamp,
-		commit:     opts.SourceCommit,
+		build:      opts.Build,
 		logger:     logger,
 	})
 	if removeErr := os.Remove(stampLock); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
@@ -133,7 +146,7 @@ type publication struct {
 	backupRoot string
 	snapshot   string
 	stamp      string
-	commit     string
+	build      buildinfo.Info
 	databases  []string
 }
 
@@ -188,12 +201,8 @@ func publishSnapshot(ctx context.Context, args publication) (published string, e
 	manifest := map[string]any{
 		"format_version": SnapshotFormatVersion,
 		"created_at":     time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-		"source": map[string]any{
-			"application": applicationName,
-			"version":     applicationVersion(),
-			"commit":      sourceCommit(args.commit),
-		},
-		"databases": inventory,
+		"source":         manifestSource(args.build),
+		"databases":      inventory,
 	}
 	if writeErr := writeJSONDocument(manifestPath, manifest, documentPerm); writeErr != nil {
 		return "", fmt.Errorf("%w: Could not write %s: %w", ErrSnapshot, manifestPath, writeErr)
@@ -286,35 +295,37 @@ func snapshotStamp(configured string) (string, error) {
 	return stamp, nil
 }
 
-// sourceCommit normalizes the recorded build provenance.
-func sourceCommit(configured string) string {
-	if trimmed := strings.TrimSpace(configured); trimmed != "" {
-		return trimmed
+func resolveBuildInfo(configured buildinfo.Info) (buildinfo.Info, error) {
+	resolved := configured
+	var err error
+	if resolved == (buildinfo.Info{}) {
+		resolved, err = buildinfo.Current()
+		if err != nil {
+			return buildinfo.Info{}, fmt.Errorf("%w: Could not read build identity: %w", ErrSnapshot, err)
+		}
 	}
-	return unknownCommit
+	if err := buildinfo.Validate(resolved); err != nil {
+		return buildinfo.Info{}, fmt.Errorf("%w: Invalid build identity: %w", ErrSnapshot, err)
+	}
+	return resolved, nil
 }
 
-// applicationVersion reports the build's own version for the manifest.
-//
-// A binary built by `go build` from a checkout has no module version, which is
-// the Go equivalent of the Python track's "the distribution is not installed".
-// Both record "uninstalled" rather than inventing a number.
-func applicationVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	return buildVersion(info, ok)
-}
-
-// buildVersion is applicationVersion's decision, split out so the fallback is
-// provable without controlling how the test binary was built.
-func buildVersion(info *debug.BuildInfo, ok bool) string {
-	if !ok || info == nil {
-		return "uninstalled"
+func manifestSource(build buildinfo.Info) map[string]any {
+	timestamp := ""
+	if !build.Timestamp.IsZero() {
+		timestamp = build.Timestamp.UTC().Format(time.RFC3339)
 	}
-	version := strings.TrimSpace(info.Main.Version)
-	// "(devel)" is what the toolchain reports for a module built outside a
-	// tagged release, which is exactly the uninstalled case.
-	if version == "" || version == "(devel)" {
-		return "uninstalled"
+	return map[string]any{
+		"application":     applicationName,
+		"build_timestamp": timestamp,
+		// commit remains as a compatibility projection for pre-Go snapshots and
+		// the frozen reference; it is never an independent input.
+		"commit":          build.SourceIdentity,
+		"dirty":           build.Dirty,
+		"mode":            string(build.Mode),
+		"revision":        build.Revision,
+		"source_identity": build.SourceIdentity,
+		"tree_digest":     build.TreeDigest,
+		"version":         build.Version,
 	}
-	return version
 }

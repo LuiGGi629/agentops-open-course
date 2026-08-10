@@ -178,6 +178,13 @@ func TestRestoreRejectsMalformedSignedManifestFieldsBeforeMutation(t *testing.T)
 			"manifest has incomplete source identity",
 		},
 		{
+			"inconsistent extended source identity",
+			func(t *testing.T, m, _ map[string]any) {
+				mustObject(t, m["source"])["tree_digest"] = "sha256:short"
+			},
+			"manifest has incomplete source identity",
+		},
+		{
 			"empty inventory",
 			func(_ *testing.T, m, _ map[string]any) { m["databases"] = []any{} },
 			"manifest has no database inventory",
@@ -252,6 +259,23 @@ func TestRestoreRejectsMalformedSignedManifestFieldsBeforeMutation(t *testing.T)
 	}
 }
 
+func TestRestoreAcceptsTheLegacyThreeFieldSourceProjection(t *testing.T) {
+	t.Parallel()
+
+	_, _, snapshot := snapshotFixture(t)
+	manifest := readJSONFixture(t, filepath.Join(snapshot, manifestName))
+	manifest["source"] = map[string]any{
+		"application": applicationName,
+		"version":     "0.5.0",
+		"commit":      fixedCommit,
+	}
+	publishManifest(t, snapshot, manifest)
+
+	if _, err := validateInventory(t.Context(), snapshot); err != nil {
+		t.Fatalf("validateInventory() rejected a legacy source projection: %v", err)
+	}
+}
+
 // cloneEntry copies a manifest record so a duplicate is a separate object.
 func cloneEntry(entry map[string]any) map[string]any {
 	clone := make(map[string]any, len(entry))
@@ -315,6 +339,51 @@ func TestRestoreRejectsUnsupportedSnapshotFormatBeforeMutation(t *testing.T) {
 	assertSnapshotError(t, err, "Unsupported snapshot marker format")
 	assertSameFingerprints(t, before, fingerprints(t, stateDir))
 	assertNoRestoreResidue(t, stateDir)
+}
+
+func TestEarlyRestoreFailuresLeaveNoUnjournaledResidue(t *testing.T) {
+	tests := []struct {
+		name      string
+		failMkdir int
+		failSync  bool
+	}{
+		{name: "staging directory creation", failMkdir: 1},
+		{name: "quarantine directory creation", failMkdir: 2},
+		{name: "state directory fsync", failSync: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			stateDir, _, snapshot := snapshotFixture(t)
+			before := generationFingerprints(t, stateDir)
+			mkdirCalls := 0
+			opts := restoreOptions()
+			opts.mkdir = func(path string, mode os.FileMode) error {
+				mkdirCalls++
+				if mkdirCalls == test.failMkdir {
+					return errors.New("injected restore mkdir failure")
+				}
+				return os.Mkdir(path, mode)
+			}
+			if test.failSync {
+				opts.syncDir = func(string) error {
+					return errors.New("injected restore fsync failure")
+				}
+			}
+
+			_, err := RestoreState(t.Context(), snapshot, stateDir, opts)
+			if err == nil || !strings.Contains(err.Error(), "injected restore") {
+				t.Fatalf("RestoreState() error = %v, want injected early failure", err)
+			}
+			assertSameFingerprints(t, before, generationFingerprints(t, stateDir))
+			assertNoRestoreResidue(t, stateDir)
+			if err := RecoverInterruptedRestore(stateDir, recoverOptions()); err != nil {
+				t.Fatalf("next startup recovery after clean early failure: %v", err)
+			}
+			assertNoRestoreResidue(t, stateDir)
+		})
+	}
 }
 
 func TestRestoreRollsBackTheCompleteGenerationAfterAPublicationFailure(t *testing.T) {

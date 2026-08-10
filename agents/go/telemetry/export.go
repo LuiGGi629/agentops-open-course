@@ -15,15 +15,15 @@ import (
 )
 
 // Redactor removes personal data and credentials from a value that is about to
-// leave the process.
+// reach a durable local or remote log sink.
 //
 // It is the seam the policy package fills: (*policy.Policy).RedactPersistedValue
 // satisfies it directly. The persisted policy, not the boundary one, because a
 // log record shipped to a collector is durable in exactly the way an audit row
 // is — once it is in Loki it cannot be unsent.
 //
-// It takes the record's context so the optional layer-2 analyzer call is bound
-// by the same deadline as the request that produced the record.
+// It takes the record's context because policy callbacks share the request
+// cancellation boundary even though deterministic redaction needs no network.
 type Redactor func(ctx context.Context, value any) any
 
 // The export bounds. Every exported string is capped, and a capped string is
@@ -79,8 +79,8 @@ type ExportConfig struct {
 //     stack, so there is no traceback body to strip.
 //  3. If redaction fails, the body becomes [OmittedBody] and every attribute is
 //     dropped. The original is never exported as a fallback.
-//  4. Nothing here mutates the record, so the console handler beside it still
-//     receives the raw text.
+//  4. Nothing here mutates the record; the sibling console handler applies its
+//     own fail-closed sanitization to an independent record clone.
 type ExportHandler struct {
 	logger log.Logger
 	redact Redactor
@@ -209,7 +209,7 @@ func (h *ExportHandler) collect(record slog.Record) []exportAttr {
 //
 // The recover is the whole point of the split: the redactor is the only code
 // here that inspects untrusted text, and if it ever panics — a bad pattern, a
-// nil map, a future analyzer client — the record must lose its body rather than
+// nil map, a future recognizer — the record must lose its body rather than
 // export it unredacted. Returning the original on failure would make the one
 // path that matters the one path with no protection.
 func (h *ExportHandler) safeValues(
@@ -223,15 +223,41 @@ func (h *ExportHandler) safeValues(
 		}
 	}()
 
-	body = boundedLogValue(h.redact(ctx, normalize(message)))
+	body = boundedLogValue(safeValue(ctx, h.redact, message))
 	attributes = make([]log.KeyValue, 0, len(collected))
 	for _, attr := range collected {
 		attributes = append(attributes, log.KeyValue{
-			Key:   attr.key,
-			Value: boundedLogValue(h.redact(ctx, normalize(attr.value))),
+			Key:   safeKey(ctx, h.redact, attr.key),
+			Value: boundedLogValue(safeValue(ctx, h.redact, attr.value)),
 		})
 	}
 	return body, attributes
+}
+
+// safeValue recursively redacts values and map keys before either durable sink
+// sees them. Attribute keys are data too: a dynamic key can contain the same
+// credential or personal-data shapes as a value.
+func safeValue(ctx context.Context, redact Redactor, value any) any {
+	switch typed := normalize(value).(type) {
+	case map[string]any:
+		safe := make(map[string]any, len(typed))
+		for key, item := range typed {
+			safe[safeKey(ctx, redact, key)] = safeValue(ctx, redact, item)
+		}
+		return safe
+	case []any:
+		safe := make([]any, len(typed))
+		for index, item := range typed {
+			safe[index] = safeValue(ctx, redact, item)
+		}
+		return safe
+	default:
+		return redact(ctx, typed)
+	}
+}
+
+func safeKey(ctx context.Context, redact Redactor, key string) string {
+	return bounded(fmt.Sprint(redact(ctx, normalize(key))))
 }
 
 // groupPrefix joins the open group path into a key prefix.

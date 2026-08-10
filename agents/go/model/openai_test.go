@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -189,6 +190,37 @@ func TestOpenAICompatibleCarriesTheModelDeadline(t *testing.T) {
 	}
 	if received := endpoint.requests(); len(received) != 1 {
 		t.Errorf("endpoint received %d requests, want 1 with %s=0", len(received), config.EnvMaxRetries)
+	}
+}
+
+func TestOpenAICompatibleRefusesCrossOriginRedirects(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var captured atomic.Int64
+			target := newStubEndpoint(t, func(writer http.ResponseWriter, _ *http.Request) {
+				captured.Add(1)
+				http.Error(writer, "redirect target", http.StatusBadGateway)
+			})
+			source := newStubEndpoint(t, func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Location", target.URL+"/v1/responses")
+				writer.WriteHeader(status)
+			})
+
+			cfg := defaults(t)
+			cfg.OpenAIBaseURL = source.URL + "/v1"
+			cfg.OpenAIAPIKey = config.Secret("redirect-sensitive-model-token")
+			cfg.MaxRetries = 0
+			llm, err := Build(t.Context(), cfg)
+			if err != nil {
+				t.Fatalf("Build() error = %v, want nil", err)
+			}
+			if _, err := drive(t, llm); err == nil {
+				t.Fatal("GenerateContent() error = nil, want redirect refusal")
+			}
+			if got := captured.Load(); got != 0 {
+				t.Fatalf("redirect target received %d request(s), want zero credential or prompt replays", got)
+			}
+		})
 	}
 }
 

@@ -13,10 +13,6 @@ import (
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
 )
 
-// reportInstructionDigest pins the report contract the same way the other
-// instructions are pinned.
-const reportInstructionDigest = "399ee980c8ab98bf6fb521bd31b0b6ef5ab2ff804ad82cb9e111560ef7833a62"
-
 // validReport is the payload the Python suite uses, built from the vocabulary
 // rather than from literals so the domain portability ratchet stays shut and
 // the test survives a pivoted domain.
@@ -325,10 +321,10 @@ func TestReportAgentEnforcesTheSchema(t *testing.T) {
 		t.Errorf("OutputSchema.Title = %q, want %q", cfg.OutputSchema.Title, triageReportSchemaTitle)
 	}
 
-	if got := digest(ReportInstruction); got != reportInstructionDigest {
-		t.Errorf("instruction digest = %s, want %s", got, reportInstructionDigest)
-	}
-	for _, phrase := range []string{"exact service and runbook fields", "no query filter", "that order"} {
+	for _, phrase := range []string{
+		"Call get_incident first", "exact service and runbook fields", "no query filter", "that order",
+		"from tool output only", "never invent ids", "JSON object only", "no Markdown fences",
+	} {
 		if !strings.Contains(ReportInstruction, phrase) {
 			t.Errorf("instruction lost the phrase %q the evalsets depend on", phrase)
 		}

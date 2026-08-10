@@ -218,7 +218,7 @@ func sanitizeValue(value any) (any, int) {
 func (p *Policy) SanitizeToolResponse(ctx agent.Context, result map[string]any) map[string]any {
 	sanitized, hits := sanitizeValue(result)
 	if hits > 0 {
-		p.logger.WarnContext(ctx, "Neutralized injection markers in tool output", "hits", hits)
+		p.activeLogger().WarnContext(ctx, "Neutralized injection markers in tool output", "hits", hits)
 		if p.recordInjections != nil {
 			p.recordInjections(ctx, hits)
 		}
@@ -374,9 +374,14 @@ func (p *Policy) HandleToolError(
 ) (map[string]any, error) {
 	// The arguments are deliberately not logged: they are model-authored and
 	// may carry text the redaction guards have already removed elsewhere.
-	p.logger.ErrorContext(ctx, "Tool failed", "tool", called.Name(), "error", callErr)
-	if p.actionableError != nil && p.actionableError(callErr) {
-		return map[string]any{"error": callErr.Error()}, nil
+	// Provider and dependency errors can carry response bodies, credentials, or
+	// endpoint URLs. The durable log keeps the class needed for grouping without
+	// persisting the untrusted body.
+	p.activeLogger().ErrorContext(ctx, "Tool failed", "tool", called.Name(), "error_type", fmt.Sprintf("%T", callErr))
+	if p.actionableError != nil {
+		if summary, ok := p.actionableError(callErr); ok && strings.TrimSpace(summary) != "" {
+			return map[string]any{"error": summary}, nil
+		}
 	}
 	return map[string]any{"error": fmt.Sprintf(
 		"Tool %q failed safely; inspect the service logs for the root cause.", called.Name(),
@@ -388,7 +393,7 @@ func (p *Policy) HandleToolError(
 func (p *Policy) HandleModelError(
 	ctx agent.Context, _ *model.LLMRequest, modelErr error,
 ) (*model.LLMResponse, error) {
-	p.logger.ErrorContext(ctx, "Model request failed", "error", modelErr)
+	p.activeLogger().ErrorContext(ctx, "Model request failed", "error_type", fmt.Sprintf("%T", modelErr))
 	return &model.LLMResponse{
 		Content: &genai.Content{
 			Role:  modelRole,

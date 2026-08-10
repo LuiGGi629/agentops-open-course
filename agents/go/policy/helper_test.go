@@ -6,13 +6,10 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"google.golang.org/adk/v2/agent"
@@ -227,44 +224,6 @@ func loadSkillTool(t *testing.T) tool.Tool {
 	}
 	t.Fatal("the skill toolset did not build a load_skill tool")
 	return nil
-}
-
-// analyzerStub is a stand-in Presidio analyzer.
-type analyzerStub struct {
-	// handler answers POST /analyze. It receives the decoded request.
-	handler func(t *testing.T, request analyzeRequest) (int, string)
-	// calls counts the requests the stub received. Atomic because the handler
-	// runs on the server's goroutine while the test reads the count.
-	calls atomic.Int64
-}
-
-// start runs the stub and returns an [Analyzer] pointed at it.
-func (s *analyzerStub) start(t *testing.T, cfg AnalyzerConfig) *Analyzer {
-	t.Helper()
-
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		s.calls.Add(1)
-		var decoded analyzeRequest
-		if err := json.NewDecoder(request.Body).Decode(&decoded); err != nil {
-			t.Errorf("decoding the analyzer request: %v", err)
-			writer.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		status, body := s.handler(t, decoded)
-		writer.Header().Set("Content-Type", "application/json")
-		writer.WriteHeader(status)
-		if _, err := writer.Write([]byte(body)); err != nil {
-			t.Errorf("writing the analyzer response: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	cfg.Endpoint = server.URL
-	analyzer, err := NewAnalyzer(cfg)
-	if err != nil {
-		t.Fatalf("NewAnalyzer() error = %v, want nil", err)
-	}
-	return analyzer
 }
 
 // renderValue flattens a structured value into searchable text.

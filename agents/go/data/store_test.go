@@ -20,6 +20,17 @@ func stagingFiles(t *testing.T, store *Store) []string {
 	return matches
 }
 
+func copyTestFile(t *testing.T, source, target string) {
+	t.Helper()
+	content, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read test source %s: %v", source, err)
+	}
+	if err := os.WriteFile(target, content, 0o600); err != nil {
+		t.Fatalf("write test target %s: %v", target, err)
+	}
+}
+
 func TestDBPathFailsWhenSeedIsMissing(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -39,6 +50,98 @@ func TestDBPathFailsWhenSeedIsMissing(t *testing.T) {
 	// always a misconfigured data directory.
 	if !strings.Contains(err.Error(), store.SeedPath()) {
 		t.Errorf("error does not carry the seed path %s: %v", store.SeedPath(), err)
+	}
+}
+
+func TestDBPathRejectsASymlinkedSeed(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	target := filepath.Join(filepath.Dir(store.DataDir()), "outside-seed.db")
+	copyTestFile(t, store.SeedPath(), target)
+	if err := os.Remove(store.SeedPath()); err != nil {
+		t.Fatalf("remove the copied seed: %v", err)
+	}
+	if err := os.Symlink(target, store.SeedPath()); err != nil {
+		t.Skipf("create a seed symlink on this platform: %v", err)
+	}
+
+	_, err := store.DBPath()
+	if !errors.Is(err, ErrDataAccess) || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("DBPath() error = %v, want no-follow regular-file refusal", err)
+	}
+	if _, err := os.Lstat(store.RuntimePath()); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("runtime path exists after refusing the seed symlink: %v", err)
+	}
+}
+
+func TestDBPathRejectsUnsafeExistingRuntimeEntries(t *testing.T) {
+	tests := []struct {
+		create func(t *testing.T, store *Store)
+		name   string
+	}{
+		{
+			name: "symlink to immutable seed",
+			create: func(t *testing.T, store *Store) {
+				if err := os.Symlink(store.SeedPath(), store.RuntimePath()); err != nil {
+					t.Skipf("create a runtime symlink on this platform: %v", err)
+				}
+			},
+		},
+		{
+			name: "symlink outside state",
+			create: func(t *testing.T, store *Store) {
+				outside := filepath.Join(filepath.Dir(store.StateDir()), "outside.db")
+				copyTestFile(t, store.SeedPath(), outside)
+				if err := os.Symlink(outside, store.RuntimePath()); err != nil {
+					t.Skipf("create a runtime symlink on this platform: %v", err)
+				}
+			},
+		},
+		{
+			name: "directory",
+			create: func(t *testing.T, store *Store) {
+				if err := os.Mkdir(store.RuntimePath(), 0o750); err != nil {
+					t.Fatalf("create runtime directory: %v", err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			store := newTestStore(t)
+			if err := os.MkdirAll(store.StateDir(), stateDirPerm); err != nil {
+				t.Fatalf("create state directory: %v", err)
+			}
+			test.create(t, store)
+
+			_, err := store.DBPath()
+			if !errors.Is(err, ErrDataAccess) || !strings.Contains(err.Error(), "regular file") {
+				t.Fatalf("DBPath() error = %v, want no-follow regular-file refusal", err)
+			}
+		})
+	}
+}
+
+func TestDBPathRejectsASymlinkedStateDirectory(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	outside := filepath.Join(filepath.Dir(store.StateDir()), "outside-state")
+	if err := os.Mkdir(outside, stateDirPerm); err != nil {
+		t.Fatalf("create outside directory: %v", err)
+	}
+	if err := os.Symlink(outside, store.StateDir()); err != nil {
+		t.Skipf("create a state-directory symlink on this platform: %v", err)
+	}
+
+	_, err := store.DBPath()
+	if !errors.Is(err, ErrDataAccess) || !strings.Contains(err.Error(), "real directory") {
+		t.Fatalf("DBPath() error = %v, want confined state-directory refusal", err)
+	}
+	if _, err := os.Lstat(filepath.Join(outside, databaseName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("writable database escaped into symlink target: %v", err)
 	}
 }
 

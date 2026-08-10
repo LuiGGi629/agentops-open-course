@@ -285,11 +285,10 @@ func TestExportCarriesTheTraceCorrelationAndOnlyTheFailureType(t *testing.T) {
 	}
 }
 
-// TestConsoleKeepsTheRawRecordWhileExportIsRedacted is the asymmetry the whole
-// package exists for, asserted end to end through [telemetry.NewHandler]: the
-// engineer at the terminal sees what actually happened, and the collector
-// receives a redacted, bounded, trace-correlated copy of it.
-func TestConsoleKeepsTheRawRecordWhileExportIsRedacted(t *testing.T) {
+// TestConsoleAndExportBothReceiveRedactedRecords pins the durable-sink rule:
+// terminals and CI capture persist output too, so neither local nor OTLP logs
+// may retain the credential while both keep trace correlation.
+func TestConsoleAndExportBothReceiveRedactedRecords(t *testing.T) {
 	t.Parallel()
 
 	ctx, traceID, _ := sampledContext(t)
@@ -313,7 +312,11 @@ func TestConsoleKeepsTheRawRecordWhileExportIsRedacted(t *testing.T) {
 		t.Fatalf("NewExportHandler() error = %v, want nil", err)
 	}
 	console := &capture{}
-	fanout, err := telemetry.NewMultiHandler(console, export)
+	sanitizedConsole, err := telemetry.NewSanitizingHandler(console, governance.RedactPersistedValue)
+	if err != nil {
+		t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+	}
+	fanout, err := telemetry.NewMultiHandler(sanitizedConsole, export)
 	if err != nil {
 		t.Fatalf("NewMultiHandler() error = %v, want nil", err)
 	}
@@ -322,10 +325,10 @@ func TestConsoleKeepsTheRawRecordWhileExportIsRedacted(t *testing.T) {
 	secret := "password=super-secret-value-123456"
 	logger.WarnContext(ctx, secret)
 
-	// The console record is the one the caller wrote, plus the correlation.
+	// The console record is redacted and trace-correlated.
 	local := console.only(t)
-	if local.Message != secret {
-		t.Errorf("console message = %q, want the raw %q", local.Message, secret)
+	if strings.Contains(local.Message, "super-secret-value-123456") {
+		t.Errorf("the credential reached the console: %q", local.Message)
 	}
 	if got := attributes(local)[telemetry.TraceIDKey]; got != traceID {
 		t.Errorf("console %s = %q, want %q", telemetry.TraceIDKey, got, traceID)

@@ -408,7 +408,9 @@ func TestAToolErrorResultIsStillRedacted(t *testing.T) {
 
 	policy := newPolicy(t, Config{
 		SanitizeToolOutput: true,
-		ActionableError:    func(error) bool { return true },
+		// Deliberately violate the composition contract here: the after-tool
+		// redactor remains defense in depth even if a future classifier regresses.
+		ActionableError: func(err error) (string, bool) { return err.Error(), true },
 	})
 	failed := errors.New("lookup for " + operatorEmail + " failed after 2 attempts")
 	called := &namedTool{name: tools.GetIncidentToolName}
@@ -714,30 +716,32 @@ func TestActionArgumentNamesMatchTheTools(t *testing.T) {
 }
 
 // TestHandleToolErrorClassifies is the error-hygiene contract: first-party
-// failures keep their message, everything else stays opaque, and both are
-// logged in full.
+// failures keep only their typed safe summary, everything else stays opaque,
+// and durable logs retain only the failure type.
 func TestHandleToolErrorClassifies(t *testing.T) {
 	t.Parallel()
 
 	actionable := errors.New("circuit is open, retrying in at most 30s")
 	handler := &recordingHandler{}
 	policy := newPolicy(t, Config{
-		Logger:          slog.New(handler),
-		ActionableError: func(err error) bool { return errors.Is(err, actionable) },
+		Logger: slog.New(handler),
+		ActionableError: func(err error) (string, bool) {
+			return actionable.Error(), errors.Is(err, actionable)
+		},
 	})
 
 	for _, failure := range []struct {
-		err      error
-		name     string
-		want     string
-		leaked   string
-		verbatim bool
+		err          error
+		name         string
+		want         string
+		leaked       string
+		typedSummary bool
 	}{
 		{
-			name:     "a first-party failure names the knob to turn",
-			err:      fmt.Errorf("read failed: %w", actionable),
-			want:     "circuit is open",
-			verbatim: true,
+			name:         "a first-party failure names the knob to turn",
+			err:          fmt.Errorf("read failed: %w", actionable),
+			want:         "circuit is open",
+			typedSummary: true,
 		},
 		{
 			name:   "an arbitrary failure stays opaque",
@@ -758,18 +762,51 @@ func TestHandleToolErrorClassifies(t *testing.T) {
 			if !strings.Contains(message, failure.want) {
 				t.Errorf("HandleToolError() = %q, want it to contain %q", message, failure.want)
 			}
-			if failure.verbatim && message != failure.err.Error() {
-				t.Errorf("HandleToolError() = %q, want the message verbatim: %q", message, failure.err.Error())
+			if failure.typedSummary && message != actionable.Error() {
+				t.Errorf("HandleToolError() = %q, want the typed safe summary: %q", message, actionable)
 			}
 			if failure.leaked != "" && strings.Contains(message, failure.leaked) {
 				t.Errorf("HandleToolError() = %q, it leaked %q to the model", message, failure.leaked)
 			}
-			// The detail withheld from the model still has to reach the log, or
-			// the failure becomes invisible to the engineer who can fix it.
-			if !strings.Contains(handler.rendered(), failure.err.Error()) {
-				t.Errorf("the log does not carry %q:\n%s", failure.err.Error(), handler.rendered())
+			if strings.Contains(handler.rendered(), failure.err.Error()) {
+				t.Errorf("the raw failure reached the log:\n%s", handler.rendered())
+			}
+			if !strings.Contains(handler.rendered(), "error_type="+fmt.Sprintf("%T", failure.err)) {
+				t.Errorf("the log does not carry the failure type:\n%s", handler.rendered())
 			}
 		})
+	}
+}
+
+func TestHandleToolErrorNeverReturnsAnActionableWrapper(t *testing.T) {
+	t.Parallel()
+
+	actionable := errors.New("circuit is open; retry after the configured cooldown")
+	policy := newPolicy(t, Config{
+		ActionableError: func(err error) (string, bool) {
+			return actionable.Error(), errors.Is(err, actionable)
+		},
+	})
+	failure := fmt.Errorf(
+		"provider body password=SYNTHETIC_DO_NOT_USE_TOOL_ERROR_123456: %w",
+		actionable,
+	)
+
+	result, err := policy.HandleToolError(
+		newContext(), &namedTool{name: "get_incident"}, nil, failure,
+	)
+	if err != nil {
+		t.Fatalf("HandleToolError() error = %v, want nil", err)
+	}
+	message, ok := result["error"].(string)
+	if !ok {
+		t.Fatalf("HandleToolError() = %v, want an error key", result)
+	}
+	if strings.Contains(message, "SYNTHETIC_DO_NOT_USE") || strings.Contains(message, "provider body") {
+		t.Fatalf("HandleToolError() returned an untrusted wrapper: %q", message)
+	}
+	if !strings.Contains(message, "circuit is open") {
+		t.Fatalf("HandleToolError() = %q, want the first-party safe summary", message)
 	}
 }
 
@@ -814,7 +851,34 @@ func TestHandleModelErrorAnswersActionably(t *testing.T) {
 	if text := response.Content.Parts[0].Text; !strings.Contains(text, "provider is unavailable") {
 		t.Errorf("response text = %q, want it to say the provider is unavailable", text)
 	}
-	if !strings.Contains(handler.rendered(), "11434") {
-		t.Errorf("the log does not carry the underlying failure:\n%s", handler.rendered())
+	if strings.Contains(handler.rendered(), "11434") {
+		t.Errorf("the raw provider endpoint reached the log:\n%s", handler.rendered())
+	}
+	if !strings.Contains(handler.rendered(), "error_type=") {
+		t.Errorf("the log does not carry the provider failure type:\n%s", handler.rendered())
+	}
+}
+
+func TestPolicyResolvesTheDefaultLoggerWhenItEmits(t *testing.T) {
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	startup := &recordingHandler{}
+	slog.SetDefault(slog.New(startup))
+	policy, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error = %v, want nil", err)
+	}
+	installed := &recordingHandler{}
+	slog.SetDefault(slog.New(installed))
+
+	if _, err := policy.HandleModelError(newContext(), nil, errors.New("synthetic provider failure")); err != nil {
+		t.Fatalf("HandleModelError() error = %v, want nil", err)
+	}
+	if startup.rendered() != "" {
+		t.Fatalf("startup logger received a post-install policy record: %s", startup.rendered())
+	}
+	if !strings.Contains(installed.rendered(), "Model request failed") {
+		t.Fatalf("installed logger did not receive the policy record: %s", installed.rendered())
 	}
 }

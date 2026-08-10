@@ -200,6 +200,7 @@ func (t *Tools) readIncidents(ctx context.Context, args ListIncidentsArgs) (List
 }
 
 // runGetIncident is the get_incident handler.
+// --8<-- [start:get-incident]
 func (t *Tools) runGetIncident(ctx agent.Context, args GetIncidentArgs) (GetIncidentResult, error) {
 	var result GetIncidentResult
 	err := t.guard(ctx, GetIncidentToolName, func(ctx context.Context) error {
@@ -209,6 +210,8 @@ func (t *Tools) runGetIncident(ctx agent.Context, args GetIncidentArgs) (GetInci
 	})
 	return result, err
 }
+
+// --8<-- [end:get-incident]
 
 func (t *Tools) readIncident(ctx context.Context, args GetIncidentArgs) (GetIncidentResult, error) {
 	incidentID, err := domain.NormalizeIncidentID(args.IncidentID)

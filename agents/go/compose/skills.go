@@ -27,7 +27,8 @@ import (
 
 // The three tools ADK's skill toolset constructs.
 const (
-	// ListSkillsToolName returns names and descriptions only.
+	// ListSkillsToolName is ADK's redundant catalog tool. The catalog is
+	// injected on every request, so this composition does not expose it.
 	ListSkillsToolName = "list_skills"
 	// LoadSkillToolName returns one reviewed SKILL.md body.
 	LoadSkillToolName = "load_skill"
@@ -65,11 +66,11 @@ func SkillsDir(dataDir string) string { return filepath.Join(dataDir, skillsDire
 // Skills is a least-privilege, instruction-only view of ADK's skill toolset.
 //
 // ADK always builds three tools — list_skills, load_skill and
-// load_skill_resource — and its Config has no filter. The Python track pinned
-// the surface to the first two, and that pin is a security control rather than
-// tidiness: load_skill_resource returns arbitrary files from a skill directory,
-// which is a much wider surface than a reviewed SKILL.md body, and the policy
-// plane's trust carve-out deliberately covers only the reviewed body.
+// load_skill_resource — and its Config has no filter. Only load_skill reaches
+// the model. list_skills repeats the catalog already injected on every request,
+// while load_skill_resource returns arbitrary files from a skill directory.
+// The policy plane's trust carve-out deliberately covers only the reviewed
+// SKILL.md body returned by load_skill.
 //
 // ADK's own tool.FilterToolset cannot be used to apply that pin. Its wrapper
 // implements only Name and Tools, and the LLM flow silently skips a toolset
@@ -108,7 +109,7 @@ func NewSkills(ctx context.Context, dir string) (*Skills, error) {
 	// eagerly and its Tools method ignores the context it is handed — and the
 	// policy plane needs the load_skill value at wiring time anyway, so the
 	// filter and the trust carve-out read the same slice.
-	allowed := []string{ListSkillsToolName, LoadSkillToolName}
+	allowed := []string{LoadSkillToolName}
 	built, err := inner.Tools(nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w from %s: %w", ErrSkills, dir, err)
@@ -164,6 +165,6 @@ func (s *Skills) LoadSkillTool() tool.Tool {
 			return candidate
 		}
 	}
-	// Unreachable: NewSkills refuses to return a toolset missing either tool.
+	// Unreachable: NewSkills refuses to return a toolset missing load_skill.
 	return nil
 }

@@ -6,11 +6,10 @@
 //
 // launcher.Config.TelemetryOptions feeds google.golang.org/adk/v2/telemetry,
 // which builds a TracerProvider and a LoggerProvider from the standard
-// OTEL_EXPORTER_OTLP_* variables, installs both globally, and emits a span for
-// every model call, tool call, agent invocation and workflow node. There is no
-// TracerProvider here, and there must never be one: a second provider installed
-// after ADK's packages load would silently orphan every ADK span, because ADK
-// resolves its tracer from the global provider at package-init time.
+// OTEL_EXPORTER_OTLP_* variables and installs both globally. Its spans remain
+// non-recording unless [SetContentCaptureDefaults] sees explicit risk
+// acceptance. There is no TracerProvider here: a second provider installed
+// after ADK's packages load would silently orphan its package-level tracer.
 //
 // # What ADK does not do, and this package therefore does
 //
@@ -19,21 +18,22 @@
 //     four custom agentops.* counters need to reach Prometheus. See metrics.go.
 //  2. Trace-correlated logs. Go's log/slog knows nothing about OpenTelemetry,
 //     so [OtelHandler] stamps the active trace and span identifiers onto every
-//     record, and [NewHandler] fans each record out to the console verbatim and
-//     to OTLP through a redacting, bounded, fail-closed filter. See slog.go and
-//     export.go. Without the stamping, Grafana's trace-to-logs and Loki's
+//     record, and [NewHandler] fans each record out to independently redacted,
+//     bounded, fail-closed console and OTLP handlers. [SanitizingWriter] applies
+//     the same durable-sink policy to ADK's remaining standard-library logs.
+//     See slog.go and export.go.
+//     Without the stamping, Grafana's trace-to-logs and Loki's
 //     derived fields have no identifier to join on and the correlation the
 //     whole observability chapter is built on does not resolve.
-//  3. Content-capture defaults. See [SetContentCaptureDefaults].
+//  3. The content-capture defaults and fail-closed ADK trace gate. See
+//     [SetContentCaptureDefaults].
 //
 // # Configuration
 //
-// Everything here is gated by the standard OTLP environment variables, exactly
-// as ADK gates itself: with no endpoint set, no exporter is built, nothing is
-// sent, and no error is raised. That is what keeps the account-free local path
-// silent. The package reads those variables through [ExportConfigured],
-// [LogsConfigured] and [MetricsConfigured] rather than holding a package
-// singleton, so a caller decides once at startup and passes the answer in.
+// Exporters are gated by the standard OTLP environment variables. ADK trace
+// recording has the additional explicit risk gate documented above. The
+// package reads exporter variables through [ExportConfigured], [LogsConfigured]
+// and [MetricsConfigured] rather than holding a package singleton.
 package telemetry
 
 import (
@@ -41,9 +41,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 )
 
 // ScopeName is the OpenTelemetry instrumentation scope every signal this agent
@@ -65,18 +69,20 @@ const ScopeName = "agentops.agent"
 // label. It matches the ADK application name the policy plugin governs.
 const ServiceName = "agentops-agent"
 
-// The content-capture switches, and the value that keeps them off.
+// The content-capture switches and the sampler value that keeps unsafe ADK
+// spans non-recording.
 //
-// Course invariant: telemetry content stays private by default. Spans and log
-// records keep timing, model, tool, token and status metadata, and never carry
-// the user's prompt or the model's answer, unless an operator opts in
-// explicitly. ADK Go reads only the GenAI variable (its Python counterpart read
-// both); the ADK one is pinned anyway so the two tracks resolve to the same
-// answer and a future ADK release cannot quietly flip the default.
+// Course invariant: telemetry content stays private by default. ADK Go reads
+// only the GenAI variable; this repository deliberately owns the ADK-named
+// variable as its exact-literal risk gate because the pinned spans always carry
+// tool payloads and may carry raw errors.
 const (
 	EnvADKCaptureMessageContent   = "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"
 	EnvGenAICaptureMessageContent = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
+	EnvTracesSampler              = "OTEL_TRACES_SAMPLER"
 	ContentCaptureDisabled        = "false"
+	ContentCaptureEnabled         = "true"
+	TraceSamplerDisabled          = "always_off"
 )
 
 // The standard OTLP environment variables this package gates on. They are named
@@ -91,28 +97,57 @@ const (
 	EnvOTLPLogsEndpoint    = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
 )
 
+// --8<-- [start:content-capture-defaults]
 // SetContentCaptureDefaults pins both content-capture switches to "false"
-// unless the operator has already chosen a value.
+// unless the operator has already chosen a valid value, and disables the
+// pinned ADK's unsafe spans unless the operator explicitly accepts their
+// content-bearing behavior.
 //
-// It is a default, not an override: an explicitly exported variable wins, which
-// is what lets a learner turn capture on for one debugging session in Chapter
-// 7.1 without editing code. Call it once, before the launcher builds the
-// telemetry providers — ADK reads its variable through a sync.Once, so a later
-// call has no effect on a process that already logged one model call.
+// ADK Go v2.1.0 always serializes tool arguments and results onto execute_tool
+// spans and records raw error text in exception events. Neither capture switch
+// controls those fields, and the ADK provider offers no stable field-filtering
+// seam. Therefore false, unset, or malformed
+// ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS forces OTEL_TRACES_SAMPLER=always_off,
+// overriding any sampler the environment supplied. Malformed values also
+// return an error after the boundary is closed. Only the exact literal "true"
+// accepts that risk and preserves the operator's sampler choice.
+//
+// The GenAI switch remains an ordinary default because it controls log-event
+// bodies, which the repository sanitizes on both durable log paths. Call this
+// before the launcher builds telemetry providers. It is safe and intentional
+// to call it again at the provider boundary so direct runtime assembly cannot
+// bypass the fail-closed rule.
 func SetContentCaptureDefaults() error {
 	var problems []error
-	for _, name := range []string{EnvADKCaptureMessageContent, EnvGenAICaptureMessageContent} {
-		if _, chosen := os.LookupEnv(name); chosen {
-			continue
+	pin := func(name, value string) {
+		if err := os.Setenv(name, value); err != nil {
+			problems = append(problems, fmt.Errorf("pinning %s to %q: %w", name, value, err))
 		}
-		if err := os.Setenv(name, ContentCaptureDisabled); err != nil {
-			problems = append(problems, fmt.Errorf(
-				"pinning %s to %q: %w", name, ContentCaptureDisabled, err,
-			))
-		}
+	}
+
+	adkCapture, chosen := os.LookupEnv(EnvADKCaptureMessageContent)
+	riskAccepted := chosen && adkCapture == ContentCaptureEnabled
+	malformed := chosen && adkCapture != ContentCaptureEnabled && adkCapture != ContentCaptureDisabled
+	if !riskAccepted {
+		// Normalize malformed values as well as the unset case. A typo in a risk
+		// acceptance switch must close the boundary, not silently open it.
+		pin(EnvADKCaptureMessageContent, ContentCaptureDisabled)
+		pin(EnvTracesSampler, TraceSamplerDisabled)
+	}
+	if malformed {
+		problems = append(problems, fmt.Errorf(
+			"%s must be the literal %q or %q",
+			EnvADKCaptureMessageContent, ContentCaptureEnabled, ContentCaptureDisabled,
+		))
+	}
+
+	if _, genAIChosen := os.LookupEnv(EnvGenAICaptureMessageContent); !genAIChosen {
+		pin(EnvGenAICaptureMessageContent, ContentCaptureDisabled)
 	}
 	return errors.Join(problems...)
 }
+
+// --8<-- [end:content-capture-defaults]
 
 // sdkDisabled reports the OTEL_SDK_DISABLED kill switch.
 //
@@ -180,10 +215,20 @@ func MetricsConfigured() bool {
 // resource with resource.Merge, which fails outright when two non-empty schema
 // URLs disagree — and ADK's default resource carries the SDK's, which moves
 // with every OpenTelemetry release. An empty schema URL merges with anything,
-// and the only attributes here are two whose keys have been stable for years.
-func Resource(version string) *resource.Resource {
-	return resource.NewSchemaless(
+// and the attributes here are repository-owned build/source keys plus stable
+// service semantic conventions.
+func Resource(build buildinfo.Info) *resource.Resource {
+	attributes := []attribute.KeyValue{
 		semconv.ServiceName(ServiceName),
-		semconv.ServiceVersion(version),
-	)
+		semconv.ServiceVersion(build.Version),
+		attribute.String("agentops.build.mode", string(build.Mode)),
+		attribute.String("agentops.source.identity", build.SourceIdentity),
+		attribute.String("agentops.source.revision", build.Revision),
+		attribute.String("agentops.source.tree_digest", build.TreeDigest),
+		attribute.Bool("agentops.source.dirty", build.Dirty),
+	}
+	if !build.Timestamp.IsZero() {
+		attributes = append(attributes, attribute.String("agentops.build.timestamp", build.Timestamp.UTC().Format(time.RFC3339)))
+	}
+	return resource.NewSchemaless(attributes...)
 }

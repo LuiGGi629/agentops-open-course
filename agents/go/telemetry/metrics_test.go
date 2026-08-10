@@ -260,7 +260,7 @@ func TestRecordersFillThePolicyAndReportSeams(t *testing.T) {
 func TestInstallMeterProviderInstallsNothingWithoutAnEndpoint(t *testing.T) {
 	clearOTLPEnvironment(t)
 
-	shutdown, err := telemetry.InstallMeterProvider(context.Background(), telemetry.Resource("0.0.0"))
+	shutdown, err := telemetry.InstallMeterProvider(context.Background(), telemetry.Resource(testBuildInfo()))
 	if err != nil {
 		t.Fatalf("InstallMeterProvider() error = %v, want nil", err)
 	}

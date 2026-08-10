@@ -293,9 +293,18 @@ type identity struct {
 // outside the module, so the invocation context is supplied here instead.
 func toolContext(t *testing.T, approval confirmation, who identity) (agent.Context, *session.EventActions) {
 	t.Helper()
+	return toolContextWithBase(t, t.Context(), approval, who)
+}
+
+// toolContextWithBase is the boundary-aware variant used when a test must prove
+// which request provenance reaches a guarded tool.
+func toolContextWithBase(
+	t *testing.T, base context.Context, approval confirmation, who identity,
+) (agent.Context, *session.EventActions) {
+	t.Helper()
 
 	invocation := &fakeInvocation{
-		Context: t.Context(),
+		Context: base,
 		session: fakeSession{
 			id:      valueOr(who.sessionID, testSessionID),
 			appName: auditActor,

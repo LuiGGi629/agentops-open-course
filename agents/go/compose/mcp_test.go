@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -147,6 +148,41 @@ func TestMCPToolsetSendsNoTokenWhenUnset(t *testing.T) {
 	}
 	if got := seen.authorization(); got != "" {
 		t.Errorf("Authorization = %q, want no header", got)
+	}
+}
+
+func TestMCPToolsetRefusesCrossOriginRedirects(t *testing.T) {
+	const token = "redirect-sensitive-gateway-token"
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var captured atomic.Int64
+			target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				captured.Add(1)
+				http.Error(writer, "redirect target", http.StatusBadGateway)
+			}))
+			t.Cleanup(target.Close)
+
+			source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Location", target.URL+"/mcp")
+				writer.WriteHeader(status)
+			}))
+			t.Cleanup(source.Close)
+
+			toolset, err := NewMCPToolset(MCPConfig{
+				Endpoint: source.URL,
+				Token:    config.Secret(token),
+				Timeout:  time.Second,
+			})
+			if err != nil {
+				t.Fatalf("NewMCPToolset() error = %v, want nil", err)
+			}
+			if _, err := toolset.Tools(newContext(t)); err == nil {
+				t.Fatal("Tools() error = nil, want redirect refusal")
+			}
+			if got := captured.Load(); got != 0 {
+				t.Fatalf("redirect target received %d request(s), want zero credential or body replays", got)
+			}
+		})
 	}
 }
 

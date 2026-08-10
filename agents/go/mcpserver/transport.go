@@ -281,6 +281,7 @@ func (s *Server) Transport() Transport { return s.options.Transport }
 // foreground server, and Kubernetes sending SIGTERM, both arrive here as a
 // canceled context and both return nil. That is the Go shape of the Python
 // entrypoint's decision to swallow KeyboardInterrupt.
+// --8<-- [start:mcp-server-transport]
 func (s *Server) Serve(ctx context.Context) error {
 	switch s.options.Transport {
 	case TransportStdio:
@@ -293,6 +294,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("%w: unsupported transport %q", ErrInvalidOptions, s.options.Transport)
 	}
 }
+
+// --8<-- [end:mcp-server-transport]
 
 // serveStdio serves one client over the process's standard streams.
 func (s *Server) serveStdio(ctx context.Context) error {

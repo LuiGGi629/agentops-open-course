@@ -9,6 +9,7 @@
 // # One binary, one set of surfaces
 //
 //	agent config:check                 # resolved configuration, secrets masked
+//	agent config:example               # regenerate the root environment example
 //	agent                              # interactive console
 //	agent console -streaming_mode=sse
 //	agent web -port 8002 webui api     # Dev UI at /ui/, REST at /api
@@ -39,20 +40,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"syscall"
 
 	"google.golang.org/adk/v2/cmd/launcher"
-	"google.golang.org/adk/v2/cmd/launcher/full"
 	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/platformdrill"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
 )
@@ -64,9 +65,12 @@ import (
 // subcommand, and spelling it twice is how the host scripts and the binary
 // would eventually disagree about it.
 const (
-	configCheckCommand = "config:check"
-	mcpCommand         = "mcp"
-	a2aCommand         = "a2a"
+	configCheckCommand    = "config:check"
+	configExampleCommand  = "config:example"
+	guardrailCheckCommand = "guardrail:check"
+	mcpCommand            = "mcp"
+	a2aCommand            = "a2a"
+	versionCommand        = "version"
 )
 
 func main() {
@@ -83,9 +87,9 @@ func main() {
 // execute is main without the exit, so the subcommand dispatch and the failure
 // report are provable rather than only reviewable.
 func execute(ctx context.Context, arguments []string, out, errOut io.Writer) int {
-	// First, before any other work in any mode. ADK reads its content-capture
-	// switch through a sync.Once, so a call made after the launcher has built
-	// its providers would silently have no effect on this process.
+	// First, before any other work in any mode. This globally pins the content
+	// defaults and disables unsafe ADK trace sampling before any provider can be
+	// constructed; the GenAI log switch is also read through a sync.Once.
 	if err := telemetry.SetContentCaptureDefaults(); err != nil {
 		return report(errOut, err, "")
 	}
@@ -97,17 +101,28 @@ func execute(ctx context.Context, arguments []string, out, errOut io.Writer) int
 	switch command {
 	case configCheckCommand:
 		return config.Check(out, errOut)
+	case configExampleCommand:
+		return report(errOut, config.EnvExampleCommand(arguments[1:], out), "")
+	case guardrailCheckCommand:
+		return report(errOut, checkRunbookGuardrail(arguments[1:], out), "")
+	case versionCommand:
+		return report(errOut, printBuildInfo(arguments[1:], out), "")
 	case state.Command:
 		return state.Main(ctx, arguments[1:], stateEnvironment(), out, errOut)
+	case platformdrill.Command:
+		return platformdrill.Main(ctx, arguments[1:], out, errOut)
 	case mcpCommand:
 		return report(errOut, serveMCP(ctx, arguments[1:], errOut), "")
 	case a2aCommand:
 		return report(errOut, serveA2A(ctx, arguments[1:], errOut), "")
 	default:
-		agentLauncher := full.NewLauncher()
-		// The launcher returns an error for an unrecognized mode; printing the
-		// syntax is the caller's job, and this is the caller.
-		return report(errOut, run(ctx, agentLauncher, arguments, errOut), agentLauncher.CommandLineSyntax())
+		// ADK's public Execute combines parsing and running. Split those phases so
+		// help and invalid flags return before configuration or state is touched.
+		plan, err := parseLauncherPlan(arguments)
+		if err != nil {
+			return report(errOut, err, plan.CommandLineSyntax())
+		}
+		return report(errOut, run(ctx, plan, errOut), plan.CommandLineSyntax())
 	}
 }
 
@@ -132,15 +147,20 @@ func report(errOut io.Writer, err error, syntax string) int {
 
 // run loads the configuration, assembles the runtime, and hands it to ADK.
 func run(
-	ctx context.Context, agentLauncher launcher.Launcher, arguments []string, console io.Writer,
+	ctx context.Context, plan *launcherPlan, console io.Writer,
 ) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading the configuration (run `%s` for the resolved settings): %w", configCheckCommand, err)
 	}
+	cfg = plan.runtimeConfig(cfg)
+	recovered, err := recoverRuntimeState(cfg.StateDir)
+	if err != nil {
+		return err
+	}
 	// ADK's launcher installs the tracer and logger providers itself, from the
 	// options this runtime hands it.
-	assembled, err := newAgentRuntime(ctx, cfg, console, launcherInstallsProviders)
+	assembled, err := newAgentRuntime(ctx, cfg, recovered, console, launcherInstallsProviders)
 	if err != nil {
 		return err
 	}
@@ -150,7 +170,7 @@ func run(
 	if err != nil {
 		return err
 	}
-	if err := agentLauncher.Execute(ctx, launcherConfig, arguments); err != nil {
+	if err := plan.Run(ctx, launcherConfig); err != nil {
 		return fmt.Errorf("running the agent: %w", err)
 	}
 	return nil
@@ -166,13 +186,15 @@ func (r *agentRuntime) launcherConfig() (*launcher.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	sessions, err := newSessionService(r.config)
-	if err != nil {
-		return nil, err
+	if r.sessions == nil {
+		r.sessions, err = newSessionService(r.config, r.recovered)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &launcher.Config{
 		AgentLoader:    agentLoader,
-		SessionService: sessions,
+		SessionService: r.sessions,
 		// The long-term note store, so ADK's own load_memory and preload_memory
 		// resolve against the same per-user, per-application store the two
 		// bespoke recall tools use.
@@ -189,15 +211,15 @@ func (r *agentRuntime) launcherConfig() (*launcher.Config, error) {
 	}, nil
 }
 
-// buildVersion reports the module version stamped into the binary.
-//
-// A `go build` from a source checkout stamps "(devel)" or nothing at all, so
-// both resolve to the string the A2A card already publishes in that situation
-// and the resource, the card and the log records agree on one answer.
-func buildVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
-		return a2aserver.UnknownVersion
+func printBuildInfo(arguments []string, out io.Writer) error {
+	if len(arguments) != 0 {
+		return fmt.Errorf("%s: unexpected argument %q", versionCommand, arguments[0])
 	}
-	return info.Main.Version
+	info, err := buildinfo.Current()
+	if err != nil {
+		return fmt.Errorf("reading build information: %w", err)
+	}
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(info)
 }

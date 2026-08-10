@@ -237,9 +237,9 @@ func TestNewHandlerRefusesAnIncompleteConfiguration(t *testing.T) {
 	if _, err := telemetry.NewHandler(telemetry.Config{}); err == nil {
 		t.Error("NewHandler() with no console returned no error")
 	}
-	_, err := telemetry.NewHandler(telemetry.Config{Console: &capture{}, ExportLogs: true})
+	_, err := telemetry.NewHandler(telemetry.Config{Console: &capture{}})
 	if err == nil {
-		t.Error("NewHandler() exporting without a redactor returned no error")
+		t.Error("NewHandler() with an unredacted console returned no error")
 	}
 }
 
@@ -251,14 +251,145 @@ func TestNewHandlerWithoutExportStillCorrelates(t *testing.T) {
 
 	ctx, traceID, _ := sampledContext(t)
 	console := &capture{}
-	handler, err := telemetry.NewHandler(telemetry.Config{Console: console})
+	secret := "password=super-secret-value-123456"
+	redact := func(_ context.Context, value any) any {
+		if text, ok := value.(string); ok {
+			return strings.ReplaceAll(text, "super-secret-value-123456", "<SECRET>")
+		}
+		return value
+	}
+	handler, err := telemetry.NewHandler(telemetry.Config{Console: console, Redact: redact})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v, want nil", err)
 	}
-	if err := handler.Handle(ctx, slog.NewRecord(time.Now(), slog.LevelInfo, "local", 0)); err != nil {
+	if err := handler.Handle(ctx, slog.NewRecord(time.Now(), slog.LevelInfo, secret, 0)); err != nil {
 		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+	if message := console.only(t).Message; strings.Contains(message, "super-secret-value-123456") {
+		t.Errorf("console message retained the credential: %q", message)
 	}
 	if got := attributes(console.only(t))[telemetry.TraceIDKey]; got != traceID {
 		t.Errorf("%s = %q, want %q", telemetry.TraceIDKey, got, traceID)
+	}
+}
+
+func TestSanitizingHandlerCoversLoggerAndRecordAttributes(t *testing.T) {
+	t.Parallel()
+
+	console := &capture{}
+	const secret = "not-a-real-secret-value"
+	redact := func(_ context.Context, value any) any {
+		if text, ok := value.(string); ok {
+			return strings.ReplaceAll(text, secret, "<SECRET>")
+		}
+		return value
+	}
+	handler, err := telemetry.NewSanitizingHandler(console, redact)
+	if err != nil {
+		t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+	}
+	logger := slog.New(handler).With("bound", "password="+secret)
+	logger.ErrorContext(t.Context(), "failed with "+secret, "record", errors.New("token="+secret))
+
+	record := console.only(t)
+	if strings.Contains(record.Message, secret) {
+		t.Errorf("message retained the synthetic secret: %q", record.Message)
+	}
+	for key, value := range attributes(record) {
+		if strings.Contains(value, secret) {
+			t.Errorf("attribute %q retained the synthetic secret: %q", key, value)
+		}
+	}
+}
+
+func TestSanitizingHandlerRedactsAndBoundsKeys(t *testing.T) {
+	t.Parallel()
+
+	const secret = "SYNTHETIC_DO_NOT_USE_LOG_KEY_123456"
+	redact := func(_ context.Context, value any) any {
+		if text, ok := value.(string); ok {
+			return strings.ReplaceAll(text, secret, "<SECRET>")
+		}
+		return value
+	}
+	console := &capture{}
+	handler, err := telemetry.NewSanitizingHandler(console, redact)
+	if err != nil {
+		t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+	}
+	record := slog.NewRecord(time.Now(), slog.LevelError, "failed", 0)
+	record.AddAttrs(
+		slog.String("password="+secret, "redacted key"),
+		slog.String(strings.Repeat("k", telemetry.MaxExportedChars+100), "bounded key"),
+		slog.Any("nested", map[string]any{"token=" + secret: "nested key"}),
+	)
+	if err := handler.Handle(t.Context(), record); err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+
+	for key, value := range attributes(console.only(t)) {
+		if strings.Contains(key, secret) || strings.Contains(value, secret) {
+			t.Fatalf("sanitized attribute retained a sensitive key: %q=%q", key, value)
+		}
+		if len([]rune(key)) > telemetry.MaxExportedChars {
+			t.Fatalf("sanitized attribute key has %d runes, want at most %d", len([]rune(key)), telemetry.MaxExportedChars)
+		}
+	}
+}
+
+func TestSanitizingHandlerFailsClosedWhenRedactionPanics(t *testing.T) {
+	t.Parallel()
+
+	console := &capture{}
+	handler, err := telemetry.NewSanitizingHandler(console, func(context.Context, any) any {
+		panic("synthetic redactor failure")
+	})
+	if err != nil {
+		t.Fatalf("NewSanitizingHandler() error = %v, want nil", err)
+	}
+	if err := handler.Handle(t.Context(), slog.NewRecord(time.Now(), slog.LevelError, "raw secret", 0)); err != nil {
+		t.Fatalf("Handle() error = %v, want a fail-closed record", err)
+	}
+	if record := console.only(t); record.Message != telemetry.OmittedBody || record.NumAttrs() != 0 {
+		t.Errorf("record = %q with %d attrs, want omitted body and no attrs", record.Message, record.NumAttrs())
+	}
+}
+
+func TestSanitizingWriterProtectsStandardLibraryLogs(t *testing.T) {
+	t.Parallel()
+
+	const secret = "not-a-real-secret-value"
+	var output strings.Builder
+	writer, err := telemetry.NewSanitizingWriter(&output, func(_ context.Context, value any) any {
+		text, ok := value.(string)
+		if !ok {
+			return value
+		}
+		return strings.ReplaceAll(text, secret, "<SECRET>")
+	})
+	if err != nil {
+		t.Fatalf("NewSanitizingWriter() error = %v, want nil", err)
+	}
+	original := []byte("provider failed with token=" + secret + "\n")
+	written, err := writer.Write(original)
+	if err != nil || written != len(original) {
+		t.Fatalf("Write() = (%d, %v), want (%d, nil)", written, err, len(original))
+	}
+	if strings.Contains(output.String(), secret) {
+		t.Errorf("standard log output retained the synthetic secret: %q", output.String())
+	}
+
+	output.Reset()
+	panicWriter, err := telemetry.NewSanitizingWriter(&output, func(context.Context, any) any {
+		panic("synthetic redactor failure")
+	})
+	if err != nil {
+		t.Fatalf("NewSanitizingWriter() error = %v, want nil", err)
+	}
+	if _, err := panicWriter.Write([]byte("raw secret\n")); err != nil {
+		t.Fatalf("Write() error = %v, want a fail-closed record", err)
+	}
+	if got := output.String(); !strings.Contains(got, telemetry.OmittedBody) || strings.Contains(got, "raw secret") {
+		t.Errorf("fail-closed output = %q, want only the omission marker", got)
 	}
 }

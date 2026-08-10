@@ -43,7 +43,6 @@
 //	MaxTokensPerSession <- cfg.MaxTokensPerSession
 //	InputPricePer1K     <- cfg.InputPricePer1K
 //	OutputPricePer1K    <- cfg.OutputPricePer1K
-//	Analyzer            <- NewAnalyzer(...) when cfg.PIIAnalyzerURL is set
 package policy
 
 import (
@@ -107,32 +106,29 @@ type UsageRecorder func(ctx context.Context, usage SessionUsage)
 // the neutralization still happens but is not counted.
 type InjectionRecorder func(ctx context.Context, hits int)
 
-// ActionableError reports whether a failure's own message is safe to hand back
-// to the model verbatim.
+// ActionableError extracts a repository-authored summary that is safe to hand
+// back to the model.
 //
 // Error hygiene is classification, not silence. This repository authors a small
-// number of failure types whose messages are first-party, carry no untrusted
-// content, and name the setting to change ("circuit is open, retrying in at
-// most 30s (AGENT_CIRCUIT_RESET_TIMEOUT_S)"). Collapsing those into "inspect
-// the service logs" tells an on-call engineer nothing the process already knew.
-// Every other error stays opaque, because an arbitrary message may embed a
-// query, a path, or a driver detail that should not reach the model.
+// number of typed failures whose summaries are first-party, carry no untrusted
+// content, and name the setting to change. The entire error chain is never safe:
+// even a first-party retry wrapper can retain a provider response body as its
+// cause. Every unclassified error stays opaque.
 //
 // The composition supplies the classifier because the policy plane must not
 // depend on every package that can fail. A nil classifier makes every error
-// opaque, which is the safe direction but loses the actionable half. The four
-// failure types this repository authors are wired like this:
+// opaque, which is the safe direction but loses the actionable half. A caller
+// must extract the matched typed error and build the summary from its trusted
+// fields, never return err.Error():
 //
-//	ActionableError: func(err error) bool {
+//	ActionableError: func(err error) (string, bool) {
 //		var circuitOpen *resilience.CircuitOpenError
-//		var deadline *resilience.DeadlineError
-//		var exhausted *resilience.RetriesExhaustedError
-//		return errors.As(err, &circuitOpen) ||
-//			errors.As(err, &deadline) ||
-//			errors.As(err, &exhausted) ||
-//			errors.Is(err, data.ErrDataAccess)
+//		if errors.As(err, &circuitOpen) {
+//			return circuitOpen.Error(), true
+//		}
+//		return "", false
 //	}
-type ActionableError func(err error) bool
+type ActionableError func(err error) (safeSummary string, ok bool)
 
 // Config is everything the governance plane needs from the rest of the runtime.
 //
@@ -143,12 +139,6 @@ type Config struct {
 	// Logger receives the policy's own diagnostics. Nil uses slog.Default.
 	Logger *slog.Logger
 
-	// Analyzer is the optional layer-2 PII analyzer (Chapter 4.5). Nil leaves
-	// the always-on in-process redactor as the only layer, which is what keeps
-	// the account-free path and the pure-Go binary intact. See [Analyzer] for
-	// what "configured but unreachable" does.
-	Analyzer *Analyzer
-
 	// MaxHistoryMessages bounds the conversation history sent to the model.
 	// Nil sends ADK's full session history every turn. A non-nil value must be
 	// at least 2: a window of one cannot hold a tool call and its result.
@@ -158,7 +148,8 @@ type Config struct {
 	// enforcement. A non-nil value must be positive.
 	MaxTokensPerSession *int
 
-	// ActionableError classifies tool failures. See [ActionableError].
+	// ActionableError extracts safe summaries from typed tool failures. See
+	// [ActionableError].
 	ActionableError ActionableError
 
 	// RecordUsage publishes token accounting. See [UsageRecorder].
@@ -201,8 +192,7 @@ type Config struct {
 // Policy is the governance plane. Build it once with [New] and attach it once
 // with [Policy.Plugin]; the zero value is not usable.
 type Policy struct {
-	logger   *slog.Logger
-	analyzer *Analyzer
+	logger *slog.Logger
 
 	maxHistoryMessages  *int
 	maxTokensPerSession *int
@@ -250,10 +240,6 @@ func New(cfg Config) (*Policy, error) {
 		return nil, err
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
 	trusted := make(map[tool.Tool]bool, len(cfg.TrustedInstructionTools))
 	for _, trustedTool := range cfg.TrustedInstructionTools {
 		if trustedTool == nil {
@@ -263,8 +249,7 @@ func New(cfg Config) (*Policy, error) {
 	}
 
 	return &Policy{
-		logger:              logger,
-		analyzer:            cfg.Analyzer,
+		logger:              cfg.Logger,
 		maxHistoryMessages:  cfg.MaxHistoryMessages,
 		maxTokensPerSession: cfg.MaxTokensPerSession,
 		actionableError:     cfg.ActionableError,
@@ -279,12 +264,23 @@ func New(cfg Config) (*Policy, error) {
 	}, nil
 }
 
+// activeLogger returns an explicitly injected logger, or the process default
+// active at emission. Runtime assembly installs its sanitizing handler after it
+// constructs the policy, so resolving nil in New would retain the startup sink.
+func (p *Policy) activeLogger() *slog.Logger {
+	if p.logger != nil {
+		return p.logger
+	}
+	return slog.Default()
+}
+
 // Plugin builds the single ADK plugin that carries the whole policy.
 //
 // plugin.Config holds one function per hook rather than a list, so the explicit
 // composition in [Policy.BeforeModel] and [Policy.AfterModel] is not merely
 // idiomatic — it is the only way to run two guards on one hook, which is
 // exactly the shape the Python track chose for the same reason.
+// --8<-- [start:policy-plugin]
 func (p *Policy) Plugin() (*plugin.Plugin, error) {
 	built, err := plugin.New(plugin.Config{
 		Name:                 PluginName,
@@ -300,6 +296,8 @@ func (p *Policy) Plugin() (*plugin.Plugin, error) {
 	}
 	return built, nil
 }
+
+// --8<-- [end:policy-plugin]
 
 // Guard names. They exist so the composition order can be asserted by a test
 // rather than by reading the source, and so a failing guard names itself.

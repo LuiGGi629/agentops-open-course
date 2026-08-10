@@ -12,28 +12,17 @@ import (
 	"google.golang.org/adk/v2/model"
 )
 
-// This file is layer 1 of the three-layer PII defense (Chapter 4.5): in
-// process, always on, no network, no model.
+// This file is layer 1 of the two-layer PII defense (Chapter 4.5): in process,
+// always on, no network, no model. It covers every agentgateway builtin plus
+// checksum-backed card, Canadian SIN, and IBAN recognition the gateway lacks.
 //
-// The Python track called Microsoft Presidio, whose person, location and
-// nationality recognizers are spaCy named-entity recognition. Presidio has no
-// Go port and NER cannot be faked with a word list, so the layering is:
-//
-//	Layer 1 (here)        deterministic recognizers plus the credential
-//	                      tripwires, ported from pii.py. Protects Chapters 2
-//	                      through 4 before any gateway or analyzer exists.
-//	Layer 2 (analyzer.go) an optional Presidio analyzer over HTTP, off by
-//	                      default, recovering PERSON, LOCATION and NRP exactly.
-//	Layer 3               agentgateway prompt guards, Chapter 5.5, on the data
-//	                      plane.
-//
-// Layer 1 alone does not detect names. That is a stated boundary, not an
-// omission, and the tests say so out loud rather than asserting a weaker
-// expectation.
+// Layer 2 is agentgateway's central promptGuard: its builtins mask every model
+// client, while a private Go webhook asks local Ollama for PERSON, LOCATION,
+// and ORGANIZATION entities. Layer 1 alone does not detect names. That is a
+// stated boundary, not an omission.
 
-// entity is a class of personal data. The values are Presidio's entity names,
-// because the mask a reader sees — and the course prose quotes — is built from
-// them, and because layer 2 speaks the same vocabulary over the wire.
+// entity is a deterministic class of personal data. The values remain stable
+// because they form the visible mask contract.
 type entity string
 
 const (
@@ -43,41 +32,18 @@ const (
 	entityIP         entity = "IP_ADDRESS"
 	entityMAC        entity = "MAC_ADDRESS"
 	entityPhone      entity = "PHONE_NUMBER"
-
-	// The three named-entity classes. No deterministic recognizer can find
-	// them; they are only ever satisfied by layer 2.
-	entityLocation entity = "LOCATION"
-	entityNRP      entity = "NRP"
-	entityPerson   entity = "PERSON"
+	entitySSN        entity = "US_SSN"
+	entityCASIN      entity = "CA_SIN"
 )
 
-// mask is the placeholder that replaces a detected span. Presidio's default
-// "replace" operator produces exactly this shape, and the course prose quotes
-// it, so it must not drift.
+// mask is the placeholder that replaces a detected span.
 func (e entity) mask() string { return "<" + string(e) + ">" }
-
-// isNamedEntity reports whether a class needs named-entity recognition, which
-// is the whole of what layer 2 adds.
-func (e entity) isNamedEntity() bool {
-	return e == entityPerson || e == entityLocation || e == entityNRP
-}
 
 // SecretMask replaces a credential the tripwires below recognize. Unlike an
 // entity mask it names no class, because a labeled secret keeps its label:
 // an API key assignment becomes NAME=<SECRET>, which tells an engineer which
 // credential leaked without leaking it.
 const SecretMask = "<SECRET>"
-
-// AnalyzerUnavailableMask replaces a whole value the configured layer-2
-// analyzer could not certify.
-//
-// This is what "fail closed" means concretely. With an analyzer configured the
-// policy has promised name-level coverage; if the service is unreachable or
-// slow the process cannot tell whether the text holds a name, so it withholds
-// the text rather than passing it through. An analyzer outage therefore
-// degrades evidence to nothing — which is exactly why layer 2 is off by default
-// and, when on, belongs beside the agent rather than across a network.
-const AnalyzerUnavailableMask = "<REDACTED>"
 
 // redactionPolicy is one resolved answer to "which classes do we remove from
 // this kind of text, and does blank text pass through untouched?".
@@ -91,8 +57,7 @@ type redactionPolicy struct {
 
 // boundaryPolicy governs text crossing the model and tool boundaries.
 //
-// It is Presidio's broad default coverage minus two classes the Python track
-// removed for cause:
+// Two tempting broad classes remain deliberately absent:
 //
 //   - ORGANIZATION misclassified identifiers such as an incident id and would
 //     have corrupted the arguments the agent needs.
@@ -104,7 +69,7 @@ type redactionPolicy struct {
 //     URL are still caught by the tripwires, which run first.
 func boundaryPolicy() redactionPolicy {
 	return redactionPolicy{
-		entities:           append(persistedPolicy().entities, entityMAC, entityNRP),
+		entities:           append(persistedPolicy().entities, entityMAC),
 		blankPassesThrough: true,
 	}
 }
@@ -116,13 +81,13 @@ func boundaryPolicy() redactionPolicy {
 func persistedPolicy() redactionPolicy {
 	return redactionPolicy{
 		entities: []entity{
+			entityCASIN,
 			entityCreditCard,
 			entityEmail,
 			entityIBAN,
 			entityIP,
 			entityPhone,
-			entityLocation,
-			entityPerson,
+			entitySSN,
 		},
 	}
 }
@@ -196,13 +161,8 @@ type recognizer struct {
 // recognizers returns every detector layer 1 can run, in a fixed order so
 // overlapping candidates resolve the same way on every call.
 //
-// The set covers what Presidio's *pattern* recognizers cover for this domain.
-// Presidio's US- and UK-specific document recognizers, its cryptocurrency
-// address recognizer and the pattern half of its date recognizer are not
-// ported: none is exercised by this course's data, several need Presidio's
-// context-word scoring to stay below a usable false-positive rate, and a
-// recognizer that fires on operational evidence is worse than one that does not
-// exist. Layer 2 covers the rest of Presidio when it is configured.
+// The set covers agentgateway 1.4.1's five builtin classes, then adds the
+// always-on agent-only classes required at persistence and tool boundaries.
 func recognizers() []recognizer {
 	return []recognizer{
 		{entity: entityEmail, pattern: emailPattern},
@@ -212,14 +172,14 @@ func recognizers() []recognizer {
 		{entity: entityIBAN, pattern: ibanPattern, validate: passesIBANChecksum},
 		{entity: entityCreditCard, pattern: creditCardPattern, validate: passesLuhn},
 		{entity: entityPhone, pattern: phonePattern},
+		{entity: entitySSN, pattern: ssnPattern, validate: isValidSSN},
+		{entity: entityCASIN, pattern: caSINPattern, validate: passesCASINChecksum},
 	}
 }
 
 var (
-	// emailPattern approximates Presidio's email recognizer. Presidio validates
-	// the domain against tldextract's bundled public-suffix snapshot; Go ships
-	// no such list, so the trailing label is required to look like a TLD
-	// instead. That is a shape rule, not a registry lookup.
+	// emailPattern requires the trailing label to look like a TLD. That is a
+	// shape rule, not a registry lookup.
 	emailPattern = regexp.MustCompile(
 		`(?i)\b[A-Za-z0-9._%+\-]+@` +
 			`[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?` +
@@ -254,15 +214,24 @@ var (
 
 	// phonePattern covers the separated national form and E.164.
 	//
-	// Presidio delegates phone detection to libphonenumber across eight default
-	// regions, which has no dependency-free Go equivalent; this is a narrower,
-	// deliberate subset. The separators exclude ":" so a clock time is never a
-	// phone number, and the groups are fixed-width so a calendar date is not
-	// either.
+	// The separators exclude ":" so a clock time is never a phone number, and
+	// the groups are fixed-width so a calendar date is not either.
 	phonePattern = regexp.MustCompile(
 		`(?:\+[0-9]{1,3}[ .\-]?)?(?:\([0-9]{3}\)[ .\-]?|\b[0-9]{3}[ .\-])[0-9]{3}[ .\-][0-9]{4}\b` +
 			`|\+[0-9]{8,15}\b`,
 	)
+
+	// ssnPattern covers the canonical U.S. Social Security number form. The
+	// structural validator rejects the reserved and all-zero groups that a
+	// shape-only gateway builtin accepts.
+	ssnPattern = regexp.MustCompile(
+		`\b(?:[0-9]{5}-[0-9]{4}|[0-9]{3}-[0-9]{6}|[0-9]{3}[- .][0-9]{2}[- .][0-9]{4}|[0-9]{9})\b`,
+	)
+
+	// caSINPattern covers the readable Canadian Social Insurance Number form;
+	// the Luhn checksum keeps arbitrary nine-digit operational identifiers out
+	// of the always-on redaction path.
+	caSINPattern = regexp.MustCompile(`\b(?:[0-9]{3}[- ][0-9]{3}[- ][0-9]{3}|[0-9]{9})\b`)
 )
 
 // span is a detected range of text, in byte offsets, and what it holds.
@@ -292,15 +261,15 @@ func redactCredentials(text string) string {
 // RedactBoundaryText returns text with detected personal data and credentials
 // replaced by placeholders, under the model and tool boundary policy.
 //
-// It is deterministic and, with no analyzer configured, entirely in process:
-// text with nothing to find comes back unchanged.
+// It is deterministic and entirely in process: text with nothing to find
+// comes back unchanged.
 func (p *Policy) RedactBoundaryText(ctx context.Context, text string) string {
-	return p.redactText(ctx, text, boundaryPolicy())
+	return p.redactText(text, boundaryPolicy())
 }
 
 // RedactPersistedText redacts free text before it reaches durable local state.
 func (p *Policy) RedactPersistedText(ctx context.Context, text string) string {
-	return p.redactText(ctx, text, persistedPolicy())
+	return p.redactText(text, persistedPolicy())
 }
 
 // PersistedRedactor adapts [Policy.RedactPersistedText] to the context-free
@@ -308,24 +277,17 @@ func (p *Policy) RedactPersistedText(ctx context.Context, text string) string {
 //
 // The audit write path is reached through ADK's tool machinery, which hands a
 // tool its own context but not the redactor, so the context is bound once here.
-// It bounds only the optional layer-2 HTTP call, which carries its own timeout
-// regardless.
 func (p *Policy) PersistedRedactor(ctx context.Context) func(string) string {
 	return func(text string) string { return p.RedactPersistedText(ctx, text) }
 }
 
 // redactText runs the tripwires, then the analysis, then the masking.
-func (p *Policy) redactText(ctx context.Context, text string, policy redactionPolicy) string {
+func (p *Policy) redactText(text string, policy redactionPolicy) string {
 	if policy.blankPassesThrough && strings.TrimSpace(text) == "" {
 		return text
 	}
 	redacted := redactCredentials(text)
-	spans, err := p.analyze(ctx, redacted, policy)
-	if err != nil {
-		// Fail closed: see [AnalyzerUnavailableMask].
-		p.logger.WarnContext(ctx, "PII analyzer unavailable; withholding the value", "error", err)
-		return AnalyzerUnavailableMask
-	}
+	spans := p.analyze(redacted, policy)
 	if len(spans) == 0 {
 		return redacted
 	}
@@ -344,7 +306,7 @@ func (p *Policy) redactText(ctx context.Context, text string, policy redactionPo
 //     extend a person span across the protected position.
 //  3. Analyze the rest, on the masked copy, and drop anything that overlaps a
 //     protected or a container span.
-func (p *Policy) analyze(ctx context.Context, text string, policy redactionPolicy) ([]span, error) {
+func (p *Policy) analyze(text string, policy redactionPolicy) []span {
 	var containers []span
 	if policy.wants(entityEmail) {
 		containers = matchRecognizers(text, func(name entity) bool { return name == entityEmail })
@@ -356,12 +318,6 @@ func (p *Policy) analyze(ctx context.Context, text string, policy redactionPolic
 	residual := matchRecognizers(masked, func(name entity) bool {
 		return name != entityEmail && policy.wants(name)
 	})
-	remote, err := p.analyzeRemotely(ctx, masked, policy)
-	if err != nil {
-		return nil, err
-	}
-	residual = append(residual, remote...)
-
 	detected := make([]span, 0, len(containers)+len(residual))
 	detected = append(detected, containers...)
 	for _, candidate := range residual {
@@ -370,27 +326,7 @@ func (p *Policy) analyze(ctx context.Context, text string, policy redactionPolic
 		}
 		detected = append(detected, candidate)
 	}
-	return detected, nil
-}
-
-// analyzeRemotely asks the optional layer-2 analyzer for the named-entity
-// classes layer 1 cannot see. It returns nothing when no analyzer is
-// configured, and an error — never a partial result — when one is configured
-// and does not answer.
-func (p *Policy) analyzeRemotely(ctx context.Context, text string, policy redactionPolicy) ([]span, error) {
-	if p.analyzer == nil || strings.TrimSpace(text) == "" {
-		return nil, nil
-	}
-	remote := make([]entity, 0, len(policy.entities))
-	for _, name := range policy.entities {
-		if name.isNamedEntity() {
-			remote = append(remote, name)
-		}
-	}
-	if len(remote) == 0 {
-		return nil, nil
-	}
-	return p.analyzer.Analyze(ctx, text, remote)
+	return detected
 }
 
 // matchRecognizers runs every deterministic recognizer the predicate admits.
@@ -528,6 +464,29 @@ func passesLuhn(candidate string) bool {
 	if len(digits) < 13 || len(digits) > 19 {
 		return false
 	}
+	return luhnValid(digits)
+}
+
+// passesCASINChecksum validates the nine digits of a Canadian SIN with Luhn.
+func passesCASINChecksum(candidate string) bool {
+	digits := decimalDigits(candidate)
+	return len(digits) == 9 && luhnValid(digits)
+}
+
+// decimalDigits extracts ASCII digits from a formatted identifier.
+func decimalDigits(candidate string) []int {
+	digits := make([]int, 0, len(candidate))
+	for _, character := range candidate {
+		if character >= '0' && character <= '9' {
+			digits = append(digits, int(character-'0'))
+		}
+	}
+	return digits
+}
+
+// luhnValid applies the checksum after a recognizer has established the
+// identifier's own length and shape.
+func luhnValid(digits []int) bool {
 	sum, double := 0, false
 	for index := len(digits) - 1; index >= 0; index-- {
 		value := digits[index]
@@ -540,6 +499,19 @@ func passesLuhn(candidate string) bool {
 		double = !double
 	}
 	return sum%10 == 0
+}
+
+// isValidSSN rejects the U.S. Social Security Administration's structurally
+// impossible groups. It does not claim issuance or identity verification.
+func isValidSSN(candidate string) bool {
+	digits := decimalDigits(candidate)
+	if len(digits) != 9 {
+		return false
+	}
+	area := digits[0]*100 + digits[1]*10 + digits[2]
+	group := digits[3]*10 + digits[4]
+	serial := digits[5]*1000 + digits[6]*100 + digits[7]*10 + digits[8]
+	return area != 0 && area != 666 && area < 900 && group != 0 && serial != 0
 }
 
 // passesIBANChecksum validates a candidate with the ISO 13616 mod-97 rule: move
@@ -575,12 +547,12 @@ func isIPAddress(candidate string) bool {
 // RedactBoundaryValue recursively redacts strings inside tool arguments and
 // structured results under the boundary policy.
 func (p *Policy) RedactBoundaryValue(ctx context.Context, value any) any {
-	return p.redactValue(ctx, value, boundaryPolicy())
+	return p.redactValue(value, boundaryPolicy())
 }
 
 // RedactPersistedValue recursively redacts strings under the persisted policy.
 func (p *Policy) RedactPersistedValue(ctx context.Context, value any) any {
-	return p.redactValue(ctx, value, persistedPolicy())
+	return p.redactValue(value, persistedPolicy())
 }
 
 // redactValue walks a structured value and redacts every string in it.
@@ -591,32 +563,32 @@ func (p *Policy) RedactPersistedValue(ctx context.Context, value any) any {
 // handled too because Go-native callers build them directly — they are this
 // port's counterpart of the Python tuple branch. Anything else is returned
 // unchanged, which is exactly what the Python recursion did with a number.
-func (p *Policy) redactValue(ctx context.Context, value any, policy redactionPolicy) any {
+func (p *Policy) redactValue(value any, policy redactionPolicy) any {
 	switch typed := value.(type) {
 	case string:
-		return p.redactText(ctx, typed, policy)
+		return p.redactText(typed, policy)
 	case map[string]any:
 		redacted := make(map[string]any, len(typed))
 		for key, item := range typed {
-			redacted[key] = p.redactValue(ctx, item, policy)
+			redacted[key] = p.redactValue(item, policy)
 		}
 		return redacted
 	case map[string]string:
 		redacted := make(map[string]string, len(typed))
 		for key, item := range typed {
-			redacted[key] = p.redactText(ctx, item, policy)
+			redacted[key] = p.redactText(item, policy)
 		}
 		return redacted
 	case []any:
 		redacted := make([]any, len(typed))
 		for index, item := range typed {
-			redacted[index] = p.redactValue(ctx, item, policy)
+			redacted[index] = p.redactValue(item, policy)
 		}
 		return redacted
 	case []string:
 		redacted := make([]string, len(typed))
 		for index, item := range typed {
-			redacted[index] = p.redactText(ctx, item, policy)
+			redacted[index] = p.redactText(item, policy)
 		}
 		return redacted
 	default:

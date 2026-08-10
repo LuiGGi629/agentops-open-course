@@ -48,6 +48,7 @@ type namedModel func(name string) (adkmodel.LLM, error)
 // Ollama or an agentgateway route without changing application code. When
 // AGENT_MODEL_FALLBACK names a second model, the primary is wrapped so that a
 // dead primary fails over to it on the same provider (Ch. 5.4).
+// --8<-- [start:build-model]
 func Build(ctx context.Context, cfg config.Config) (adkmodel.LLM, error) {
 	build, err := provider(ctx, cfg)
 	if err != nil {
@@ -68,6 +69,8 @@ func Build(ctx context.Context, cfg config.Config) (adkmodel.LLM, error) {
 	}
 	return NewFallback(primary, secondary), nil
 }
+
+// --8<-- [end:build-model]
 
 // GenerationConfig returns explicit sampling controls only when the operator
 // configured them.

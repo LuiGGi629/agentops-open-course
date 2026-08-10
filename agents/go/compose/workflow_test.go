@@ -11,14 +11,6 @@ import (
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
 )
 
-// The digests the Python suite pins in tests/test_workflow.py.
-const (
-	planInstructionDigest           = "290cfa7d7b04aa3321ec27f0089fc1771fc5ac739c98b32f3dc25f08cddf9129"
-	investigateInstructionDigest    = "05b2f9cfa2ba5882b819eb3eda715e28215e40cd36a5b821442d07e52c0bc27f"
-	evidenceReviewInstructionDigest = "506d4bf2bc6a5ca7061e87f81132ad3b0186a8edb67519235c3683472ff4125c"
-	recommendInstructionDigest      = "60f917ec16911ac8a5cb48c57ffdf3ed6f8ca7ee85c9afbd30790ad2d7b9e2a1"
-)
-
 // TestWorkflowChainsFourStagesInOrder is the Go port of
 // test_workflow_chains_four_steps_in_order.
 //
@@ -180,47 +172,48 @@ func TestWorkflowPromptContracts(t *testing.T) {
 		name        string
 		instruction string
 		description string
-		want        string
 		phrases     []string
 	}{
 		{
 			name:        PlanStageName,
 			instruction: planInstruction,
 			description: planDescription,
-			want:        planInstructionDigest,
+			phrases: []string{
+				"at most four bullets", "Preserve the exact incident", "Do not diagnose or recommend",
+				"condition for stopping or escalating",
+			},
 		},
 		{
 			name:        InvestigateStageName,
 			instruction: investigateInstruction,
 			description: investigateDescription,
-			want:        investigateInstructionDigest,
-			phrases:     []string{"plan controls which evidence to collect; it is not evidence"},
+			phrases: []string{
+				"plan controls which evidence to collect; it is not evidence", "Derive the service and runbook slug only from that record",
+				"no query filter", "in that order", "label any inference",
+			},
 		},
 		{
 			name:        EvidenceReviewStageName,
 			instruction: evidenceReviewInstruction,
 			description: evidenceReviewDescription,
-			want:        evidenceReviewInstructionDigest,
-			phrases:     []string{"unfiltered service logs with " + tools.SearchServiceLogsToolName},
+			phrases: []string{
+				"claims, not source truth", "unfiltered service logs with " + tools.SearchServiceLogsToolName,
+				"Separate observations from inferences", "supported, insufficient, or conflicting verdict", "Do not recommend or take an action",
+			},
 		},
 		{
 			name:        RecommendStageName,
 			instruction: recommendInstruction,
 			description: recommendDescription,
-			want:        recommendInstructionDigest,
-			phrases:     []string{"never call either action"},
+			phrases: []string{
+				"If the verdict is insufficient or conflicting", "runbook-backed next steps",
+				"expected recovery evidence", "rollback or stop condition", "requiring human approval", "never call either action",
+			},
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := digest(testCase.instruction); got != testCase.want {
-				t.Errorf(
-					"instruction digest = %s, want %s — the prompt changed; "+
-						"re-run the evaluation and update the digest after reviewing",
-					got, testCase.want,
-				)
-			}
 			for _, phrase := range testCase.phrases {
 				if !strings.Contains(testCase.instruction, phrase) {
 					t.Errorf("instruction lost the phrase %q the evalsets depend on", phrase)

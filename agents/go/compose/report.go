@@ -29,8 +29,7 @@ import (
 // ReportDescription is what the A2A agent card shows for the report entrypoint.
 const ReportDescription = "Produces a schema-validated triage report for a single incident."
 
-// ReportInstruction is the report agent's operating contract, carried across
-// byte for byte from the Python track.
+// ReportInstruction is the report agent's evidence and output contract.
 const ReportInstruction = "You produce a machine-consumable triage report for one incident.\n" +
 	"Call get_incident first. Read its exact service and runbook fields, then call\n" +
 	"search_service_logs with that service and no query filter, then get_runbook with\n" +

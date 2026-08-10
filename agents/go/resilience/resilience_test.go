@@ -1,6 +1,7 @@
 package resilience
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -80,6 +81,41 @@ func TestRunSatisfiesTheToolSeam(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("the tool ran %d times, want 1", calls)
+	}
+}
+
+// TestTheDefaultLoggerIsResolvedWhenTheGuardLogs covers runtime assembly:
+// the policy redactor has to exist before the sanitizing default logger can be
+// installed, so a guard built earlier must not retain the raw startup logger.
+func TestTheDefaultLoggerIsResolvedWhenTheGuardLogs(t *testing.T) {
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	var startup, installed bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&startup, nil)))
+	guard, err := NewGuard(Config{
+		ToolTimeout: time.Second,
+		MaxRetries:  1,
+	})
+	if err != nil {
+		t.Fatalf("NewGuard() error = %v, want nil", err)
+	}
+
+	// This stands in for cmd/agent installing its redacting handler after the
+	// policy plane is available but before any tool call can run.
+	slog.SetDefault(slog.New(slog.NewTextHandler(&installed, nil)))
+	const untrusted = "password=SYNTHETIC_DO_NOT_USE_RETRY_LOG_123456"
+	if err := guard.Run(t.Context(), readTool, func(context.Context) error {
+		return errors.New(untrusted)
+	}); err == nil {
+		t.Fatal("Run() error = nil, want the exhausted retry failure")
+	}
+
+	if strings.Contains(startup.String(), untrusted) {
+		t.Fatalf("the pre-install logger retained the dependency error: %q", startup.String())
+	}
+	if !strings.Contains(installed.String(), untrusted) {
+		t.Fatalf("the installed logger never received the retry record: %q", installed.String())
 	}
 }
 

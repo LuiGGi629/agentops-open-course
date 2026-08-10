@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/adk/v2/agent"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/adk/v2/plugin"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
 )
 
 // The trusted identity contract. Two things depend on the value reaching the
@@ -27,6 +29,8 @@ const identityHeader = "X-Verified-Subject"
 type identityRecorder struct {
 	users    []string
 	sessions []string
+	states   []principal.NetworkState
+	subjects []string
 	guard    sync.Mutex
 }
 
@@ -41,6 +45,9 @@ func (r *identityRecorder) plugin(t *testing.T) *plugin.Plugin {
 			defer r.guard.Unlock()
 			r.users = append(r.users, ctx.UserID())
 			r.sessions = append(r.sessions, ctx.SessionID())
+			authenticated, state := principal.Network(ctx)
+			r.states = append(r.states, state)
+			r.subjects = append(r.subjects, authenticated.Subject())
 			return nil, nil
 		},
 	})
@@ -48,6 +55,12 @@ func (r *identityRecorder) plugin(t *testing.T) *plugin.Plugin {
 		t.Fatalf("plugin.New() error = %v, want nil", err)
 	}
 	return built
+}
+
+func (r *identityRecorder) observedNetwork() ([]principal.NetworkState, []string) {
+	r.guard.Lock()
+	defer r.guard.Unlock()
+	return append([]principal.NetworkState(nil), r.states...), append([]string(nil), r.subjects...)
 }
 
 func (r *identityRecorder) observed() ([]string, []string) {
@@ -97,33 +110,37 @@ func TestVerifiedIdentityBecomesTheRunUser(t *testing.T) {
 	if sessions[0] == "" || sessions[0] == users[0] {
 		t.Errorf("session id = %q, want the A2A context id", sessions[0])
 	}
+	states, subjects := recorder.observedNetwork()
+	if states[0] != principal.NetworkAuthenticated || subjects[0] != "alice@example.test" {
+		t.Errorf("network authentication = (%v, %q), want authenticated alice", states[0], subjects[0])
+	}
 }
 
-func TestMissingVerifiedIdentityKeepsTheSyntheticUser(t *testing.T) {
+func TestConfiguredIdentityBoundaryRefusesAMissingSubject(t *testing.T) {
 	t.Parallel()
 
 	fixture, recorder := newIdentityFixture(t, identityHeader)
 	server := fixture.serve(t)
 
-	if envelope := rpc(t, server, a2aserver.RootPath, "message/send",
-		textMessage("m1", "Hello.")); envelope["error"] != nil {
-		t.Fatalf("message/send returned %v, want a result", envelope["error"])
-	}
+	response := post(t, server, a2aserver.RootPath, "message/send", textMessage("m1", "Hello."))
+	defer func() { _ = response.Body.Close() }()
 
-	users, _ := recorder.observed()
-	if len(users) != 1 {
-		t.Fatalf("the model ran %d times, want 1", len(users))
+	if got := response.StatusCode; got != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", got, http.StatusUnauthorized)
 	}
-	if !strings.HasPrefix(users[0], "A2A_USER_") {
-		t.Errorf("user id = %q, want the unauthenticated synthetic identity", users[0])
+	if users, _ := recorder.observed(); len(users) != 0 {
+		t.Errorf("the agent ran %d times behind a refused request, want 0", len(users))
+	}
+	if fixture.model.callCount() != 0 {
+		t.Errorf("the model was called %d times behind a refused request, want 0", fixture.model.callCount())
 	}
 }
 
 func TestAnUnconfiguredHeaderIsNeverTrusted(t *testing.T) {
 	t.Parallel()
 
-	// No AGENT_TRUSTED_IDENTITY_HEADER means the middleware is not installed at
-	// all, so there is no code path in which a client-supplied header is read.
+	// No AGENT_TRUSTED_IDENTITY_HEADER means the network marker runs but no
+	// client-supplied identity header is read or promoted.
 	fixture, recorder := newIdentityFixture(t, "")
 	server := fixture.serve(t)
 
@@ -141,6 +158,10 @@ func TestAnUnconfiguredHeaderIsNeverTrusted(t *testing.T) {
 	}
 	if !strings.HasPrefix(users[0], "A2A_USER_") {
 		t.Errorf("user id = %q, want the unauthenticated synthetic identity", users[0])
+	}
+	states, _ := recorder.observedNetwork()
+	if states[0] != principal.NetworkUnauthenticated {
+		t.Errorf("network state = %v, want %v", states[0], principal.NetworkUnauthenticated)
 	}
 }
 
@@ -175,23 +196,74 @@ func TestDuplicateIdentityHeadersAreRefusedBeforeTheAgentRuns(t *testing.T) {
 	}
 }
 
-func TestAnEmptyIdentityHeaderIsNotAnIdentity(t *testing.T) {
+func TestPromptGuardRoutesStayOutsideA2AIdentityBinding(t *testing.T) {
 	t.Parallel()
 
-	fixture, recorder := newIdentityFixture(t, identityHeader)
+	var calls atomic.Int64
+	guard := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if _, ok := a2aserver.VerifiedSubject(request.Context()); ok {
+			t.Error("prompt guard request inherited A2A verified identity")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
+	fixture := newFixture(t, func(opts *fixtureOptions) {
+		opts.options = func(options *a2aserver.Options) { options.TrustedIdentityHeader = identityHeader }
+		opts.promptGuard = guard
+	})
 	server := fixture.serve(t)
 
-	if envelope := rpc(t, server, a2aserver.RootPath, "message/send", textMessage("m1", "Hello."),
-		[2]string{identityHeader, "   "}); envelope["error"] != nil {
-		t.Fatalf("message/send returned %v, want a result", envelope["error"])
+	for _, path := range []string{"/request", "/response"} {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+path,
+			strings.NewReader(`{"body":{}}`))
+		if err != nil {
+			t.Fatalf("build %s request: %v", path, err)
+		}
+		// This pair would be rejected by bindVerifiedIdentity. Reaching the guard
+		// proves these private machine-to-machine routes are outside that A2A-only
+		// trust boundary.
+		request.Header.Add(identityHeader, "alice@example.test")
+		request.Header.Add(identityHeader, "mallory@evil.example")
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatalf("POST %s: %v", path, err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusNoContent {
+			t.Errorf("POST %s status = %d, want %d", path, response.StatusCode, http.StatusNoContent)
+		}
 	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("prompt guard calls = %d, want 2", got)
+	}
+}
 
-	users, _ := recorder.observed()
-	if len(users) != 1 {
-		t.Fatalf("the model ran %d times, want 1", len(users))
-	}
-	if !strings.HasPrefix(users[0], "A2A_USER_") {
-		t.Errorf("user id = %q, want the unauthenticated synthetic identity", users[0])
+func TestConfiguredIdentityBoundaryRefusesAnInvalidSubject(t *testing.T) {
+	t.Parallel()
+
+	for name, subject := range map[string]string{
+		"blank":   "   ",
+		"unicode": "josé@example.test",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fixture, recorder := newIdentityFixture(t, identityHeader)
+			server := fixture.serve(t)
+			response := post(t, server, a2aserver.RootPath, "message/send", textMessage("m1", "Hello."),
+				[2]string{identityHeader, subject})
+			defer func() { _ = response.Body.Close() }()
+
+			if got := response.StatusCode; got != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", got, http.StatusUnauthorized)
+			}
+			if users, _ := recorder.observed(); len(users) != 0 {
+				t.Errorf("the agent ran %d times behind a refused request, want 0", len(users))
+			}
+			if fixture.model.callCount() != 0 {
+				t.Errorf("the model was called %d times behind a refused request, want 0", fixture.model.callCount())
+			}
+		})
 	}
 }
 
@@ -207,7 +279,7 @@ func TestIdentityDoesNotLeakBetweenRequests(t *testing.T) {
 		t.Fatalf("the first message/send returned %v, want a result", envelope["error"])
 	}
 	if envelope := rpc(t, server, a2aserver.RootPath, "message/send",
-		textMessage("m2", "Second.")); envelope["error"] != nil {
+		textMessage("m2", "Second."), [2]string{identityHeader, "bob@example.test"}); envelope["error"] != nil {
 		t.Fatalf("the second message/send returned %v, want a result", envelope["error"])
 	}
 
@@ -218,8 +290,8 @@ func TestIdentityDoesNotLeakBetweenRequests(t *testing.T) {
 	if users[0] != "alice@example.test" {
 		t.Errorf("first user id = %q, want the verified subject", users[0])
 	}
-	if !strings.HasPrefix(users[1], "A2A_USER_") {
-		t.Errorf("second user id = %q, want the synthetic identity", users[1])
+	if users[1] != "bob@example.test" {
+		t.Errorf("second user id = %q, want bob's verified subject", users[1])
 	}
 }
 

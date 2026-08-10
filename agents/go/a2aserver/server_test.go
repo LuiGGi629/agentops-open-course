@@ -1,6 +1,7 @@
 package a2aserver_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,7 +9,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"google.golang.org/adk/v2/session"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
@@ -159,6 +163,43 @@ func TestHealthEndpointsReportReady(t *testing.T) {
 				t.Errorf("body = %v, want %v", body, probe.want)
 			}
 		})
+	}
+}
+
+func TestReadinessChecksNEROnlyWhenPromptGuardIsConfigured(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	fixture := newFixture(t, func(opts *fixtureOptions) {
+		opts.promptGuard = http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+		opts.promptGuardReadiness = func(context.Context) error {
+			calls.Add(1)
+			return errors.New("model catalog unavailable")
+		}
+	})
+	server := fixture.serve(t)
+
+	response, err := server.Client().Get(server.URL + a2aserver.ReadinessPath)
+	if err != nil {
+		t.Fatalf("GET %s: %v", a2aserver.ReadinessPath, err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusServiceUnavailable)
+	}
+	var body struct {
+		Problems []string `json:"problems"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode readiness response: %v", err)
+	}
+	if !slices.ContainsFunc(body.Problems, func(problem string) bool {
+		return strings.HasPrefix(problem, "named-entity model unavailable:")
+	}) {
+		t.Errorf("problems = %q, want opaque named-entity model failure", body.Problems)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("named-entity readiness calls = %d, want 1", got)
 	}
 }
 
@@ -463,5 +504,32 @@ func TestCloseIsIdempotentAndReportsEveryFailure(t *testing.T) {
 		if err := fixture.server.Close(); err != nil {
 			t.Errorf("Close() attempt %d error = %v, want nil", attempt, err)
 		}
+	}
+}
+
+type closeableSessions struct {
+	session.Service
+	closed atomic.Int32
+}
+
+func (s *closeableSessions) Close() error {
+	if s.closed.Add(1) != 1 {
+		return errors.New("session store closed more than once")
+	}
+	return nil
+}
+
+func TestCloseOwnsAProvidedSessionCloserExactlyOnce(t *testing.T) {
+	t.Parallel()
+
+	sessions := &closeableSessions{Service: session.InMemoryService()}
+	fixture := newUnstartedFixture(t, func(options *fixtureOptions) { options.sessions = sessions })
+	for attempt := range 2 {
+		if err := fixture.server.Close(); err != nil {
+			t.Errorf("Close() attempt %d error = %v, want nil", attempt, err)
+		}
+	}
+	if got := sessions.closed.Load(); got != 1 {
+		t.Errorf("session Close() calls = %d, want exactly 1", got)
 	}
 }

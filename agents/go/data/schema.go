@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -313,9 +312,13 @@ func (r *probeReport) auditSchemaIsPrepared() bool {
 // alone while deciding. It looks at the state directory only: the committed
 // seed is not runtime state and is never probed.
 func (s *Store) ProbeRuntimeDatabase(ctx context.Context) (string, error) {
+	if err := s.verifyStateDirectory(); err != nil {
+		return "", err
+	}
 	path := s.RuntimePath()
-	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%w: Runtime database is not initialized: %s", ErrDataAccess, path)
+	if err := verifyRegularPath(path); err != nil {
+		return "", fmt.Errorf("%w: Runtime database is not initialized as a regular file: %s: %w",
+			ErrDataAccess, path, err)
 	}
 	report, err := s.probe(ctx, path)
 	if err != nil {
@@ -342,7 +345,7 @@ func (s *Store) ProbeRuntimeDatabase(ctx context.Context) (string, error) {
 
 // probe collects the report over one read-only connection.
 func (s *Store) probe(ctx context.Context, path string) (report *probeReport, err error) {
-	db, err := openDatabase(ctx, path, true)
+	db, err := openDatabaseWithHook(ctx, path, true, s.beforeDatabaseConnect)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +452,7 @@ func (s *Store) PrepareRuntimeDatabase(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	db, err := openDatabase(ctx, path, false)
+	db, err := openDatabaseWithHook(ctx, path, false, s.beforeDatabaseConnect)
 	if err != nil {
 		return "", fmt.Errorf("%w: Could not open database: %s: %w", ErrDataAccess, filepath.Base(path), err)
 	}

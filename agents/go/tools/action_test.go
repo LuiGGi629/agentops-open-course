@@ -12,6 +12,7 @@ import (
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
 )
 
 // TestApprovedRestartFlipsTheStatusAndAudits is the guarded write's happy path:
@@ -475,6 +476,81 @@ func TestAConfirmedActionMustBeAttributable(t *testing.T) {
 		})
 	}
 	fixture.assertNoRuntimeState(t)
+}
+
+// TestAConfirmedNetworkActionRequiresAnAuthenticatedPrincipal proves that
+// confirmation and an identity-shaped framework string are not authorization.
+// ADK assigns anonymous A2A calls a non-empty A2A_USER_* value, so the explicit
+// network provenance must fail closed before mutation or audit.
+func TestAConfirmedNetworkActionRequiresAnAuthenticatedPrincipal(t *testing.T) {
+	t.Parallel()
+
+	fixture := newFixture(t)
+	ctx, _ := toolContextWithBase(t, principal.MarkNetwork(t.Context()), confirmation{
+		confirmed: true,
+		payload:   map[string]any{"rationale": "approved over the anonymous A2A session"},
+	}, identity{userID: pointer("A2A_USER_context-123")})
+
+	result := mustRun[RestartServiceResult](t, fixture.tools.RestartService(), ctx,
+		map[string]any{"name": inventoryService})
+
+	contains(t, result.Error, "network action requires an authenticated principal", "Error")
+	if status := fixture.serviceStatus(t, inventoryService); status != domain.ServiceStatusDown {
+		t.Errorf("service status = %q, want the unauthenticated action to change nothing", status)
+	}
+	fixture.assertNoRuntimeState(t)
+}
+
+func TestAuthenticatedNetworkPrincipalMustOwnTheInvocation(t *testing.T) {
+	t.Parallel()
+
+	fixture := newFixture(t)
+	authenticated, err := principal.NewAuthenticated("alice@example.test")
+	if err != nil {
+		t.Fatalf("NewAuthenticated() error = %v, want nil", err)
+	}
+	base := principal.BindNetwork(principal.MarkNetwork(t.Context()), authenticated)
+	ctx, _ := toolContextWithBase(t, base, confirmation{
+		confirmed: true,
+		payload:   map[string]any{"rationale": "approved by a different invocation user"},
+	}, identity{userID: pointer("mallory@example.test")})
+
+	result := mustRun[RestartServiceResult](t, fixture.tools.RestartService(), ctx,
+		map[string]any{"name": inventoryService})
+
+	contains(t, result.Error, "authenticated principal does not own the invocation", "Error")
+	if status := fixture.serviceStatus(t, inventoryService); status != domain.ServiceStatusDown {
+		t.Errorf("service status = %q, want the mismatched principal to change nothing", status)
+	}
+	fixture.assertNoRuntimeState(t)
+}
+
+func TestAuthenticatedNetworkPrincipalCanApproveOnce(t *testing.T) {
+	t.Parallel()
+
+	fixture := newFixture(t)
+	authenticated, err := principal.NewAuthenticated("alice@example.test")
+	if err != nil {
+		t.Fatalf("NewAuthenticated() error = %v, want nil", err)
+	}
+	base := principal.BindNetwork(principal.MarkNetwork(t.Context()), authenticated)
+	ctx, _ := toolContextWithBase(t, base, confirmation{
+		confirmed: true,
+		payload:   map[string]any{"rationale": "verified gateway subject approved the simulated restart"},
+	}, identity{userID: pointer("alice@example.test")})
+
+	result := mustRun[RestartServiceResult](t, fixture.tools.RestartService(), ctx,
+		map[string]any{"name": inventoryService})
+
+	if result.Error != "" {
+		t.Fatalf("Error = %q, want none", result.Error)
+	}
+	if result.Audit == nil || result.Audit.ApprovedBy != authenticated.Subject() {
+		t.Fatalf("Audit = %+v, want approved_by %q", result.Audit, authenticated.Subject())
+	}
+	if status := fixture.serviceStatus(t, inventoryService); status != domain.ServiceStatusOperational {
+		t.Errorf("service status = %q, want %q", status, domain.ServiceStatusOperational)
+	}
 }
 
 // TestAGuardedWriteFailsClosedOutsideTheConfirmationFlow reaches the handler

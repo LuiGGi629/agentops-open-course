@@ -230,39 +230,6 @@ func TestEveryWiringHoleIsReportedTogether(t *testing.T) {
 	}
 }
 
-// TestPromptRegistryPinIsRefusedRatherThanIgnored covers AGENT_PROMPT_URI.
-//
-// The Python track loaded the pinned prompt from its MLflow registry. That
-// registry now lives in the offline evaluation harness, so this runtime has no
-// client for it — and quietly serving the committed instruction instead would
-// mean an evaluation believed it was measuring a prompt version it never ran.
-func TestPromptRegistryPinIsRefusedRatherThanIgnored(t *testing.T) {
-	t.Parallel()
-
-	const pin = "prompts:/agentops-agent-instruction/2"
-
-	cfg := testConfig(t)
-	cfg.PromptURI = pin
-	_, err := New(cfg)
-	if !errors.Is(err, ErrIncompleteConfig) {
-		t.Fatalf("New() error = %v, want ErrIncompleteConfig", err)
-	}
-	if !strings.Contains(err.Error(), pin) {
-		t.Errorf("New() error = %q, want it to name the pin", err)
-	}
-
-	// A resolved pin is accepted: the caller did the fetching, which is the
-	// seam the evaluation harness uses.
-	cfg.Instruction = "registry instruction v2"
-	composer, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New() with a resolved pin error = %v, want nil", err)
-	}
-	if composer.Instruction() != "registry instruction v2" {
-		t.Errorf("Instruction() = %q, want the resolved override", composer.Instruction())
-	}
-}
-
 // TestInstructionDefaultsToTheCommittedText is the Go port of
 // test_instruction_defaults_to_the_committed_text.
 func TestInstructionDefaultsToTheCommittedText(t *testing.T) {

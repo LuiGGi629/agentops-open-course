@@ -14,6 +14,7 @@ import (
 	"google.golang.org/adk/v2/tool/mcptoolset"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
 )
 
@@ -79,6 +80,7 @@ type MCPConfig struct {
 // agent's surface — or reach the model with new description text — by adding
 // one. Filtering happens inside the toolset, before a tool joins the slice, so
 // a rejected tool's declaration never reaches a request.
+// --8<-- [start:ops-mcp-toolset]
 func NewMCPToolset(cfg MCPConfig) (tool.Toolset, error) {
 	transport, credentials, err := cfg.transport()
 	if err != nil {
@@ -98,6 +100,8 @@ func NewMCPToolset(cfg MCPConfig) (tool.Toolset, error) {
 	}
 	return built, nil
 }
+
+// --8<-- [end:ops-mcp-toolset]
 
 // transport chooses the transport and its credentials.
 func (cfg MCPConfig) transport() (mcp.Transport, auth.CredentialProvider, error) {
@@ -121,7 +125,7 @@ func (cfg MCPConfig) transport() (mcp.Transport, auth.CredentialProvider, error)
 		// tool call with no deadline can hang a whole turn.
 		transport := &mcp.StreamableClientTransport{
 			Endpoint:   cfg.Endpoint,
-			HTTPClient: &http.Client{Timeout: cfg.Timeout},
+			HTTPClient: httpguard.NoRedirects(&http.Client{Timeout: cfg.Timeout}),
 		}
 		if cfg.Token == "" {
 			return transport, nil, nil

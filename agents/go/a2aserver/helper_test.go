@@ -208,6 +208,7 @@ func (r *recordedSteps) sequence() []string {
 type fixture struct {
 	server   *a2aserver.Server
 	model    *scriptedLLM
+	store    *data.Store
 	steps    *recordedSteps
 	stateDir string
 }
@@ -218,11 +219,20 @@ type fixtureOptions struct {
 	options func(*a2aserver.Options)
 	// agent replaces the served agent.
 	agent agent.Agent
+	// agentFactory builds an agent over the same real store the server prepares.
+	agentFactory func(*scriptedLLM, *data.Store) agent.Agent
 	// model scripts the fake model.
 	model *scriptedLLM
 	// sessions replaces the session service.
 	sessions session.Service
-	// plugins are installed alongside the call budget.
+	// promptGuard is mounted on the shared private listener outside A2A
+	// identity binding.
+	promptGuard http.Handler
+	// promptGuardReadiness replaces the default successful configured-model
+	// readiness check.
+	promptGuardReadiness a2aserver.Step
+	// plugins are installed alongside the call budget. The slice stays last to
+	// keep the garbage collector's pointer scan compact.
 	plugins []*plugin.Plugin
 }
 
@@ -270,7 +280,9 @@ func newUnstartedFixture(t *testing.T, configure ...func(*fixtureOptions)) *fixt
 		sessions = newSessionService(t, stateDir)
 	}
 	served := opts.agent
-	if served == nil {
+	if opts.agentFactory != nil {
+		served = opts.agentFactory(opts.model, store)
+	} else if served == nil {
 		served = newAgent(t, opts.model)
 	}
 
@@ -282,11 +294,20 @@ func newUnstartedFixture(t *testing.T, configure ...func(*fixtureOptions)) *fixt
 	if opts.options != nil {
 		opts.options(&options)
 	}
+	var promptGuardReadiness a2aserver.Step
+	if opts.promptGuard != nil {
+		promptGuardReadiness = func(context.Context) error { return nil }
+	}
+	if opts.promptGuardReadiness != nil {
+		promptGuardReadiness = opts.promptGuardReadiness
+	}
 
 	server, err := a2aserver.New(a2aserver.Config{
-		RootAgent:      served,
-		SessionService: sessions,
-		Logger:         slog.New(slog.DiscardHandler),
+		RootAgent:            served,
+		SessionService:       sessions,
+		Logger:               slog.New(slog.DiscardHandler),
+		PromptGuardHandler:   opts.promptGuard,
+		PromptGuardReadiness: promptGuardReadiness,
 		// The real recovery, not a stub: its position in the sequence is the
 		// course invariant this suite exists to pin.
 		RecoverState: steps.step("recover", func(context.Context) error {
@@ -314,7 +335,7 @@ func newUnstartedFixture(t *testing.T, configure ...func(*fixtureOptions)) *fixt
 			t.Errorf("Close() error = %v, want nil", err)
 		}
 	})
-	return &fixture{server: server, model: opts.model, steps: steps, stateDir: stateDir}
+	return &fixture{server: server, model: opts.model, store: store, steps: steps, stateDir: stateDir}
 }
 
 // newSessionService opens a real ADK session store on the fixture's state dir.

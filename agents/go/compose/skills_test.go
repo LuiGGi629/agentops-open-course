@@ -10,6 +10,7 @@ import (
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
 
@@ -21,8 +22,7 @@ const (
 )
 
 // courseSkillsDir returns the committed skills directory, relative to this
-// package. It is the same directory the runtime reads, unmodified: the whole
-// point of the Agent Skills format is that one set of files serves both tracks.
+// package. It is the same directory the runtime reads, unmodified.
 func courseSkillsDir(t *testing.T) string {
 	t.Helper()
 
@@ -33,11 +33,8 @@ func courseSkillsDir(t *testing.T) string {
 	return dir
 }
 
-// TestSkillsAreDiscovered is the Go port of test_skills_are_discovered.
-//
-// It is also the proof for the migration's third spike: ADK Go's front-matter
-// parser rejects any key outside its six, so a dataset written for the Python
-// track could have needed an edit. It does not.
+// TestSkillsAreDiscovered proves the runtime accepts the committed ADK Skill
+// metadata and injects its reviewed catalog.
 func TestSkillsAreDiscovered(t *testing.T) {
 	t.Parallel()
 
@@ -53,14 +50,13 @@ func TestSkillsAreDiscovered(t *testing.T) {
 	}
 }
 
-// TestSkillToolsetIsInstructionOnly is the Go port of
-// test_skill_toolset_builds, and it is the security assertion of this file.
+// TestSkillToolsetIsInstructionOnly is the security assertion of this file.
 //
 // ADK always builds three tools and its config has no filter. The third,
-// load_skill_resource, returns arbitrary files from a skill directory, which is
-// a far wider surface than a reviewed SKILL.md body — and the policy plane's
-// trust carve-out deliberately covers only that body. Exactly two tools must
-// reach the model.
+// list_skills repeats the catalog already injected in the request, while
+// load_skill_resource returns arbitrary files from a skill directory. The
+// policy plane's trust carve-out deliberately covers only a reviewed SKILL.md
+// body. Exactly one tool must reach the model.
 func TestSkillToolsetIsInstructionOnly(t *testing.T) {
 	t.Parallel()
 
@@ -72,7 +68,7 @@ func TestSkillToolsetIsInstructionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tools() error = %v, want nil", err)
 	}
-	want := []string{ListSkillsToolName, LoadSkillToolName}
+	want := []string{LoadSkillToolName}
 	if got := toolNames(listed); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %v, want exactly %v", got, want)
 	}
@@ -91,6 +87,39 @@ func TestSkillToolsetIsInstructionOnly(t *testing.T) {
 		t.Errorf("tools after mutation = %v, want %v", got, want)
 	}
 }
+
+func TestLoadSkillUsesExactReviewedNames(t *testing.T) {
+	t.Parallel()
+
+	skills, err := NewSkills(t.Context(), courseSkillsDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, ok := skills.LoadSkillTool().(interface {
+		Run(agent.Context, any) (map[string]any, error)
+	})
+	if !ok {
+		t.Fatal("load_skill does not implement the ADK function-tool contract")
+	}
+	toolContext := noConfirmationContext{Context: newContext(t)}
+	result, err := runner.Run(toolContext, map[string]any{"name": remediationSkill})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instructions, ok := result["instructions"].(string)
+	if !ok || result["skill_name"] != remediationSkill || !strings.Contains(instructions, "approval") {
+		t.Fatalf("result = %#v", result)
+	}
+	for _, name := range []string{"unknown", "../../secret", "remediation/SKILL.md", ""} {
+		if _, err := runner.Run(toolContext, map[string]any{"name": name}); err == nil {
+			t.Errorf("load_skill accepted %q", name)
+		}
+	}
+}
+
+type noConfirmationContext struct{ agent.Context }
+
+func (noConfirmationContext) ToolConfirmation() *toolconfirmation.ToolConfirmation { return nil }
 
 // TestSkillCatalogSurvivesTheFilter is the trap this type exists to avoid.
 //
@@ -169,10 +198,9 @@ func TestLoadSkillToolIsAddressableByIdentity(t *testing.T) {
 	}
 }
 
-// TestRemediationSkillUsesTheRuntimeConfirmationBoundary is the Go port of
-// test_remediation_skill_uses_the_runtime_confirmation_boundary: the reviewed
-// procedure must send the model through the guarded tool rather than describe
-// an approval of its own.
+// TestRemediationSkillUsesTheRuntimeConfirmationBoundary proves the reviewed
+// procedure sends the model through the guarded tool rather than describing an
+// approval of its own.
 func TestRemediationSkillUsesTheRuntimeConfirmationBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -222,6 +250,25 @@ func TestMalformedSkillFailsAtStartup(t *testing.T) {
 	}
 	if _, err := NewSkills(t.Context(), dir); err == nil {
 		t.Error("NewSkills() error = nil, want the malformed skill to be refused")
+	}
+}
+
+func TestDuplicateSkillNamesFailAtStartup(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, folder := range []string{"first", "second"} {
+		path := filepath.Join(dir, folder)
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		content := "---\nname: duplicated\ndescription: A duplicated reviewed skill.\n---\n\nBody.\n"
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := NewSkills(t.Context(), dir); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

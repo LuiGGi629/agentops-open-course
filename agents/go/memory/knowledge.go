@@ -90,6 +90,7 @@ type SearchRunbooksResult struct {
 // Each read follows the same two-layer shape as the tools package: the handler
 // ADK calls puts the work through the [Guard], and the inner method does that
 // work against a context the Guard controls.
+// --8<-- [start:get-runbook]
 func (m *Memory) runGetRunbook(ctx agent.Context, args GetRunbookArgs) (GetRunbookResult, error) {
 	var result GetRunbookResult
 	err := m.guard(callContext(ctx), GetRunbookToolName, func(context.Context) error {
@@ -99,6 +100,8 @@ func (m *Memory) runGetRunbook(ctx agent.Context, args GetRunbookArgs) (GetRunbo
 	})
 	return result, err
 }
+
+// --8<-- [end:get-runbook]
 
 // readRunbook fetches one runbook by slug.
 //

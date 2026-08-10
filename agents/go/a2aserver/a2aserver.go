@@ -57,7 +57,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -70,6 +69,7 @@ import (
 	adka2a "google.golang.org/adk/v2/server/adka2a/v2"
 	"google.golang.org/adk/v2/session"
 
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
 )
@@ -89,11 +89,9 @@ const (
 	RemediationSkillID = "remediation"
 )
 
-// UnknownVersion is the card version reported when the binary carries no module
-// version — a `go run` or `go test` build from a source checkout. It matches
-// the Python track's importlib fallback so the two tracks report the same
-// string in the same situation.
-const UnknownVersion = "uninstalled"
+// UnknownVersion is retained for API compatibility; development binaries now
+// report the build authority's explicit development version.
+const UnknownVersion = buildinfo.DevelopmentVersion
 
 // The HTTP surface. Every path here is named in a manifest, a gateway route or
 // a checked-in client that this package cannot see, so they are constants.
@@ -238,6 +236,7 @@ func OptionsFrom(cfg config.Config, version string) Options {
 // resolve fills the defaults and refuses settings the server cannot honor.
 func (o Options) resolve() (Options, error) {
 	resolved := o
+	var problems []error
 	if resolved.BindHost == "" {
 		resolved.BindHost = DefaultBindHost
 	}
@@ -254,10 +253,14 @@ func (o Options) resolve() (Options, error) {
 		resolved.DrainTimeout = defaultDrainTimeout
 	}
 	if resolved.Version == "" {
-		resolved.Version = buildVersion()
+		info, err := buildinfo.Current()
+		if err != nil {
+			problems = append(problems, fmt.Errorf("reading build information: %w", err))
+		} else {
+			resolved.Version = info.Version
+		}
 	}
 
-	var problems []error
 	if resolved.StateDir == "" {
 		problems = append(problems, fmt.Errorf(
 			"%w: Options.StateDir is required; it is where the session and task databases live",
@@ -289,19 +292,6 @@ func (o Options) resolve() (Options, error) {
 	return resolved, errors.Join(problems...)
 }
 
-// buildVersion reports the module version stamped into the binary.
-//
-// A `go build` from a source checkout stamps "(devel)" or nothing at all, which
-// is the Go equivalent of Python's PackageNotFoundError, so both resolve to the
-// same [UnknownVersion] string.
-func buildVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
-		return UnknownVersion
-	}
-	return info.Main.Version
-}
-
 // Config is everything the server needs from the rest of the runtime.
 type Config struct {
 	// RootAgent is the composition to serve. Required.
@@ -314,6 +304,11 @@ type Config struct {
 
 	// MemoryService backs the long-term memory tools. Optional.
 	MemoryService memory.Service
+
+	// PromptGuardHandler serves agentgateway's fixed /request and /response
+	// webhook paths on this process's existing private listener. Optional, but
+	// when present PromptGuardReadiness is required.
+	PromptGuardHandler http.Handler
 
 	// Logger receives the server's own diagnostics. Nil uses slog.Default.
 	Logger *slog.Logger
@@ -337,6 +332,10 @@ type Config struct {
 	// with no probe at all, because Kubernetes will send it traffic.
 	ProbeDataset Step
 
+	// PromptGuardReadiness checks the configured NER model catalog without
+	// running inference. It must be set exactly when PromptGuardHandler is set.
+	PromptGuardReadiness Step
+
 	// Plugins are the application-wide policy plugins, attached to every
 	// invocation this server runs. The call budget is prepended to them.
 	Plugins []*plugin.Plugin
@@ -349,10 +348,11 @@ type Config struct {
 // [Server.Start], and serve it with [Server.Serve] or over [Server.Handler].
 // The zero value is not usable.
 type Server struct {
-	rootAgent agent.Agent
-	sessions  session.Service
-	memories  memory.Service
-	logger    *slog.Logger
+	rootAgent          agent.Agent
+	sessions           session.Service
+	memories           memory.Service
+	logger             *slog.Logger
+	promptGuardHandler http.Handler
 
 	// sessionCloser is the session service the caller handed in, kept for
 	// shutdown. It cannot be recovered from the `sessions` field: that one is
@@ -361,10 +361,11 @@ type Server struct {
 	// type assertion on the wrapper would silently never find one.
 	sessionCloser io.Closer
 
-	recoverState    Step
-	prepareDataset  Step
-	migrateSessions Step
-	probeDataset    Step
+	recoverState         Step
+	prepareDataset       Step
+	migrateSessions      Step
+	probeDataset         Step
+	promptGuardReadiness Step
 
 	plugins []*plugin.Plugin
 	gate    *sessionGate
@@ -392,6 +393,12 @@ func New(cfg Config) (*Server, error) {
 	if cfg.SessionService == nil {
 		problems = append(problems, fmt.Errorf(
 			"%w: SessionService is required; A2A sessions are durable state, not a cache",
+			ErrIncompleteConfig,
+		))
+	}
+	if (cfg.PromptGuardHandler == nil) != (cfg.PromptGuardReadiness == nil) {
+		problems = append(problems, fmt.Errorf(
+			"%w: PromptGuardHandler and PromptGuardReadiness must be configured together",
 			ErrIncompleteConfig,
 		))
 	}
@@ -436,19 +443,21 @@ func New(cfg Config) (*Server, error) {
 
 	sessionCloser, _ := cfg.SessionService.(io.Closer)
 	server := &Server{
-		rootAgent:       cfg.RootAgent,
-		sessions:        recoveringSessions{Service: cfg.SessionService},
-		sessionCloser:   sessionCloser,
-		memories:        cfg.MemoryService,
-		logger:          logger,
-		recoverState:    cfg.RecoverState,
-		prepareDataset:  cfg.PrepareDataset,
-		migrateSessions: cfg.MigrateSessions,
-		probeDataset:    cfg.ProbeDataset,
-		plugins:         plugins,
-		gate:            newSessionGate(),
-		appName:         policy.AppName,
-		options:         options,
+		rootAgent:            cfg.RootAgent,
+		sessions:             recoveringSessions{Service: cfg.SessionService},
+		sessionCloser:        sessionCloser,
+		memories:             cfg.MemoryService,
+		logger:               logger,
+		promptGuardHandler:   cfg.PromptGuardHandler,
+		recoverState:         cfg.RecoverState,
+		prepareDataset:       cfg.PrepareDataset,
+		migrateSessions:      cfg.MigrateSessions,
+		probeDataset:         cfg.ProbeDataset,
+		promptGuardReadiness: cfg.PromptGuardReadiness,
+		plugins:              plugins,
+		gate:                 newSessionGate(),
+		appName:              policy.AppName,
+		options:              options,
 	}
 	card, err := server.encodeCard()
 	if err != nil {
@@ -579,6 +588,7 @@ func (s *Server) executor() *adka2a.Executor {
 }
 
 // runConfig is the ADK run configuration every A2A invocation uses.
+// --8<-- [start:a2a-runtime]
 func (s *Server) runConfig() agent.RunConfig {
 	if s.options.Streaming {
 		return agent.RunConfig{StreamingMode: agent.StreamingModeSSE}
@@ -588,6 +598,8 @@ func (s *Server) runConfig() agent.RunConfig {
 	// 3.6 documents.
 	return agent.RunConfig{StreamingMode: agent.StreamingModeNone}
 }
+
+// --8<-- [end:a2a-runtime]
 
 // Close releases the resources the server owns.
 //
@@ -602,6 +614,7 @@ func (s *Server) Close() error {
 	}
 	if s.sessionCloser != nil {
 		problems = append(problems, s.sessionCloser.Close())
+		s.sessionCloser = nil
 	}
 	return errors.Join(problems...)
 }

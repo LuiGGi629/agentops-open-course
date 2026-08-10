@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -889,6 +892,32 @@ func TestTheEmbeddingRequestCarriesAColdStartDeadline(t *testing.T) {
 	// must not hold a tool call open forever.
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Embed() error = %v, want it to wrap the deadline", err)
+	}
+}
+
+func TestEmbeddingClientRefusesCrossOriginRedirects(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var captured atomic.Int64
+			target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				captured.Add(1)
+				http.Error(writer, "redirect target", http.StatusBadGateway)
+			}))
+			t.Cleanup(target.Close)
+			source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Location", target.URL+"/api/embed")
+				writer.WriteHeader(status)
+			}))
+			t.Cleanup(source.Close)
+
+			client := newEmbeddingsClient(source.Client(), source.URL, embeddingModel, time.Second)
+			if _, err := client.Embed(t.Context(), []string{"private runbook text"}); err == nil {
+				t.Fatal("Embed() error = nil, want redirect refusal")
+			}
+			if got := captured.Load(); got != 0 {
+				t.Fatalf("redirect target received %d request(s), want zero retrieval-text replays", got)
+			}
+		})
 	}
 }
 

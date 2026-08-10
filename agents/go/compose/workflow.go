@@ -51,8 +51,8 @@ const (
 	recommendDescription = "Recommends concrete, runbook-backed remediation."
 )
 
-// The four stage instructions, carried across byte for byte; the strict
-// evalsets assert their digests and several literal phrases.
+// The four stage instructions are pinned through direct behavioral invariants:
+// bounded planning, ordered evidence, explicit uncertainty, and read-only advice.
 const (
 	planInstruction = "Turn the request into an investigation plan with at most four bullets. Preserve the exact incident " +
 		"or service named by the user. If none is named, plan to select the most urgent unresolved incident. " +

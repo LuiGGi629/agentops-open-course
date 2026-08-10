@@ -15,8 +15,8 @@ import (
 	"strings"
 
 	// The pure-Go SQLite driver. It is the same one the data package and ADK's
-	// session store use, so the binary carries exactly one SQLite
-	// implementation and no cgo (MIGRATE.md D-4).
+	// session store use, so the static binary carries exactly one SQLite
+	// implementation and no cgo.
 	_ "github.com/glebarez/go-sqlite"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"

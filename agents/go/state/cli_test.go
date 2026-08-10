@@ -30,7 +30,8 @@ func TestStateCommandRoutesBackupRestoreAndErrors(t *testing.T) {
 	root := t.TempDir()
 	stateDir := seedState(t, filepath.Join(root, "state"))
 	backupRoot := filepath.Join(root, "backups")
-	pinned := CommandEnvironment{Timestamp: fixedStamp, SourceCommit: fixedCommit}
+	build := fixedBuild()
+	pinned := CommandEnvironment{Timestamp: fixedStamp, Build: &build}
 
 	code, out, errOut := runCommandWith(t, pinned,
 		BackupSubcommand, "--state-dir", stateDir, "--backup-root", backupRoot, "--keep", "1")

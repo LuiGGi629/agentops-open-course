@@ -2,8 +2,6 @@ package compose
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"iter"
 	"testing"
@@ -144,7 +142,6 @@ func testConfig(t *testing.T) Config {
 	return Config{
 		Model: fakeLLM{name: "fake-model"},
 		Skills: fakeToolset{name: "skills", tools: []tool.Tool{
-			namedTool{name: ListSkillsToolName},
 			namedTool{name: LoadSkillToolName},
 		}},
 		Tools: Tools{
@@ -187,14 +184,6 @@ func toolNames(built []tool.Tool) []string {
 		names = append(names, candidate.Name())
 	}
 	return names
-}
-
-// digest is the SHA-256 of an instruction, hex encoded. The Python suite pins
-// exactly these values, so a matching digest is proof the text crossed the port
-// byte for byte rather than approximately.
-func digest(instruction string) string {
-	sum := sha256.Sum256([]byte(instruction))
-	return hex.EncodeToString(sum[:])
 }
 
 // allConfigs returns every llmagent.Config this package produces, named.

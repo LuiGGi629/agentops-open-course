@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -26,14 +25,23 @@ func TestBackupRecordsVersionedHashedInventoryAndSource(t *testing.T) {
 		t.Fatalf("manifest source = %v, want an object", manifest["source"])
 	}
 	want := map[string]any{
-		"application": applicationName,
-		"version":     applicationVersion(),
-		"commit":      fixedCommit,
+		"application":     applicationName,
+		"build_timestamp": "2026-08-09T10:11:12Z",
+		"commit":          fixedCommit,
+		"dirty":           false,
+		"mode":            "development",
+		"revision":        fixedCommit,
+		"source_identity": fixedCommit,
+		"tree_digest":     fixedTreeDigest,
+		"version":         "development",
 	}
 	for field, expected := range want {
 		if source[field] != expected {
 			t.Errorf("manifest source[%q] = %v, want %v", field, source[field], expected)
 		}
+	}
+	if len(source) != len(want) {
+		t.Errorf("manifest source has %d fields, want the complete %d-field identity", len(source), len(want))
 	}
 
 	records, ok := manifest["databases"].([]any)
@@ -238,27 +246,18 @@ func corruptPage(t *testing.T, path string) {
 	}
 }
 
-func TestApplicationVersionHasAnUninstalledSourceCheckoutFallback(t *testing.T) {
+func TestBackupRejectsAnInconsistentBuildIdentityBeforePublication(t *testing.T) {
 	t.Parallel()
 
-	for _, testCase := range []struct {
-		info *debug.BuildInfo
-		name string
-		want string
-		ok   bool
-	}{
-		{nil, "no build info", "uninstalled", false},
-		{&debug.BuildInfo{Main: debug.Module{Version: ""}}, "empty version", "uninstalled", true},
-		{&debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, "development build", "uninstalled", true},
-		{&debug.BuildInfo{Main: debug.Module{Version: "v0.7.0"}}, "released build", "v0.7.0", true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+	root := t.TempDir()
+	options := backupOptions()
+	options.Build.SourceIdentity = strings.Repeat("c", 40)
 
-			if got := buildVersion(testCase.info, testCase.ok); got != testCase.want {
-				t.Errorf("buildVersion() = %q, want %q", got, testCase.want)
-			}
-		})
+	_, err := BackupState(t.Context(), filepath.Join(root, "state"), filepath.Join(root, "backups"), options)
+
+	assertSnapshotError(t, err, "Invalid build identity")
+	if _, statErr := os.Lstat(filepath.Join(root, "backups")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("invalid identity created a backup root: %v", statErr)
 	}
 }
 

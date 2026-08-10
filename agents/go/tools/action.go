@@ -10,6 +10,7 @@ import (
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
 )
 
 // The two guarded writes describe themselves to the model in unusually blunt
@@ -211,6 +212,7 @@ func (t *Tools) runResolveIncident(ctx agent.Context, args ResolveIncidentArgs) 
 //
 // The returned error is a refusal to show a human, never a failure to
 // propagate: the caller folds its text into a result the model reads.
+// --8<-- [start:validated-approval]
 func (t *Tools) validatedApproval(ctx agent.Context) (approval, error) {
 	if ctx == nil {
 		return approval{}, errors.New("the action must run through an ADK confirmation flow")
@@ -238,6 +240,16 @@ func (t *Tools) validatedApproval(ctx agent.Context) (approval, error) {
 		// whole list in one round trip.
 		return approval{}, fmt.Errorf("the confirmed action is missing %s", strings.Join(missing, ", "))
 	}
+	approvedBy := strings.TrimSpace(ctx.UserID())
+	networkPrincipal, networkState := principal.Network(ctx)
+	switch networkState {
+	case principal.NetworkUnauthenticated:
+		return approval{}, errors.New("a network action requires an authenticated principal in addition to confirmation")
+	case principal.NetworkAuthenticated:
+		if networkPrincipal.Subject() != approvedBy {
+			return approval{}, errors.New("the authenticated principal does not own the invocation")
+		}
+	}
 
 	rationale := rationaleFrom(confirmation.Payload)
 	if rationale == "" {
@@ -260,12 +272,14 @@ func (t *Tools) validatedApproval(ctx agent.Context) (approval, error) {
 	}
 
 	return approval{
-		approvedBy:   strings.TrimSpace(ctx.UserID()),
+		approvedBy:   approvedBy,
 		rationale:    rationale,
 		sessionID:    strings.TrimSpace(ctx.SessionID()),
 		invocationID: strings.TrimSpace(ctx.InvocationID()),
 	}, nil
 }
+
+// --8<-- [end:validated-approval]
 
 // rationaleFrom extracts the approver's justification from a confirmation
 // payload.

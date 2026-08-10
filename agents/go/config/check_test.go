@@ -129,7 +129,7 @@ func TestDescribeMarksUnsetOptionalSettings(t *testing.T) {
 	for _, variable := range []string{
 		EnvModelTemperature, EnvModelFallback, EnvMaxHistoryMessages,
 		EnvMaxTokensPerSession, EnvTrustedIdentityHeader, EnvGatewayEnabled,
-		EnvGoogleAPIKey, EnvMCPURL, EnvPIIAnalyzerURL,
+		EnvGoogleAPIKey, EnvMCPURL,
 	} {
 		if byVariable[variable] != UnsetValue {
 			t.Errorf("%s = %q, want %q", variable, byVariable[variable], UnsetValue)

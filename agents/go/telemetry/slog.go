@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"slices"
+	"sync"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -81,13 +84,171 @@ func (h *OtelHandler) WithGroup(name string) slog.Handler {
 
 // MultiHandler fans one record out to several handlers.
 //
-// It is what lets the console keep the record exactly as it was written while
-// the OTLP path sees a redacted, bounded copy. The two sinks must not share
-// mutable state, so every handler gets its own clone of the record: slog.Record
-// keeps its attributes in a shared backing array, and a handler that appends to
-// its copy would otherwise corrupt what the next one reads.
+// It is what lets the console and OTLP paths enforce their independent
+// redacting, bounding handlers. The two sinks must not share mutable state, so
+// every handler gets its own clone of the record: slog.Record keeps its
+// attributes in a shared backing array, and a handler that appends to its copy
+// would otherwise corrupt what the next one reads.
 type MultiHandler struct {
 	handlers []slog.Handler
+}
+
+// SanitizingHandler redacts and bounds a record before a durable local handler
+// receives it. It owns attributes added through logger.With so those values
+// cannot bypass the Handle-time policy.
+type SanitizingHandler struct {
+	handler slog.Handler
+	redact  Redactor
+	attrs   []exportAttr
+	groups  []string
+}
+
+// SanitizingWriter protects packages that still use the standard library log
+// package, whose global logger writes bytes instead of slog records.
+type SanitizingWriter struct {
+	destination io.Writer
+	redact      Redactor
+	guard       sync.Mutex
+}
+
+// NewSanitizingWriter wraps a byte-oriented log destination with the same
+// fail-closed redaction and bound used for structured console records.
+func NewSanitizingWriter(destination io.Writer, redact Redactor) (*SanitizingWriter, error) {
+	if destination == nil {
+		return nil, errors.New("telemetry: a sanitized writer needs a destination")
+	}
+	if redact == nil {
+		return nil, errors.New("telemetry: a sanitized writer needs a redactor")
+	}
+	return &SanitizingWriter{destination: destination, redact: redact}, nil
+}
+
+func (w *SanitizingWriter) Write(original []byte) (int, error) {
+	if len(original) == 0 {
+		return 0, nil
+	}
+	w.guard.Lock()
+	defer w.guard.Unlock()
+
+	sanitized := w.safeString(string(original))
+	written, err := io.WriteString(w.destination, sanitized)
+	if err != nil {
+		return 0, fmt.Errorf("writing a sanitized standard log record: %w", err)
+	}
+	if written != len(sanitized) {
+		return 0, io.ErrShortWrite
+	}
+	// io.Writer reports consumption of the caller's bytes, not the differently
+	// sized redacted representation written to the destination.
+	return len(original), nil
+}
+
+func (w *SanitizingWriter) safeString(original string) (sanitized string) {
+	sanitized = OmittedBody + "\n"
+	defer func() {
+		if recover() != nil {
+			sanitized = OmittedBody + "\n"
+		}
+	}()
+	return bounded(fmt.Sprint(safeValue(context.Background(), w.redact, original)))
+}
+
+// NewSanitizingHandler wraps a local destination with fail-closed redaction.
+func NewSanitizingHandler(handler slog.Handler, redact Redactor) (*SanitizingHandler, error) {
+	if handler == nil {
+		return nil, errors.New("telemetry: a sanitized handler needs a destination")
+	}
+	if redact == nil {
+		return nil, errors.New("telemetry: a sanitized handler needs a redactor")
+	}
+	return &SanitizingHandler{handler: handler, redact: redact}, nil
+}
+
+func (h *SanitizingHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.handler.Enabled(ctx, level)
+}
+
+func (h *SanitizingHandler) Handle(ctx context.Context, record slog.Record) error {
+	sanitized := h.safeRecord(ctx, record)
+	if err := h.handler.Handle(ctx, sanitized); err != nil {
+		return fmt.Errorf("handling a sanitized log record: %w", err)
+	}
+	return nil
+}
+
+func (h *SanitizingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	if len(attrs) == 0 {
+		return h
+	}
+	derived := h.clone()
+	for _, attr := range attrs {
+		derived.attrs = appendFlattened(derived.attrs, groupPrefix(h.groups), attr)
+	}
+	return derived
+}
+
+func (h *SanitizingHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	derived := h.clone()
+	derived.groups = append(derived.groups, name)
+	return derived
+}
+
+func (h *SanitizingHandler) clone() *SanitizingHandler {
+	return &SanitizingHandler{
+		handler: h.handler,
+		redact:  h.redact,
+		attrs:   slices.Clone(h.attrs),
+		groups:  slices.Clone(h.groups),
+	}
+}
+
+func (h *SanitizingHandler) safeRecord(ctx context.Context, record slog.Record) (sanitized slog.Record) {
+	sanitized = slog.NewRecord(record.Time, record.Level, OmittedBody, record.PC)
+	defer func() {
+		if recover() != nil {
+			sanitized = slog.NewRecord(record.Time, record.Level, OmittedBody, record.PC)
+		}
+	}()
+
+	message := bounded(fmt.Sprint(safeValue(ctx, h.redact, record.Message)))
+	sanitized = slog.NewRecord(record.Time, record.Level, message, record.PC)
+	collected := slices.Clone(h.attrs)
+	prefix := groupPrefix(h.groups)
+	record.Attrs(func(attr slog.Attr) bool {
+		collected = appendFlattened(collected, prefix, attr)
+		return true
+	})
+	for _, attr := range collected {
+		sanitized.AddAttrs(slog.Any(
+			safeKey(ctx, h.redact, attr.key),
+			boundedAny(safeValue(ctx, h.redact, attr.value)),
+		))
+	}
+	return sanitized
+}
+
+func boundedAny(value any) any {
+	switch typed := value.(type) {
+	case string:
+		return bounded(typed)
+	case map[string]any:
+		boundedMap := make(map[string]any, len(typed))
+		for key, item := range typed {
+			boundedMap[key] = boundedAny(item)
+		}
+		return boundedMap
+	case []any:
+		boundedSlice := make([]any, len(typed))
+		for index, item := range typed {
+			boundedSlice[index] = boundedAny(item)
+		}
+		return boundedSlice
+	default:
+		return value
+	}
 }
 
 // NewMultiHandler fans records out to every non-nil handler given.
@@ -162,13 +323,13 @@ func (h *MultiHandler) WithGroup(name string) slog.Handler {
 
 // Config is everything the logging plane needs from the rest of the runtime.
 type Config struct {
-	// Console receives every record exactly as it was written. Required: a
+	// Console receives every record after fail-closed redaction. Required: a
 	// process with no local log is undiagnosable when the collector is the
 	// thing that is broken.
 	Console slog.Handler
 
-	// Redact removes personal data and credentials from a value bound for
-	// export. Required when ExportLogs is true. See [Redactor].
+	// Redact removes personal data and credentials from every durable log sink.
+	// Required whether or not OTLP export is configured. See [Redactor].
 	Redact Redactor
 
 	// Level bounds what reaches the OTLP path. Nil means slog.LevelInfo. The
@@ -183,33 +344,36 @@ type Config struct {
 
 // NewHandler assembles the process's slog handler.
 //
-// The shape is: correlation on the outside, fan-out in the middle, the console
-// and the redacting exporter as the two leaves.
+// The shape is: correlation on the outside, fan-out in the middle, and
+// independently redacting console and exporter leaves.
 //
-//	OtelHandler → MultiHandler ─┬→ console (verbatim)
+//	OtelHandler → MultiHandler ─┬→ console (redacted, bounded, fail-closed)
 //	                            └→ export  (redacted, bounded, fail-closed)
 //
-// Correlation is outermost so both leaves see the identifiers. The redaction is
-// on the export leaf only, so the console keeps the raw text an engineer needs
-// while nothing sensitive leaves the process. That asymmetry is the whole point
-// and is pinned by TestConsoleKeepsTheRawRecordWhileExportIsRedacted.
+// Correlation is outermost so both leaves see the identifiers. Local terminals,
+// container stdout and CI capture are durable in practice, so neither leaf may
+// receive raw credentials, PII, provider bodies or endpoint values.
 //
 // Install the result with slog.SetDefault.
 func NewHandler(cfg Config) (slog.Handler, error) {
 	if cfg.Console == nil {
 		return nil, errors.New("telemetry: Config.Console is required")
 	}
+	console, err := NewSanitizingHandler(cfg.Console, cfg.Redact)
+	if err != nil {
+		return nil, err
+	}
 	if !cfg.ExportLogs {
 		// No OTLP log endpoint: the console alone, still trace-correlated,
 		// because `adk web`'s own trace view and a local Tempo both benefit and
 		// the stamping costs one context lookup.
-		return NewOtelHandler(cfg.Console), nil
+		return NewOtelHandler(console), nil
 	}
 	export, err := NewExportHandler(ExportConfig{Redact: cfg.Redact, Level: cfg.Level})
 	if err != nil {
 		return nil, err
 	}
-	fanout, err := NewMultiHandler(cfg.Console, export)
+	fanout, err := NewMultiHandler(console, export)
 	if err != nil {
 		return nil, err
 	}

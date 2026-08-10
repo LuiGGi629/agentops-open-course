@@ -3,6 +3,9 @@ package config
 import (
 	"cmp"
 	"fmt"
+	"math"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -65,9 +68,23 @@ func closedRange[T cmp.Ordered](found *problems, variable string, value, low, hi
 // exceeds high, mirroring pydantic's gt=0/le. Every deadline uses this rather
 // than closedRange: a zero-second deadline can never be met.
 func positiveAtMost(found *problems, variable string, value, high Seconds) {
+	if !finite(found, variable, float64(value)) {
+		return
+	}
 	if value <= 0 || value > high {
 		found.add(variable, "must be greater than 0 and at most %v, got %v", high, value)
 	}
+}
+
+// finite rejects IEEE-754 sentinel values before ordinary comparisons. NaN
+// compares false in every direction, while infinity can otherwise pass an
+// open-ended lower bound such as a non-negative token price.
+func finite(found *problems, variable string, value float64) bool {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		found.add(variable, "must be finite, got %v", value)
+		return false
+	}
+	return true
 }
 
 // notEmpty records a problem when a required string is blank.
@@ -75,6 +92,26 @@ func notEmpty(found *problems, variable, value string) {
 	if value == "" {
 		found.add(variable, "must not be empty")
 	}
+}
+
+// validHTTPFieldName implements the RFC 9110 token grammar used for HTTP
+// field names. Checking the configured trust seam at startup is safer than
+// silently looking up a header that an HTTP server can never accept.
+func validHTTPFieldName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := range len(value) {
+		character := value[index]
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') ||
+			strings.ContainsRune("!#$%&'*+-.^_`|~", rune(character)) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // fieldProblems checks every per-field constraint the Python track expresses as
@@ -112,6 +149,9 @@ func (c Config) fieldProblems() []Problem {
 
 	positiveAtMost(&found, EnvDrainTimeout, c.DrainTimeout, 300)
 	positiveAtMost(&found, EnvModelTimeout, c.ModelTimeout, 600)
+	// agentgateway 1.4.1 fixes webhook calls at ten seconds. Finishing first is
+	// what lets the reachable service return its conservative mask action.
+	positiveAtMost(&found, EnvPIIModelTimeout, c.PIIModelTimeout, 9)
 	positiveAtMost(&found, EnvToolTimeout, c.ToolTimeout, 600)
 	positiveAtMost(&found, EnvRetryBackoff, c.RetryBackoff, 30)
 	positiveAtMost(&found, EnvCircuitResetTimeout, c.CircuitResetTimeout, 600)
@@ -120,20 +160,24 @@ func (c Config) fieldProblems() []Problem {
 	if c.A2AProtocol != "http" && c.A2AProtocol != "https" {
 		found.add(EnvA2AProtocol, "must be http or https, got %q", c.A2AProtocol)
 	}
-	if c.InputPricePer1K < 0 {
+	if finite(&found, EnvInputPricePer1K, c.InputPricePer1K) && c.InputPricePer1K < 0 {
 		found.add(EnvInputPricePer1K, "must not be negative, got %v", c.InputPricePer1K)
 	}
-	if c.OutputPricePer1K < 0 {
+	if finite(&found, EnvOutputPricePer1K, c.OutputPricePer1K) && c.OutputPricePer1K < 0 {
 		found.add(EnvOutputPricePer1K, "must not be negative, got %v", c.OutputPricePer1K)
 	}
 
 	// Optional settings are only checked when they are actually set; unset is a
 	// valid, documented state for every pointer field.
 	if c.ModelTemperature != nil {
-		closedRange(&found, EnvModelTemperature, *c.ModelTemperature, 0, 2)
+		if finite(&found, EnvModelTemperature, *c.ModelTemperature) {
+			closedRange(&found, EnvModelTemperature, *c.ModelTemperature, 0, 2)
+		}
 	}
 	if c.TrustedIdentityHeader != nil {
-		notEmpty(&found, EnvTrustedIdentityHeader, *c.TrustedIdentityHeader)
+		if !validHTTPFieldName(*c.TrustedIdentityHeader) {
+			found.add(EnvTrustedIdentityHeader, "must be a valid HTTP field name")
+		}
 	}
 	if c.ModelFallback != nil {
 		notEmpty(&found, EnvModelFallback, *c.ModelFallback)
@@ -151,6 +195,7 @@ func (c Config) fieldProblems() []Problem {
 //
 // This phase is reported on its own and short-circuits the rest: with no usable
 // credentials there is nothing worth saying about MCP routes or fallback models.
+// --8<-- [start:settings-provider-validation]
 func (c Config) providerProblems() []Problem {
 	var found problems
 
@@ -214,30 +259,35 @@ func (c Config) providerProblems() []Problem {
 	return found
 }
 
+// --8<-- [end:settings-provider-validation]
+
 // crossFieldProblems rejects combinations that parse but cannot work.
 func (c Config) crossFieldProblems() []Problem {
 	var found problems
 
-	if c.PromptURI != "" && !strings.HasPrefix(c.PromptURI, "prompts:/") {
-		found.addCrossField(
-			"AGENT_PROMPT_URI must look like prompts:/agentops-agent-instruction/2, got %q. "+
-				"Unset it to use the committed instruction.", c.PromptURI,
-		)
+	endpoints := []struct {
+		variable string
+		value    string
+		example  string
+		required bool
+	}{
+		{EnvOpenAIBaseURL, c.OpenAIBaseURL, "http://127.0.0.1:11434/v1", false},
+		{EnvMCPURL, c.MCPURL, "http://127.0.0.1:3000/mcp", false},
+		{EnvPIIModelBaseURL, c.PIIModelBaseURL, "http://127.0.0.1:11434/v1", true},
+		{EnvEmbeddingsURL, c.EmbeddingsURL, "http://127.0.0.1:11434", true},
 	}
-	if c.MCPURL != "" && !isHTTPURL(c.MCPURL) {
-		found.addCrossField(
-			"AGENT_MCP_URL must be an http(s) URL such as http://127.0.0.1:3000/mcp, got %q. "+
-				"Unset it to call the six read tools directly, in process.", c.MCPURL,
-		)
-	}
-	// The Go track adds this variable (there is no Presidio in the pure-Go
-	// binary), so it also owns its rule. Same shape as AGENT_MCP_URL: a
-	// misconfigured analyzer must fail at startup, not on the first redaction.
-	if c.PIIAnalyzerURL != "" && !isHTTPURL(c.PIIAnalyzerURL) {
-		found.addCrossField(
-			"AGENT_PII_ANALYZER_URL must be an http(s) URL such as http://127.0.0.1:3000, got %q. "+
-				"Unset it to rely on in-process redaction alone.", c.PIIAnalyzerURL,
-		)
+	for _, endpoint := range endpoints {
+		// OpenAI is unused under Gemini, and empty MCP selects the in-process read
+		// tools. The PII-model and embeddings URLs retain their required defaults.
+		if endpoint.value == "" && !endpoint.required {
+			continue
+		}
+		if reason := httpURLProblem(endpoint.value); reason != "" {
+			found.addCrossField(
+				"%s %s, such as %s; the rejected value is omitted from diagnostics.",
+				endpoint.variable, reason, endpoint.example,
+			)
+		}
 	}
 	if c.ModelFallback != nil && *c.ModelFallback == c.Model {
 		found.addCrossField(
@@ -249,7 +299,27 @@ func (c Config) crossFieldProblems() []Problem {
 	return found
 }
 
-// isHTTPURL reports whether value carries an http or https scheme.
-func isHTTPURL(value string) bool {
-	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
+// httpURLProblem validates a provider endpoint without returning the rejected
+// value: userinfo or a query can hold credentials that diagnostics must not
+// echo. Parsing matters because a scheme prefix alone accepts malformed escapes
+// and values such as http:///missing-host that no client can dial.
+func httpURLProblem(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil || !parsed.IsAbs() || parsed.Hostname() == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "must be an http(s) URL that is absolute and has a host"
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "must not contain credentials, a query, or a fragment"
+	}
+	if strings.HasSuffix(parsed.Host, ":") {
+		return "must use a port between 1 and 65535 when a port is present"
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return "must use a port between 1 and 65535 when a port is present"
+		}
+	}
+	return ""
 }

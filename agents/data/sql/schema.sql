@@ -1,5 +1,5 @@
 -- AgentOps Open Course — AgentOps Agent dataset schema (SQLite).
--- Single source of truth for the AgentOps Open Course reference agent (agents/python).
+-- Single source of truth for the AgentOps Open Course reference agent.
 -- Rebuild incidents.db from this file + seed.sql with `mise run build` (see ../mise.toml).
 
 PRAGMA foreign_keys = ON;

@@ -382,6 +382,10 @@ func (s *TaskStore) Update(ctx context.Context, req *taskstore.UpdateRequest) (t
 	if err := validateTask(req.Task); err != nil {
 		return taskstore.TaskVersionMissing, err
 	}
+	owner, err := s.authenticator(ctx)
+	if err != nil {
+		return taskstore.TaskVersionMissing, fmt.Errorf("taskstore auth failed: %w", err)
+	}
 	task := req.Task
 	encoded, err := json.Marshal(task)
 	if err != nil {
@@ -392,7 +396,7 @@ func (s *TaskStore) Update(ctx context.Context, req *taskstore.UpdateRequest) (t
 	err = inWriteTransaction(ctx, s.pool, func(tx *sql.Tx) error {
 		var stored int64
 		switch scanErr := tx.QueryRowContext(ctx,
-			`SELECT version FROM tasks WHERE id = ?`, string(task.ID)).Scan(&stored); {
+			`SELECT version FROM tasks WHERE id = ? AND owner = ?`, string(task.ID), owner).Scan(&stored); {
 		case errors.Is(scanErr, sql.ErrNoRows):
 			return a2a.ErrTaskNotFound
 		case scanErr != nil:
@@ -406,15 +410,15 @@ func (s *TaskStore) Update(ctx context.Context, req *taskstore.UpdateRequest) (t
 		}
 		next = taskstore.TaskVersion(stored) + 1
 		// The owner column is never in the SET list: a task belongs to whoever
-		// created it, and an update carries no authenticated identity of its own
-		// (the reference preserves it the same way).
+		// created it. The owner predicate also keeps this write scoped if the
+		// transaction code is changed later and no longer holds one write lock.
 		result, execErr := tx.ExecContext(ctx,
 			`UPDATE tasks
 			    SET context_id = ?, state = ?, version = ?, last_updated_ns = ?,
 			        status_timestamp_ns = ?, task = ?
-			  WHERE id = ? AND version = ?`,
+			  WHERE id = ? AND owner = ? AND version = ?`,
 			task.ContextID, string(task.Status.State), int64(next), s.now().UnixNano(),
-			statusTimestamp(task), string(encoded), string(task.ID), stored,
+			statusTimestamp(task), string(encoded), string(task.ID), owner, stored,
 		)
 		if execErr != nil {
 			return fmt.Errorf("update task %q: %w", task.ID, execErr)
@@ -446,12 +450,17 @@ func (s *TaskStore) Update(ctx context.Context, req *taskstore.UpdateRequest) (t
 // that mutates the result cannot reach stored state — the JSON round trip is
 // what the in-memory store needs an explicit deep copy for.
 func (s *TaskStore) Get(ctx context.Context, taskID a2a.TaskID) (*taskstore.StoredTask, error) {
+	owner, err := s.authenticator(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("taskstore auth failed: %w", err)
+	}
 	var (
 		encoded string
 		version int64
 	)
-	err := s.pool.QueryRowContext(ctx,
-		`SELECT task, version FROM tasks WHERE id = ?`, string(taskID)).Scan(&encoded, &version)
+	err = s.pool.QueryRowContext(ctx,
+		`SELECT task, version FROM tasks WHERE id = ? AND owner = ?`, string(taskID), owner).
+		Scan(&encoded, &version)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil, a2a.ErrTaskNotFound
@@ -462,7 +471,7 @@ func (s *TaskStore) Get(ctx context.Context, taskID a2a.TaskID) (*taskstore.Stor
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTaskStore, err)
 	}
-	return &taskstore.StoredTask{Task: task, Version: taskstore.TaskVersion(version)}, nil
+	return &taskstore.StoredTask{Task: task, Version: taskstore.TaskVersion(version), User: owner}, nil
 }
 
 // List implements [taskstore.Store].

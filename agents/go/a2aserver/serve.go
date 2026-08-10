@@ -38,14 +38,15 @@ const stateDirPerm = 0o750
 // Steps 1 to 3 are the course invariant recorded in AGENTS.md. Moving the
 // recovery after the preflight or the preflight after publication is a
 // correctness regression, not a refactor.
+// --8<-- [start:a2a-lifespan]
 func (s *Server) Start(ctx context.Context) error {
-	// The state directory has to exist before anything can be recovered into,
-	// preflighted, or published there.
-	if err := os.MkdirAll(s.options.StateDir, stateDirPerm); err != nil {
-		return fmt.Errorf("creating the state directory %s: %w", s.options.StateDir, err)
-	}
 	if err := s.recoverState(ctx); err != nil {
 		return fmt.Errorf("recovering an interrupted state restore: %w", err)
+	}
+	// Recovery treats a missing state directory as a clean first boot. Only
+	// after that decision may startup create the directory it will publish into.
+	if err := os.MkdirAll(s.options.StateDir, stateDirPerm); err != nil {
+		return fmt.Errorf("creating the state directory %s: %w", s.options.StateDir, err)
 	}
 	if err := preflightStateStores(ctx, s.options.StateDir); err != nil {
 		return fmt.Errorf("checking runtime state before startup: %w", err)
@@ -73,6 +74,8 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
+// --8<-- [end:a2a-lifespan]
+
 // Serve runs the startup sequence and then serves until ctx is canceled.
 //
 // Cancelation is a normal shutdown, not a failure: pressing Ctrl-C on a
@@ -85,6 +88,7 @@ func (s *Server) Start(ctx context.Context) error {
 // nothing more: a turn that exceeds it is still cut, which is why every state
 // change is transactional rather than relying on drain time for correctness.
 // Kubernetes' terminationGracePeriodSeconds must exceed this window.
+// --8<-- [start:a2a-cancel]
 func (s *Server) Serve(ctx context.Context) (err error) {
 	if startErr := s.Start(ctx); startErr != nil {
 		return startErr
@@ -122,3 +126,5 @@ func (s *Server) Serve(ctx context.Context) (err error) {
 		return nil
 	}
 }
+
+// --8<-- [end:a2a-cancel]

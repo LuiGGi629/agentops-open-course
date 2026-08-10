@@ -11,14 +11,8 @@ import (
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
 )
 
-// This file is the Go port of tests/test_pii.py.
-//
-// Every case that does not depend on named-entity recognition is kept as is.
-// The cases that do — the two <PERSON> parametrizations and the "Paris"
-// assertion — are not deleted and are not weakened into passing against layer
-// 1. They move to analyzer_test.go as explicit layer-2 tests, and
-// TestLayerOneDoesNotDetectNames states the boundary here so a reader of this
-// file cannot mistake the coverage for complete.
+// These tests pin the always-on deterministic floor. Named-entity behavior is
+// tested separately at the private agentgateway webhook boundary.
 
 // The addresses the suite redacts. They are invented, not seeded, so they carry
 // no domain vocabulary.
@@ -28,7 +22,7 @@ const (
 	failingHost   = "10.0.0.5"
 )
 
-// layerOne is a policy with no analyzer configured: the account-free default.
+// layerOne is the always-on account-free deterministic policy.
 func layerOne(t *testing.T) *Policy {
 	t.Helper()
 	return newPolicy(t, Config{SanitizeToolOutput: true})
@@ -48,6 +42,39 @@ func TestRedactsEmailAndPhone(t *testing.T) {
 	}
 	if !strings.Contains(redacted, entityEmail.mask()) {
 		t.Errorf("RedactBoundaryText() = %q, want it to contain %s", redacted, entityEmail.mask())
+	}
+}
+
+// TestLayerOneCoversEveryGatewayBuiltin pins the deterministic floor against
+// agentgateway 1.4.1's exact builtin inventory. The gateway is optional and is
+// introduced later in the course, so none of these classes may depend on it.
+func TestLayerOneCoversEveryGatewayBuiltin(t *testing.T) {
+	t.Parallel()
+
+	for _, candidate := range []struct {
+		name string
+		text string
+		want entity
+	}{
+		{name: "US SSN", text: "SSN 123-45-6789", want: entitySSN},
+		{name: "US SSN compact", text: "SSN 123456789", want: entitySSN},
+		{name: "US SSN five-four", text: "SSN 12345-6789", want: entitySSN},
+		{name: "US SSN three-six", text: "SSN 123-456789", want: entitySSN},
+		{name: "credit card", text: "card 4111 1111 1111 1111", want: entityCreditCard},
+		{name: "phone number", text: "call 555-123-4567", want: entityPhone},
+		{name: "email", text: "email jane.doe@example.com", want: entityEmail},
+		{name: "Canadian SIN", text: "SIN 046-454-286", want: entityCASIN},
+		{name: "Canadian SIN compact", text: "SIN 046454286", want: entityCASIN},
+	} {
+		t.Run(candidate.name, func(t *testing.T) {
+			t.Parallel()
+
+			redacted := layerOne(t).RedactBoundaryText(t.Context(), candidate.text)
+			if !strings.Contains(redacted, candidate.want.mask()) {
+				t.Errorf("RedactBoundaryText(%q) = %q, want it to contain %s",
+					candidate.text, redacted, candidate.want.mask())
+			}
+		})
 	}
 }
 
@@ -103,7 +130,7 @@ func TestRedactsPersonalDataWithoutCorruptingDomainIdentifiers(t *testing.T) {
 }
 
 // TestSafeOperationalTokensInsideEmailDomainsStillRedact is the container-first
-// phase of the analyzer: a protected token that lives inside an address is part
+// phase of detection: a protected token that lives inside an address is part
 // of the address, so protecting it would leave the address readable.
 func TestSafeOperationalTokensInsideEmailDomainsStillRedact(t *testing.T) {
 	t.Parallel()
@@ -171,11 +198,8 @@ func TestCredentialsInsideAURLAreStillRemoved(t *testing.T) {
 	}
 }
 
-// TestEveryConfiguredEntityHasAnOwner is the Go reading of the Python registry
-// check. Python asserted that every configured entity had a loaded recognizer;
-// here every configured class must be served by a deterministic recognizer or
-// be a named-entity class that layer 2 owns. A class belonging to neither would
-// be a policy that quietly promises nothing.
+// TestEveryConfiguredEntityHasAnOwner asserts that every Layer 1 class has a
+// deterministic recognizer. A class without one would quietly promise nothing.
 func TestEveryConfiguredEntityHasAnOwner(t *testing.T) {
 	t.Parallel()
 
@@ -194,8 +218,8 @@ func TestEveryConfiguredEntityHasAnOwner(t *testing.T) {
 			t.Parallel()
 
 			for _, name := range policy.value.entities {
-				if !deterministic[name] && !name.isNamedEntity() {
-					t.Errorf("entity %s has neither a recognizer nor a layer-2 owner", name)
+				if !deterministic[name] {
+					t.Errorf("entity %s has no deterministic recognizer", name)
 				}
 			}
 		})
@@ -217,14 +241,6 @@ func TestLayerOneDoesNotDetectNames(t *testing.T) {
 	if redacted := policy.RedactBoundaryText(t.Context(), text); redacted != text {
 		t.Errorf("RedactBoundaryText() = %q, want %q unchanged; layer 1 has no NER", redacted, text)
 	}
-	for _, name := range boundaryPolicy().entities {
-		if name.isNamedEntity() {
-			// The class is still declared, so configuring layer 2 turns it on
-			// without touching the policy.
-			return
-		}
-	}
-	t.Error("the boundary policy declares no named-entity class for layer 2 to satisfy")
 }
 
 func TestKeepsServiceAndRunbookIdentifiers(t *testing.T) {
@@ -714,6 +730,31 @@ func TestChecksumsGateTheNumericRecognizers(t *testing.T) {
 					candidate.text, redacted)
 			}
 		})
+	}
+}
+
+func TestDocumentValidatorsRejectInvalidChecksumsAndReservedGroups(t *testing.T) {
+	t.Parallel()
+
+	for candidate, want := range map[string]bool{
+		"046-454-286": true,
+		"046-454-287": false,
+	} {
+		if got := passesCASINChecksum(candidate); got != want {
+			t.Errorf("passesCASINChecksum(%q) = %t, want %t", candidate, got, want)
+		}
+	}
+	for candidate, want := range map[string]bool{
+		"123-45-6789": true,
+		"000-45-6789": false,
+		"666-45-6789": false,
+		"900-45-6789": false,
+		"123-00-6789": false,
+		"123-45-0000": false,
+	} {
+		if got := isValidSSN(candidate); got != want {
+			t.Errorf("isValidSSN(%q) = %t, want %t", candidate, got, want)
+		}
 	}
 }
 

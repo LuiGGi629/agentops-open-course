@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 )
 
@@ -39,8 +40,6 @@ const (
 	// EnvBackupTimestamp pins the snapshot directory name, which is what makes
 	// a backup drill reproducible.
 	EnvBackupTimestamp = "STATE_BACKUP_TIMESTAMP"
-	// EnvSourceCommit records the build a snapshot came from.
-	EnvSourceCommit = "AGENT_SOURCE_COMMIT"
 )
 
 // defaultBackupRoot is where snapshots land when --backup-root is not given.
@@ -57,10 +56,11 @@ type CommandEnvironment struct {
 	// variable is unset; a pointer to an empty or unparseable string is a
 	// mistake worth reporting rather than rounding down to the default.
 	Keep *string
+	// Build overrides the link-time build identity for deterministic tests.
+	// Nil makes BackupState resolve the running binary's identity.
+	Build *buildinfo.Info
 	// Timestamp is EnvBackupTimestamp. Empty means "stamp this snapshot now".
 	Timestamp string
-	// SourceCommit is EnvSourceCommit. Empty records "unknown".
-	SourceCommit string
 }
 
 // Main runs the repository-owned backup and restore command.
@@ -149,11 +149,12 @@ func runBackup(
 	if err != nil {
 		return err
 	}
+	build := buildinfo.Info{}
+	if environment.Build != nil {
+		build = *environment.Build
+	}
 	_, err = BackupState(ctx, resolvedStateDir, filepath.Clean(*backupRoot), BackupOptions{
-		Logger:       logger,
-		Keep:         resolvedKeep,
-		Timestamp:    environment.Timestamp,
-		SourceCommit: environment.SourceCommit,
+		Logger: logger, Keep: resolvedKeep, Timestamp: environment.Timestamp, Build: build,
 	})
 	return err
 }

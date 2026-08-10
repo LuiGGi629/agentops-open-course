@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
 )
 
 // The gateway-verified caller identity, carried from the HTTP boundary into the
@@ -49,19 +51,13 @@ import (
 // raw client could otherwise forge it. When the setting is empty the header is
 // never read, so an unconfigured deployment cannot be tricked into trusting one.
 
-// subjectKey types the request-context key. An unexported struct type cannot
-// collide with a key from any other package.
-type subjectKey struct{}
-
-// duplicateIdentityHeader is the body returned when a request carries the
-// trusted header twice. Two values mean at least one of them was not set by the
-// gateway, and there is no safe way to pick between them.
-const duplicateIdentityHeader = "duplicate trusted identity header"
-
-// withVerifiedSubject returns a context carrying a gateway-verified subject.
-func withVerifiedSubject(ctx context.Context, subject string) context.Context {
-	return context.WithValue(ctx, subjectKey{}, subject)
-}
+const (
+	// duplicateIdentityHeader is the body returned when a request carries the
+	// trusted header twice. Two values mean at least one of them was not set by
+	// the gateway, and there is no safe way to pick between them.
+	duplicateIdentityHeader = "duplicate trusted identity header"
+	identityRequired        = "authenticated identity required"
+)
 
 // VerifiedSubject returns the gateway-verified caller identity bound to ctx, if
 // any.
@@ -70,16 +66,25 @@ func withVerifiedSubject(ctx context.Context, subject string) context.Context {
 // HTTP boundary to ask "who did the gateway say this is?" without re-reading a
 // header it must not trust on its own.
 func VerifiedSubject(ctx context.Context) (string, bool) {
-	subject, ok := ctx.Value(subjectKey{}).(string)
-	return subject, ok && subject != ""
+	authenticated, state := principal.Network(ctx)
+	return authenticated.Subject(), state == principal.NetworkAuthenticated
 }
 
 // bindVerifiedIdentity reads the trusted identity header once per request.
 //
-// When no header name is configured the middleware is not installed at all, so
-// there is no code path in which an unconfigured header is read.
+// The middleware always marks A2A requests as network-originated. When no
+// header name is configured it reads no identity header and grants no principal,
+// so guarded writes fail closed while read-only A2A remains available. Once a
+// trusted header is configured, every protocol POST must carry exactly one
+// valid subject; public card and probe GETs remain independent of caller auth.
+// --8<-- [start:verified-identity]
 func bindVerifiedIdentity(header string, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		request = request.WithContext(principal.MarkNetwork(request.Context()))
+		if header == "" || request.Method != http.MethodPost {
+			next.ServeHTTP(writer, request)
+			return
+		}
 		// Header.Values canonicalizes its argument, so it collects the header
 		// under any capitalization — the case-insensitive match the ASGI
 		// middleware did by lowercasing bytes.
@@ -91,14 +96,29 @@ func bindVerifiedIdentity(header string, logger *slog.Logger, next http.Handler)
 				map[string]string{"error": duplicateIdentityHeader})
 			return
 		}
-		if len(values) == 1 {
-			if subject := strings.TrimSpace(values[0]); subject != "" {
-				request = request.WithContext(withVerifiedSubject(request.Context(), subject))
-			}
+		if len(values) != 1 {
+			logger.WarnContext(request.Context(), "refused an A2A request",
+				"reason", identityRequired, "header", header, "status", http.StatusUnauthorized)
+			writeJSON(writer, request, logger, http.StatusUnauthorized,
+				map[string]string{"error": identityRequired})
+			return
 		}
+		authenticated, err := principal.NewAuthenticated(strings.TrimSpace(values[0]))
+		if err != nil {
+			// The raw value is attacker-controlled identity data. Keep it out of
+			// both the response and durable logs; the local failure class is enough.
+			logger.WarnContext(request.Context(), "refused an A2A request",
+				"reason", identityRequired, "header", header, "status", http.StatusUnauthorized)
+			writeJSON(writer, request, logger, http.StatusUnauthorized,
+				map[string]string{"error": identityRequired})
+			return
+		}
+		request = request.WithContext(principal.BindNetwork(request.Context(), authenticated))
 		next.ServeHTTP(writer, request)
 	})
 }
+
+// --8<-- [end:verified-identity]
 
 // identityInterceptor promotes the verified subject onto the A2A call context.
 //
@@ -119,8 +139,8 @@ func (identityInterceptor) Before(
 	subject, ok := VerifiedSubject(ctx)
 	if !ok || callCtx == nil {
 		// No verified subject means the unauthenticated synthetic identity
-		// stands, which is the documented default for a deployment with no
-		// gateway in front of it.
+		// stands only for session and memory scoping. Guarded tools inspect
+		// the typed network state separately and refuse it as write authority.
 		return ctx, nil, nil
 	}
 	callCtx.User = a2asrv.NewAuthenticatedUser(subject, nil)

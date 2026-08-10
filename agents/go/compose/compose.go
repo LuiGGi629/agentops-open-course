@@ -81,9 +81,9 @@ const (
 //
 // The four incident reads and the two guarded writes are named by the tools
 // package and read from there, so they are spelled once. These four are not:
-// the memory package (MIGRATE.md §7 — memory.py and longterm.py) will build the
-// tools, but the names are already load-bearing here, in the root instruction
-// and in the MCP allowlist below, so this package has to be able to say them.
+// the memory package builds the tools, but the names are already load-bearing
+// here, in the root instruction and in the MCP allowlist below, so this package
+// has to be able to say them.
 const (
 	// GetRunbookToolName fetches one runbook by slug.
 	GetRunbookToolName = "get_runbook"
@@ -184,12 +184,6 @@ type Config struct {
 	// [Instruction], which is what every runtime path does.
 	Instruction string
 
-	// PromptURI is the dev/eval prompt-registry pin (AGENT_PROMPT_URI). The
-	// registry lives in the offline evaluation harness and there is no client
-	// for it in this runtime, so a pin that no one resolved is refused rather
-	// than silently replaced by the committed text — see [New].
-	PromptURI string
-
 	// Entrypoint selects which composition [Compose.RootAgent] builds.
 	Entrypoint config.Entrypoint
 
@@ -240,14 +234,6 @@ func New(cfg Config) (*Compose, error) {
 		))
 	}
 	problems = append(problems, missingToolProblems(cfg)...)
-	if cfg.PromptURI != "" && cfg.Instruction == "" {
-		problems = append(problems, fmt.Errorf(
-			"%w: PromptURI %q was not resolved into Instruction; "+
-				"the prompt registry lives in the offline evaluation harness, so the runtime "+
-				"cannot fetch it — resolve the pin before building the composition, or unset it",
-			ErrIncompleteConfig, cfg.PromptURI,
-		))
-	}
 	if err := errors.Join(problems...); err != nil {
 		return nil, err
 	}

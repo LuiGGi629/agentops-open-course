@@ -13,9 +13,8 @@ import (
 	"google.golang.org/genai"
 )
 
-// This file covers MIGRATE.md's G-5: the note store is also the agent's
-// persistent ADK memory.Service, and ADK's own load_memory and preload_memory
-// tools read through it.
+// The note store is also the agent's persistent ADK memory.Service, and ADK's
+// own load_memory and preload_memory tools read through it.
 
 func TestTheNoteStoreIsThePersistentADKMemoryService(t *testing.T) {
 	t.Parallel()

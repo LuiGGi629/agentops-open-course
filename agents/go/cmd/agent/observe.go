@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel/sdk/resource"
 	adktelemetry "google.golang.org/adk/v2/telemetry"
 
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
 )
@@ -42,12 +44,19 @@ func installTelemetry(
 	ctx context.Context,
 	console io.Writer,
 	governance *policy.Policy,
-	version string,
+	build buildinfo.Info,
 	ownsProviders bool,
 ) (func(context.Context) error, []adktelemetry.Option, error) {
+	// execute applies this before dispatch, but runtime assembly is also used
+	// directly by tests and embedders. Reapply the idempotent privacy boundary
+	// here so neither provider-ownership path can construct an unsafe ADK tracer.
+	if err := telemetry.SetContentCaptureDefaults(); err != nil {
+		return noFlush, nil, fmt.Errorf("enforcing telemetry privacy defaults: %w", err)
+	}
+
 	// One resource for every signal, so a metric and the span it was recorded
 	// on can never disagree about which service produced them.
-	signalResource := telemetry.Resource(version)
+	signalResource := telemetry.Resource(build)
 
 	if err := installLogging(console, governance); err != nil {
 		return noFlush, nil, err
@@ -72,17 +81,17 @@ func installTelemetry(
 	return flush, nil, nil
 }
 
-// installLogging makes every record this process writes trace-correlated, and —
-// when an OTLP log endpoint is configured — exports a redacted copy of it.
+// installLogging makes every record this process writes trace-correlated and
+// redacted before console persistence, then optionally exports a separately
+// redacted copy when an OTLP log endpoint is configured.
 func installLogging(console io.Writer, governance *policy.Policy) error {
 	handler, err := telemetry.NewHandler(telemetry.Config{
 		// Standard error, never standard output: on the MCP stdio transport
 		// stdout carries the protocol, and a log line in the middle of it is a
 		// framing error rather than a cosmetic problem.
 		Console: slog.NewTextHandler(console, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		// The persisted redactor, not the boundary one: a record shipped to a
-		// collector is durable in exactly the way an audit row is, and once it
-		// is in Loki it cannot be unsent.
+		// The persisted redactor, not the boundary one: terminals, containers,
+		// CI capture, and collectors all retain output after this call returns.
 		Redact: governance.RedactPersistedValue,
 		// Decided once, here, rather than read from the environment inside the
 		// handler, so a test can decide differently without touching the
@@ -93,6 +102,13 @@ func installLogging(console io.Writer, governance *policy.Policy) error {
 		return fmt.Errorf("building the log handler: %w", err)
 	}
 	slog.SetDefault(slog.New(handler))
+	standard, err := telemetry.NewSanitizingWriter(console, governance.RedactPersistedValue)
+	if err != nil {
+		return fmt.Errorf("building the standard log writer: %w", err)
+	}
+	// ADK v2.1.0 still uses package log on several launcher and runner paths;
+	// route those records through the same durable-sink policy as slog.
+	log.SetOutput(standard)
 	return nil
 }
 

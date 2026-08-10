@@ -234,12 +234,11 @@ func TestTaskStoreUpdateReportsAMissingTask(t *testing.T) {
 	errIsNot(t, err, a2a.ErrTaskNotFound, "Update() on a missing task")
 }
 
-func TestTaskStoreUpdatePreservesTheOwner(t *testing.T) {
+func TestTaskStoreGetAndUpdateMaskAnotherOwnersTask(t *testing.T) {
 	t.Parallel()
 
-	// A task belongs to whoever created it. An update carries no authenticated
-	// identity, so a second caller's update must not silently reassign it — the
-	// listing scope is the store's only access control.
+	// A task belongs to whoever created it. Matching the upstream store and A2A
+	// spec, a different caller sees "not found" rather than an ownership oracle.
 	var caller string
 	store := newTaskStore(t, func(cfg *a2aserver.TaskStoreConfig) {
 		cfg.Authenticator = func(context.Context) (string, error) { return caller, nil }
@@ -248,10 +247,17 @@ func TestTaskStoreUpdatePreservesTheOwner(t *testing.T) {
 	mustCreate(t, store, newTask("t1", "c1", a2a.TaskStateSubmitted))
 
 	caller = "mallory@example.test"
-	if _, err := store.Update(t.Context(), &taskstore.UpdateRequest{
+	stored, err := store.Get(t.Context(), "t1")
+	errIsNot(t, err, a2a.ErrTaskNotFound, "Get() by another owner")
+	if stored != nil {
+		t.Errorf("Get() by another owner = %+v, want nil", stored)
+	}
+	version, err := store.Update(t.Context(), &taskstore.UpdateRequest{
 		Task: newTask("t1", "c1", a2a.TaskStateWorking), PrevVersion: 1,
-	}); err != nil {
-		t.Fatalf("Update() error = %v, want nil", err)
+	})
+	errIsNot(t, err, a2a.ErrTaskNotFound, "Update() by another owner")
+	if version != taskstore.TaskVersionMissing {
+		t.Errorf("Update() by another owner version = %d, want missing", version)
 	}
 	listed, err := store.List(t.Context(), &a2a.ListTasksRequest{})
 	if err != nil {
@@ -268,6 +274,10 @@ func TestTaskStoreUpdatePreservesTheOwner(t *testing.T) {
 	}
 	if len(listed.Tasks) != 1 {
 		t.Fatalf("the owner listed %d tasks, want 1", len(listed.Tasks))
+	}
+	stored = mustGet(t, store, "t1")
+	if stored.Task.Status.State != a2a.TaskStateSubmitted || stored.User != testOwner {
+		t.Errorf("owner Get() = %+v (user %q), want unchanged task owned by %q", stored.Task, stored.User, testOwner)
 	}
 }
 

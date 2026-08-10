@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
 )
 
 // The two Ollama endpoints this package speaks. /api/embed produces the
@@ -68,11 +70,10 @@ type embeddingsClient struct {
 // newEmbeddingsClient builds the client, defaulting the HTTP client so a caller
 // only has to supply one when it wants to intercept the transport.
 func newEmbeddingsClient(client *http.Client, url, model string, timeout time.Duration) *embeddingsClient {
-	if client == nil {
-		// No client-level timeout: the per-request deadline below is a context, so
-		// it composes with the tool deadline the guard installs instead of racing it.
-		client = &http.Client{}
-	}
+	// No client-level timeout: the per-request deadline below is a context, so
+	// it composes with the tool deadline the guard installs instead of racing it.
+	// Clone caller-owned clients before installing the no-redirect boundary.
+	client = httpguard.NoRedirects(client)
 	return &embeddingsClient{
 		http:    client,
 		url:     strings.TrimSuffix(url, "/"),

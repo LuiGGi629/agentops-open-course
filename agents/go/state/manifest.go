@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
 )
 
 // manifestEntry is one validated database record from a snapshot manifest.
@@ -90,9 +93,9 @@ func validateInventory(ctx context.Context, snapshot string) ([]manifestEntry, e
 	return inventory, nil
 }
 
-// hasSourceIdentity reports whether the manifest names the application, the
-// version, and the commit that produced it. Provenance is not decoration: it is
-// how an operator answers "which build wrote this" months later.
+// hasSourceIdentity reports whether the manifest names the build that produced
+// it. Legacy three-field manifests remain restorable while every newly written
+// manifest carries and validates the complete buildinfo tuple.
 func hasSourceIdentity(raw any) bool {
 	source, ok := raw.(map[string]any)
 	if !ok {
@@ -103,7 +106,51 @@ func hasSourceIdentity(raw any) bool {
 			return false
 		}
 	}
-	return true
+
+	extended := []string{"build_timestamp", "dirty", "mode", "revision", "source_identity", "tree_digest"}
+	hasExtended := false
+	for _, field := range extended {
+		if _, present := source[field]; present {
+			hasExtended = true
+		}
+	}
+	if !hasExtended {
+		return true
+	}
+	for _, field := range extended {
+		if _, present := source[field]; !present {
+			return false
+		}
+	}
+
+	text := func(field string) (string, bool) {
+		value, valid := source[field].(string)
+		return value, valid
+	}
+	mode, modeOK := text("mode")
+	version, versionOK := text("version")
+	identity, identityOK := text("source_identity")
+	revision, revisionOK := text("revision")
+	treeDigest, treeOK := text("tree_digest")
+	timestamp, timestampOK := text("build_timestamp")
+	dirty, dirtyOK := source["dirty"].(bool)
+	commit, commitOK := text("commit")
+	application, applicationOK := text("application")
+	if !modeOK || !versionOK || !identityOK || !revisionOK || !treeOK || !timestampOK ||
+		!dirtyOK || !commitOK || !applicationOK || application != applicationName || commit != identity {
+		return false
+	}
+
+	if mode == string(buildinfo.Development) && version == buildinfo.DevelopmentVersion &&
+		identity == buildinfo.DevelopmentIdentity && revision == "" && treeDigest == "" &&
+		timestamp == "" && dirty {
+		return true
+	}
+	_, err := buildinfo.Parse(buildinfo.Raw{
+		Mode: mode, Version: version, SourceIdentity: identity, Revision: revision,
+		TreeDigest: treeDigest, Timestamp: timestamp, Dirty: strconv.FormatBool(dirty),
+	})
+	return err == nil
 }
 
 // parseManifestInventory validates the manifest's database list.

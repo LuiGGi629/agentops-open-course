@@ -11,6 +11,7 @@ import (
 	"google.golang.org/adk/v2/model/openaimodel"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
 )
 
 // openAIProvider builds the account-free default: ADK's OpenAI-compatible
@@ -49,7 +50,7 @@ func openAIProvider(ctx context.Context, cfg config.Config) (namedModel, error) 
 		// timeout had. The transport is left nil deliberately: an *http.Client is
 		// a stateless handle over the standard library's shared, self-managing
 		// connection pool, so there is no per-model resource to own or release.
-		HTTPClient: &http.Client{Timeout: cfg.ModelTimeout.Duration()},
+		HTTPClient: httpguard.NoRedirects(&http.Client{Timeout: cfg.ModelTimeout.Duration()}),
 		// Retries for a flaky endpoint, bounded by the same AGENT_MAX_RETRIES the
 		// read tools use. This is not [Fallback]: retries handle a *slow or
 		// momentarily unavailable* endpoint, a fallback handles a *dead* one.

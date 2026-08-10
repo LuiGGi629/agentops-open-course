@@ -228,6 +228,22 @@ func (m *Memory) runSaveIncidentNote(ctx agent.Context, args SaveIncidentNoteArg
 	return m.notes.save(callContext(ctx), scopeOf(ctx), args)
 }
 
+// SaveOperatorIncidentNote persists one note under an explicit application and
+// user identity without manufacturing an ADK tool context.
+//
+// This is the narrow operator seam used by the platform backup drill. It still
+// travels through the production validation and persisted-data redactor; the
+// drill is allowed to name its identity explicitly, but it is not allowed to
+// bypass the memory boundary merely because no model turn is involved.
+func (m *Memory) SaveOperatorIncidentNote(
+	ctx context.Context, appName, userID string, args SaveIncidentNoteArgs,
+) (SaveIncidentNoteResult, error) {
+	if strings.TrimSpace(appName) == "" || strings.TrimSpace(userID) == "" {
+		return SaveIncidentNoteResult{}, errors.New("operator memory identity requires non-empty app and user names")
+	}
+	return m.notes.save(ctx, scope{appName: appName, userID: userID}, args)
+}
+
 // save validates, redacts and persists one note.
 //
 // The order of the checks is load-bearing. The kill-switch is consulted before

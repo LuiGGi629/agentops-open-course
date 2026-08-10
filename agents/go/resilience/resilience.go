@@ -94,6 +94,14 @@ func (e *RetriesExhaustedError) Error() string {
 	)
 }
 
+// SafeSummary describes the retry policy without retaining the final
+// dependency error, which may contain a provider body, credential, or endpoint.
+func (e *RetriesExhaustedError) SafeSummary() string {
+	return fmt.Sprintf(
+		"tool %q failed after %d attempts (AGENT_MAX_RETRIES)", e.Tool, e.Attempts,
+	)
+}
+
 // Unwrap exposes the root cause.
 func (e *RetriesExhaustedError) Unwrap() error { return e.Err }
 
@@ -109,9 +117,9 @@ type Config struct {
 	// shipped default (AGENT_CIRCUIT_BREAKER_ENABLED=false): retry only, and no
 	// breaker is ever created for any tool.
 	Breakers *Breakers
-	// Logger receives the retry, deadline and open-circuit lines. Nil uses
-	// slog.Default, so a runtime that configured the default handler gets the
-	// OTel-correlated records without threading a logger through.
+	// Logger receives the retry, deadline and open-circuit lines. Nil resolves
+	// slog.Default when a record is emitted, so a guard built before the runtime
+	// installs its sanitizing handler cannot retain the raw startup logger.
 	Logger *slog.Logger
 	// ToolTimeout bounds one attempt (AGENT_TOOL_TIMEOUT_S).
 	ToolTimeout time.Duration
@@ -165,17 +173,24 @@ func NewGuard(cfg Config) (*Guard, error) {
 		return nil, err
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
 	return &Guard{
 		breakers:     cfg.Breakers,
-		log:          logger,
+		log:          cfg.Logger,
 		toolTimeout:  cfg.ToolTimeout,
 		retryBackoff: cfg.RetryBackoff,
 		maxRetries:   cfg.MaxRetries,
 	}, nil
+}
+
+// logger returns the explicitly injected logger, or the process default that
+// is active now. Runtime assembly installs the sanitizing default only after it
+// has built the policy redactor, so resolving a nil logger in NewGuard would
+// capture the unsanitized startup handler.
+func (g *Guard) logger() *slog.Logger {
+	if g.log != nil {
+		return g.log
+	}
+	return slog.Default()
 }
 
 // Breakers returns the circuit-breaker registry, or nil when breaking is off.
@@ -226,7 +241,7 @@ func (g *Guard) Run(ctx context.Context, toolName string, call func(context.Cont
 		case expired:
 			// A deadline is a budget, not a transient blip: the next attempt would
 			// most likely burn the same budget, so it is never retried.
-			g.log.ErrorContext(ctx, "tool exceeded its deadline",
+			g.logger().ErrorContext(ctx, "tool exceeded its deadline",
 				"tool", toolName, "timeout", g.toolTimeout)
 			admitted.failure(ctx)
 			return &DeadlineError{Tool: toolName, Timeout: g.toolTimeout}
@@ -238,7 +253,7 @@ func (g *Guard) Run(ctx context.Context, toolName string, call func(context.Cont
 			break
 		}
 		delay := backoffFor(g.retryBackoff, attempt)
-		g.log.WarnContext(ctx, "tool failed, retrying after backoff",
+		g.logger().WarnContext(ctx, "tool failed, retrying after backoff",
 			"tool", toolName, "attempt", attempt+1, "attempts", attempts,
 			"delay", delay, "error", callErr)
 		if err := wait(ctx, delay); err != nil {
@@ -321,7 +336,7 @@ func (g *Guard) admit(ctx context.Context, toolName string) (admission, error) {
 	breaker := g.breakers.Get(toolName)
 	permit, ok := breaker.Allow()
 	if !ok {
-		g.log.WarnContext(ctx, "tool circuit is open, failing fast without a call", "tool", toolName)
+		g.logger().WarnContext(ctx, "tool circuit is open, failing fast without a call", "tool", toolName)
 		return admission{}, &CircuitOpenError{Tool: toolName, ResetTimeout: breaker.ResetTimeout()}
 	}
 	return admission{breaker: breaker, permit: permit}, nil

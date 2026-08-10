@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +15,8 @@ import (
 	// session store uses — is a GORM dialector over this package, so importing
 	// it here keeps exactly one SQLite implementation in the binary and no cgo.
 	_ "github.com/glebarez/go-sqlite"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/safefile"
 )
 
 // sqliteDriver is the database/sql name github.com/glebarez/go-sqlite registers.
@@ -37,7 +39,7 @@ var (
 	// emits a deferred BEGIN, which would upgrade to a write lock only at the
 	// first mutation and reopen the read-then-write race the audit trail exists
 	// to close.
-	writeParameters = []string{"_txlock=immediate", "_pragma=foreign_keys(1)", "_pragma=busy_timeout(5000)"}
+	writeParameters = []string{"mode=rw", "_txlock=immediate", "_pragma=foreign_keys(1)", "_pragma=busy_timeout(5000)"}
 )
 
 // querier is the read surface shared by *sql.DB and *sql.Tx.
@@ -68,6 +70,7 @@ type execer interface {
 // also the shape Python had, where every call opened and closed its own.
 type database struct {
 	*sql.DB
+	reference *safefile.Regular
 
 	// name is the base file name, which is all the Python error messages
 	// carried — an absolute path in a tool result is an information leak the
@@ -76,19 +79,36 @@ type database struct {
 	readOnly bool
 }
 
-// openDatabase opens path with the parameter set its mode requires.
-func openDatabase(ctx context.Context, path string, readOnly bool) (*database, error) {
+// openDatabaseWithHook keeps a no-follow reference open across SQLite's lazy
+// pathname resolution, then verifies that the pathname still names the same
+// inode before any query or migration can run.
+func openDatabaseWithHook(
+	ctx context.Context,
+	path string,
+	readOnly bool,
+	beforeConnect func(string),
+) (*database, error) {
+	reference, err := safefile.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s as a stable regular file: %w", filepath.Base(path), err)
+	}
+	fail := func(err error) (*database, error) {
+		return nil, errors.Join(err, reference.Close())
+	}
+	if beforeConnect != nil {
+		beforeConnect(path)
+	}
 	parameters := writeParameters
 	if readOnly {
 		parameters = readParameters
 	}
 	dsn, err := dataSourceName(path, parameters...)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	pool, err := sql.Open(sqliteDriver, dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open %s: %w", filepath.Base(path), err)
+		return fail(fmt.Errorf("open %s: %w", filepath.Base(path), err))
 	}
 	pool.SetMaxOpenConns(1)
 	// sql.Open is lazy, so nothing has touched the file yet. Connect eagerly:
@@ -96,15 +116,23 @@ func openDatabase(ctx context.Context, path string, readOnly bool) (*database, e
 	// it the right message, rather than inside an unrelated query later.
 	connection, err := pool.Conn(ctx)
 	if err != nil {
-		return nil, errors.Join(fmt.Errorf("connect to %s: %w", filepath.Base(path), err), pool.Close())
+		return fail(errors.Join(fmt.Errorf("connect to %s: %w", filepath.Base(path), err), pool.Close()))
 	}
 	// Hand the connection straight back: the pool is capped at one, so every
 	// later statement lands on this same connection anyway, and holding a
 	// *sql.Conn open alongside would deadlock the next query against the cap.
 	if err := connection.Close(); err != nil {
-		return nil, errors.Join(fmt.Errorf("release the probe connection for %s: %w", filepath.Base(path), err), pool.Close())
+		return fail(errors.Join(fmt.Errorf("release the probe connection for %s: %w", filepath.Base(path), err), pool.Close()))
 	}
-	return &database{DB: pool, name: filepath.Base(path), readOnly: readOnly}, nil
+	if err := reference.Verify(); err != nil {
+		return fail(errors.Join(fmt.Errorf("verify %s after SQLite connected: %w", filepath.Base(path), err), pool.Close()))
+	}
+	return &database{DB: pool, reference: reference, name: filepath.Base(path), readOnly: readOnly}, nil
+}
+
+// Close releases SQLite's pool and the no-follow reference guarding its path.
+func (d *database) Close() error {
+	return errors.Join(d.DB.Close(), d.reference.Close())
 }
 
 // dataSourceName builds a SQLite URI DSN.
@@ -187,12 +215,23 @@ func utcNow() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
 // nothing in the state directory, and why a read never publishes state —
 // [Store.DBPath] is not on this path.
 func (s *Store) readPath() (string, error) {
-	if info, err := os.Stat(s.RuntimePath()); err == nil && info.Mode().IsRegular() {
-		return s.RuntimePath(), nil
+	if err := s.verifyStateDirectory(); err != nil {
+		return "", err
+	}
+	runtimePath := s.RuntimePath()
+	if err := verifyRegularPath(runtimePath); err == nil {
+		return runtimePath, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("%w: Runtime database must be a stable regular file: %s: %w",
+			ErrDataAccess, filepath.Base(runtimePath), err)
 	}
 	seed := s.SeedPath()
-	if info, err := os.Stat(seed); err != nil || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%w: Database is missing: %s", ErrDataAccess, filepath.Base(seed))
+	if err := verifyRegularPath(seed); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("%w: Database is missing: %s", ErrDataAccess, filepath.Base(seed))
+		}
+		return "", fmt.Errorf("%w: Seed database must be a stable regular file: %s: %w",
+			ErrDataAccess, filepath.Base(seed), err)
 	}
 	return seed, nil
 }
@@ -204,7 +243,7 @@ func (s *Store) openForRead(ctx context.Context) (*database, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := openDatabase(ctx, path, true)
+	db, err := openDatabaseWithHook(ctx, path, true, s.beforeDatabaseConnect)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Could not open database read-only: %s: %w", ErrDataAccess, filepath.Base(path), err)
 	}
@@ -224,7 +263,7 @@ func (s *Store) openForWrite(ctx context.Context) (*database, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := openDatabase(ctx, path, false)
+	db, err := openDatabaseWithHook(ctx, path, false, s.beforeDatabaseConnect)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Could not open database: %s: %w", ErrDataAccess, filepath.Base(path), err)
 	}

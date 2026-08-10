@@ -6,7 +6,7 @@
 #
 # No [tools] table here on purpose: mise merges parent configs, so `go`, `golangci-lint`, and
 # `gotestsum` resolve from the repository root's [tools] — one authority, one mise.lock, and
-# the freshness reporter (scripts/freshness_report.py) already reads that table.
+# the native freshness reporter already reads that table.
 
 [env]
 APP_NAME = "agent"
@@ -16,12 +16,12 @@ run_auto_install = false
 
 [tasks.install]
 alias = "i"
-description = "Install development dependencies (module requirements and git hooks)"
+description = "Materialize the reviewed development dependencies"
 depends = ["install:go"]
 
 [tasks."install:go"]
-description = "Tidy Go modules and download dependencies"
-run = "go mod tidy"
+description = "Download the reviewed Go dependency graph without changing manifests"
+run = "GOFLAGS=-mod=readonly go mod download"
 
 [tasks.format]
 alias = "f"
@@ -43,7 +43,15 @@ description = "Run the offline code checks in parallel"
 # check:vuln is deliberately absent: govulncheck queries the vulnerability
 # database over the network, and this chain runs on every commit. An offline
 # commit must not fail. CI reaches it through the root check → check:vuln:go chain.
-depends = ["check:format", "check:lint"]
+depends = ["check:env-example", "check:format", "check:lint", "check:tidy"]
+
+[tasks."check:tidy"]
+description = "Verify the Go module manifests are already tidy"
+run = "go mod tidy -diff"
+
+[tasks."check:env-example"]
+description = "Verify the root environment example matches Config tags and defaults"
+run = "go run ./cmd/agent config:example --check ../../.env.example"
 
 [tasks."check:format"]
 alias = "cf"
@@ -65,6 +73,10 @@ description = "Validate the resolved agent configuration and print it with secre
 env = { _.file = { path = "../../.env", redact = true } }
 run = "go run ./cmd/agent config:check"
 
+[tasks."config:generate"]
+description = "Regenerate the root environment example from Config tags and defaults"
+run = "go run ./cmd/agent config:example --write ../../.env.example"
+
 [tasks.test]
 alias = "t"
 description = "Run the offline test suite with coverage"
@@ -78,17 +90,46 @@ run = "go tool cover -func=coverage.out"
 
 [tasks.build]
 alias = "b"
-description = "Compile the production binary"
+description = "Compile the exact-source agent binary"
 depends = ["build:go"]
 
 [tasks."build:go"]
-description = "Compile a static, cgo-free production binary"
-sources = ["go.mod", "go.sum", "**/*.go"]
-outputs = ["bin/{{env.APP_NAME}}"]
-# CGO_ENABLED=0 is a course invariant (MIGRATE.md D-4), not an optimization:
+description = "Compile and validate a static, cgo-free exact-source binary"
+# The embedded digest covers repository policy, evaluation, documentation, and
+# infrastructure too, so a module-only mise freshness cache could reuse stale
+# provenance after any of those inputs changes. Resolve the tuple every build.
+# CGO_ENABLED=0 is a course invariant, not an optimization:
 # it is what lets the binary ship distroless and keeps one SQLite implementation.
 env = { CGO_ENABLED = "0" }
-run = "go build -o bin/$APP_NAME ./cmd/agent"
+run = '''
+build_mode="${AGENT_BUILD_MODE:-development}"
+case "$build_mode" in
+  development) build_version=development ;;
+  release) build_version="${AGENT_BUILD_VERSION:-$(tr -d '\n' < ../../VERSION)}" ;;
+  *) printf 'unknown AGENT_BUILD_MODE: %s\n' "$build_mode" >&2; exit 1 ;;
+esac
+source_json="$(go -C ../../tools run ./cmd/source-identity --root .. --mode "$build_mode")"
+source_identity="$(printf '%s\n' "$source_json" | jq -er '.display')"
+source_revision="$(printf '%s\n' "$source_json" | jq -er '.revision // ""')"
+source_tree_digest="$(printf '%s\n' "$source_json" | jq -er '.tree_digest')"
+source_dirty="$(printf '%s\n' "$source_json" | jq -er '.dirty')"
+if [ -n "${AGENT_SOURCE_COMMIT:-}" ] && [ "$AGENT_SOURCE_COMMIT" != "$source_identity" ]; then
+  printf 'AGENT_SOURCE_COMMIT %s does not match resolved source %s\n' "$AGENT_SOURCE_COMMIT" "$source_identity" >&2
+  exit 1
+fi
+created="$(git -C ../.. show -s --format=%cI HEAD)"
+buildinfo=github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo
+ldflags="-s -w \
+  -X ${buildinfo}.buildMode=${build_mode} \
+  -X ${buildinfo}.version=${build_version} \
+  -X ${buildinfo}.sourceIdentity=${source_identity} \
+  -X ${buildinfo}.revision=${source_revision} \
+  -X ${buildinfo}.treeDigest=${source_tree_digest} \
+  -X ${buildinfo}.buildTimestamp=${created} \
+  -X ${buildinfo}.dirty=${source_dirty}"
+go build -trimpath -ldflags "$ldflags" -o "bin/$APP_NAME" ./cmd/agent
+"bin/$APP_NAME" version >/dev/null
+'''
 
 [tasks.watch]
 alias = "w"
@@ -99,7 +140,7 @@ run = "gotestsum --watch --format pkgname -- ./..."
 alias = "r"
 description = "Run the agent in the terminal with the configured model"
 # AGENT_ENTRYPOINT selects the composition the one binary serves, exactly as it
-# does on the Python track: the three terminal tasks below differ only by it.
+# does for every composition: the three terminal tasks below differ only by it.
 env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
 run = "go run ./cmd/agent console"
 
