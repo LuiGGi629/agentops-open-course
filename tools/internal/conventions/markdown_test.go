@@ -129,6 +129,60 @@ func TestCheckSnippetsRejectsFenceAndRetiredSyntax(t *testing.T) {
 	}
 }
 
+// Hugo renders far more spellings than the canonical one. Each of these reaches a real
+// reader, so each must reach the checker: a call the checker cannot see is a snippet
+// nobody verifies against its source.
+func TestCheckSnippetTargetsSeesEverySpellingHugoRenders(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "infra"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// The source exists but carries no markers, so any call the checker sees produces a
+	// problem naming the region, and a call it misses produces silence.
+	if err := os.WriteFile(filepath.Join(root, "infra", "example.yaml"), []byte("value: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{
+		"percent delimiter":   `{{% include path="infra/example.yaml" region="trusted" %}}`,
+		"no inner space":      `{{<include path="infra/example.yaml" region="trusted">}}`,
+		"extra whitespace":    "{{<   include    path=\"infra/example.yaml\"   region=\"trusted\"   >}}",
+		"reversed order":      `{{< include region="trusted" path="infra/example.yaml" >}}`,
+		"backtick values":     "{{< include path=`infra/example.yaml` region=`trusted` >}}",
+		"bare values":         `{{< include path=infra/example.yaml region=trusted >}}`,
+		"call spanning lines": "{{< include\n     path=\"infra/example.yaml\"\n     region=\"trusted\" >}}",
+		"trailing prose":      `Text before {{< include path="infra/example.yaml" region="trusted" >}} and after.`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			messages := problemMessages(checkSnippetTargets(root, "content/example.md", text+"\n"))
+			if !strings.Contains(messages, `"trusted"`) {
+				t.Fatalf("checker did not see the call; problems = %q", messages)
+			}
+		})
+	}
+
+	// Names that merely start with "include", commented-out calls, and other shortcodes
+	// must stay invisible, or the checker invents failures for text Hugo never renders.
+	for name, text := range map[string]string{
+		"different shortcode": `{{< relref "/0. Overview/0.1. Agents.md" >}}`,
+		"longer name":         `{{< includes path="infra/example.yaml" region="trusted" >}}`,
+		"hyphenated name":     `{{< include-extra path="infra/example.yaml" region="trusted" >}}`,
+		"commented out":       `{{</* include path="infra/example.yaml" region="trusted" */>}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if problems := checkSnippetTargets(root, "content/example.md", text+"\n"); len(problems) != 0 {
+				t.Fatalf("problems = %#v", problems)
+			}
+		})
+	}
+}
+
+func TestCheckSnippetTargetsReportsAMissingPath(t *testing.T) {
+	problems := checkSnippetTargets(t.TempDir(), "content/example.md", `{{< include "infra/example.yaml" >}}`+"\n")
+	if !strings.Contains(problemMessages(problems), "must name a source path") {
+		t.Fatalf("problems = %#v", problems)
+	}
+}
+
 func TestCheckExercisesPreservesTemporaryAndProbabilisticFailures(t *testing.T) {
 	temporary := `## Your turn: what changes?
 

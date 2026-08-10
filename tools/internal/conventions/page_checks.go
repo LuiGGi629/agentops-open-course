@@ -9,7 +9,39 @@ import (
 	"strings"
 )
 
-var snippetIncludePattern = regexp.MustCompile(`\{\{< include path="([^"]+)" region="([^"]*)"`)
+// Hugo honors both shortcode delimiters, arbitrary whitespace including newlines, either
+// attribute order, and quoted, backtick-quoted, or bare values. Matching only the canonical
+// spelling meant every other spelling the site renders for real passed unchecked, so match
+// the call first and read its attributes separately. snippetIncludeOpener catches a call
+// that merely starts on a line, which is what the fenced-block guard needs.
+var (
+	snippetIncludePattern = regexp.MustCompile(`(?s)\{\{[<%]\s*include(\s.*?|\s*)(?:/\s*)?[>%]\}\}`)
+	snippetIncludeOpener  = regexp.MustCompile(`\{\{[<%]\s*include(?:\s|/|[>%]\}|$)`)
+	shortcodeParamPattern = regexp.MustCompile("(?s)([A-Za-z][A-Za-z0-9_-]*)\\s*=\\s*(?:\"([^\"]*)\"|`([^`]*)`|([^\\s]+))")
+)
+
+// shortcodeParam returns the value Hugo would hand `.Get name`, and whether the call set it.
+func shortcodeParam(arguments, name string) (string, bool) {
+	for _, match := range shortcodeParamPattern.FindAllStringSubmatch(arguments, -1) {
+		if match[1] != name {
+			continue
+		}
+		// Exactly one of the quoted, backtick, or bare alternatives captures; an all-empty
+		// match is a genuine `region=""`, which the caller must still see as set.
+		for _, group := range match[2:] {
+			if group != "" {
+				return group, true
+			}
+		}
+		return "", true
+	}
+	return "", false
+}
+
+// lineNumber converts a byte offset in text into the 1-based line the offset sits on.
+func lineNumber(text string, offset int) int {
+	return 1 + strings.Count(text[:offset], "\n")
+}
 
 func checkCollapsibles(where, text string) []Problem {
 	var problems []Problem
@@ -42,7 +74,7 @@ func checkLinkLabels(where, text string) []Problem {
 func checkSnippets(where, text string) []Problem {
 	var problems []Problem
 	for _, line := range linesInsideFences(text) {
-		if strings.HasPrefix(strings.TrimSpace(line.text), "{{< include") {
+		if snippetIncludeOpener.MatchString(line.text) {
 			problems = append(problems, problem(where, "line %d: include shortcode must not sit inside a fenced code block", line.number))
 		}
 	}
@@ -56,30 +88,37 @@ func checkSnippets(where, text string) []Problem {
 
 func checkSnippetTargets(root, where, text string) []Problem {
 	var problems []Problem
-	for index, line := range splitLines(text) {
-		for _, match := range snippetIncludePattern.FindAllStringSubmatch(line, -1) {
-			relative, region := match[1], match[2]
-			cleaned := filepath.Clean(filepath.FromSlash(relative))
-			if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-				problems = append(problems, problem(where, "line %d: snippet source is outside the repository: %q", index+1, relative))
-				continue
-			}
-			source, err := readFile(filepath.Join(root, cleaned))
-			if err != nil {
-				problems = append(problems, problem(where, "line %d: snippet source does not exist: %q", index+1, relative))
-				continue
-			}
-			if region == "" {
-				problems = append(problems, problem(where, "line %d: trusted snippet must name a source region: %q", index+1, relative))
-				continue
-			}
-			start := "--8<-- [start:" + region + "]"
-			end := "--8<-- [end:" + region + "]"
-			if strings.Count(source, start) != 1 || strings.Count(source, end) != 1 {
-				problems = append(problems, problem(where, "line %d: snippet region %q needs exactly one start and end marker in %s", index+1, region, relative))
-			} else if strings.Index(source, start) >= strings.Index(source, end) {
-				problems = append(problems, problem(where, "line %d: snippet region %q ends before it starts", index+1, region))
-			}
+	// Scanned over the whole text rather than line by line: a shortcode call may legally
+	// span several lines, which a per-line loop cannot see at all.
+	for _, location := range snippetIncludePattern.FindAllStringSubmatchIndex(text, -1) {
+		arguments := text[location[2]:location[3]]
+		line := lineNumber(text, location[0])
+		relative, hasPath := shortcodeParam(arguments, "path")
+		region, hasRegion := shortcodeParam(arguments, "region")
+		if !hasPath {
+			problems = append(problems, problem(where, "line %d: include shortcode must name a source path", line))
+			continue
+		}
+		cleaned := filepath.Clean(filepath.FromSlash(relative))
+		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			problems = append(problems, problem(where, "line %d: snippet source is outside the repository: %q", line, relative))
+			continue
+		}
+		source, err := readFile(filepath.Join(root, cleaned))
+		if err != nil {
+			problems = append(problems, problem(where, "line %d: snippet source does not exist: %q", line, relative))
+			continue
+		}
+		if !hasRegion || region == "" {
+			problems = append(problems, problem(where, "line %d: trusted snippet must name a source region: %q", line, relative))
+			continue
+		}
+		start := "--8<-- [start:" + region + "]"
+		end := "--8<-- [end:" + region + "]"
+		if strings.Count(source, start) != 1 || strings.Count(source, end) != 1 {
+			problems = append(problems, problem(where, "line %d: snippet region %q needs exactly one start and end marker in %s", line, region, relative))
+		} else if strings.Index(source, start) >= strings.Index(source, end) {
+			problems = append(problems, problem(where, "line %d: snippet region %q ends before it starts", line, region))
 		}
 	}
 	return problems

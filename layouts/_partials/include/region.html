@@ -25,6 +25,12 @@
 
 {{- if or (ne $opens 1) (ne $closes 1) -}}
   {{- errorf "include %q: region %q needs exactly one start and one end marker in the source (found %d start, %d end) (%s)" $path $region $opens $closes $where -}}
+{{- else if not (strings.Contains (index (split $text $start) 1) $end) -}}
+  {{- /* Reversed markers. With one of each, an end marker that does not follow the start
+         marker means the region closes before it opens, and the split below would quote
+         everything from the start marker to end of file without complaining. Note the
+         argument order differs from strings.Count above: Contains takes (string, substring). */ -}}
+  {{- errorf "include %q: region %q ends before it starts (%s)" $path $region $where -}}
 {{- else -}}
   {{- /* Everything between the markers, minus the tails of the two marker lines. */ -}}
   {{- $body := index (split (index (split $text $start) 1) $end) 0 -}}

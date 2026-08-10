@@ -163,10 +163,18 @@ run = "cd agents/go && mise run check:env-example"
 # vocabulary (install, format, check, test, secure, build, watch) still resolves.
 alias = ["s", "w", "watch"]
 description = "Serve the documentation locally with live reload (Hugo) on :8003"
+depends = ["tools:built"]
 # Not :8000. That port belongs to the raw MCP server in the stable network contract
 # (AGENTS.md), and a docs preview left running would otherwise shadow the ADK web UI a
 # learner opens in Chapter 2.1 — presenting as "the agent did not start".
-run = "GOFLAGS=-mod=readonly hugo server --bind 127.0.0.1 --port 8003"
+# The authoring contracts run once before the preview: `hugo server` never runs the
+# convention checker, so a preview on its own can render a page the docs gate rejects.
+# It gates startup only — a rebuild after an edit is not re-checked, so `mise run
+# check:docs` in a second terminal is still the working loop.
+run = [
+  "tools/bin/conventions docs",
+  "hugo server --bind 127.0.0.1 --port 8003",
+]
 
 [tasks.build]
 # Aggregates like format and check do. Before this, `mise run build` built only the site, so
@@ -180,8 +188,10 @@ depends = ["build:docs", "build:agent-image"]
 [tasks."build:docs"]
 description = "Build the static documentation site (Hugo → site/)"
 # --panicOnWarning, refLinksErrorLevel, and the native navigation gate form the
-# strict documentation build contract.
-run = "GOFLAGS=-mod=readonly hugo --minify --panicOnWarning --destination site --cleanDestinationDir"
+# strict documentation build contract. No GOFLAGS prefix: Hugo replaces the variable with
+# its own `-modcacherw` before invoking `go`, so one here would only look like protection.
+# `check:docs` owns the guard that actually catches a rewritten manifest.
+run = "hugo --minify --panicOnWarning --destination site --cleanDestinationDir"
 
 [tasks."build:agent-image"]
 description = "Build the non-root AgentOps Agent image"
@@ -314,9 +324,28 @@ run = "cd tools && mise run check:vuln"
 description = "Run the model-, container-, cluster-, and cloud-free course validation"
 depends = ["check:licenses:core", "check:source"]
 
+[tasks."tools:built"]
+hide = true # a preflight, not a step a learner chooses
+description = "Assert the repository tool binaries exist before a task shells out to one"
+# tools/bin/ is gitignored and run_auto_install is off, so a task invoked before
+# `mise run install` fails with a bare "No such file or directory" that names neither the
+# cause nor the cure. Checking here turns that into one sentence with the remedy in it.
+run = """
+missing=""
+for tool in accessibility conventions course-evidence fake-model static-server; do
+  [ -x "tools/bin/${tool}" ] || missing="${missing} ${tool}"
+done
+if [ -n "${missing}" ]; then
+  printf 'missing repository tool binaries:%s\\n' "${missing}" >&2
+  printf "run 'mise run install' to build them into tools/bin, then retry this task\\n" >&2
+  exit 1
+fi
+"""
+
 [tasks."check:source"]
 description = "Validate shared course sources without infrastructure or license profiles"
 depends = [
+  "tools:built",
   "check:data",
   "check:docs",
   "check:freshness",
@@ -345,9 +374,24 @@ run = "cd agents/data && mise run check"
 
 [tasks."check:docs"]
 description = "Test authoring contracts, build the course site, and validate rendered routes"
+depends = ["tools:built"]
+# Hugo resolves the Hextra module itself and will rewrite the root go.mod and go.sum when
+# hugo.toml's imports drift from the manifest. GOFLAGS cannot stop it: Hugo overwrites the
+# variable with its own `-modcacherw` before invoking `go`, so a `-mod=readonly` prefix here
+# would only look like protection. Comparing the files across the build is the check that
+# actually fails, and it stays correct while the manifest is legitimately being edited.
 run = [
   "tools/bin/conventions docs",
-  "hugo --minify --panicOnWarning --destination site --cleanDestinationDir",
+  """
+snapshot="$(mktemp -d)"
+trap 'rm -rf "${snapshot}"' EXIT
+cp go.mod go.sum "${snapshot}/"
+hugo --minify --panicOnWarning --destination site --cleanDestinationDir
+if ! cmp -s go.mod "${snapshot}/go.mod" || ! cmp -s go.sum "${snapshot}/go.sum"; then
+  printf 'the documentation build rewrote go.mod or go.sum; reconcile hugo.toml imports with the manifest\\n' >&2
+  exit 1
+fi
+""",
   "tools/bin/conventions rendered site",
 ]
 
