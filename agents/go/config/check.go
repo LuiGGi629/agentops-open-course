@@ -50,6 +50,13 @@ func (c Config) Describe() []Setting {
 }
 
 // Exit codes returned by Check.
+//
+// They live here rather than in cmd/agent because they are shared: state.Main
+// returns them too, so an operator reads one table for every subcommand the
+// binary offers. cmd/agent is package main and cannot be imported, so hosting
+// them there would leave every library-side command entrypoint without them.
+// config is a leaf — it imports nothing else in this module — so depending on it
+// from a command cannot create a cycle.
 const (
 	// ExitValid means the configuration loaded and was printed.
 	ExitValid = 0

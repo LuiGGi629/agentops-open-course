@@ -191,6 +191,20 @@ func childCommand(t *testing.T, scenario, snapshot, stateDir string, extra ...st
 	return exec.Command(binary, arguments...)
 }
 
+// skipCrashSuiteInShortMode drops one scenario from `go test -short`.
+//
+// Every scenario here forks, reaps, and waits on a real process, which is the
+// slowest thing this package does and is worth paying for only when the restore
+// path changed. The gate is opt-in and deliberately one-way: agents/go/mise.toml's
+// test task passes no -short, so the repository's own gate and CI still run all
+// six. It exists for the learner's inner loop, not for the suite's meaning.
+func skipCrashSuiteInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("this scenario forks a real process; run without -short to exercise it")
+	}
+}
+
 // runChild runs a crash scenario to completion and returns its exit code.
 func runChild(t *testing.T, scenario, snapshot, stateDir string) int {
 	t.Helper()
@@ -210,6 +224,8 @@ func runChild(t *testing.T, scenario, snapshot, stateDir string) int {
 }
 
 func TestRestoreRecoversByteIdenticalOldGenerationAfterProcessExitOnFirstReplacement(t *testing.T) {
+	skipCrashSuiteInShortMode(t)
+
 	stateDir, _, snapshot := snapshotFixture(t)
 	// Divergence after the snapshot is what makes the assertion meaningful: the
 	// old generation must come back exactly, not be replaced by the snapshot.
@@ -239,6 +255,8 @@ func TestRestoreRecoversByteIdenticalOldGenerationAfterProcessExitOnFirstReplace
 }
 
 func TestRestorePreservesCommittedNewGenerationAfterProcessExitBeforeCleanup(t *testing.T) {
+	skipCrashSuiteInShortMode(t)
+
 	stateDir, _, snapshot := snapshotFixture(t)
 	expected := fingerprints(t, snapshot)
 	execSQL(t, filepath.Join(stateDir, "runtime.db"), "INSERT INTO sessions VALUES ('old-after-snapshot')")
@@ -322,6 +340,8 @@ func equalNames(got, want []string) bool {
 }
 
 func TestRestoreAdoptsADurableInitialJournalAndRecoversAfterProcessExit(t *testing.T) {
+	skipCrashSuiteInShortMode(t)
+
 	stateDir, _, snapshot := snapshotFixture(t)
 	execSQL(t, filepath.Join(stateDir, "runtime.db"), "INSERT INTO sessions VALUES ('old-after-snapshot')")
 	before := generationFingerprints(t, stateDir)
@@ -347,6 +367,7 @@ func TestRestoreAdoptsADurableInitialJournalAndRecoversAfterProcessExit(t *testi
 }
 
 func TestRestoreDiscardsAnUnrenamedPhaseUpdateAndRecoversTheOldGeneration(t *testing.T) {
+	skipCrashSuiteInShortMode(t)
 	t.Parallel()
 
 	for _, testCase := range []struct {
@@ -388,6 +409,8 @@ func TestRestoreDiscardsAnUnrenamedPhaseUpdateAndRecoversTheOldGeneration(t *tes
 }
 
 func TestRestoreRecoveryFailsClosedWhenOldGenerationEvidenceIsMissing(t *testing.T) {
+	skipCrashSuiteInShortMode(t)
+
 	stateDir, _, snapshot := snapshotFixture(t)
 
 	if code := runChild(t, scenarioAfterQuarantine, snapshot, stateDir); code != exitAfterQuarantine {
@@ -417,6 +440,8 @@ func TestRestoreRecoveryFailsClosedWhenOldGenerationEvidenceIsMissing(t *testing
 }
 
 func TestConcurrentRestoresAreSerializedAcrossProcesses(t *testing.T) {
+	skipCrashSuiteInShortMode(t)
+
 	stateDir, _, snapshot := snapshotFixture(t)
 	markers := t.TempDir()
 	firstLocked := filepath.Join(markers, "first-locked")

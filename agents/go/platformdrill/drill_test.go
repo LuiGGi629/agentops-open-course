@@ -30,7 +30,24 @@ func testBuild() buildinfo.Info {
 	}
 }
 
+// skipDrillInShortMode drops one drill from `go test -short`.
+//
+// A drill is not a unit test: it seeds a real state directory, snapshots it
+// through SQLite's VACUUM INTO, and restores it, so each one costs whole
+// database copies. The gate is opt-in and deliberately one-way:
+// agents/go/mise.toml's test task passes no -short, so the repository's own gate
+// and CI still run every drill. It exists for the learner's inner loop, not for
+// the suite's meaning.
+func skipDrillInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("this drill copies real databases; run without -short to exercise it")
+	}
+}
+
 func TestSeedUsesProductionWriteBoundariesAndIsIdempotent(t *testing.T) {
+	skipDrillInShortMode(t)
+
 	stateDir := t.TempDir()
 	seedA2AState(t, stateDir, "session-1", "task-1")
 	options := SeedOptions{
@@ -61,6 +78,8 @@ func TestSeedUsesProductionWriteBoundariesAndIsIdempotent(t *testing.T) {
 }
 
 func TestSeedRecoversBeforeReadingOrPublishingDrillState(t *testing.T) {
+	skipDrillInShortMode(t)
+
 	stateDir := t.TempDir()
 	seedA2AState(t, stateDir, "session-1", "task-1")
 	if mkdirErr := os.Mkdir(filepath.Join(stateDir, ".restore-staged.unexplained"), 0o750); mkdirErr != nil {
@@ -82,6 +101,8 @@ func TestSeedRecoversBeforeReadingOrPublishingDrillState(t *testing.T) {
 }
 
 func TestRestoreDrillDestroysThenRecoversExactGeneration(t *testing.T) {
+	skipDrillInShortMode(t)
+
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	backupRoot := filepath.Join(root, "backups")
@@ -107,6 +128,8 @@ func TestRestoreDrillDestroysThenRecoversExactGeneration(t *testing.T) {
 }
 
 func TestRestoreDrillRefusesProvenanceMismatchBeforeMutation(t *testing.T) {
+	skipDrillInShortMode(t)
+
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	if err := os.Mkdir(stateDir, 0o750); err != nil {
@@ -137,6 +160,8 @@ func TestRestoreDrillRefusesProvenanceMismatchBeforeMutation(t *testing.T) {
 }
 
 func TestRestoreDrillRecoversBeforeDestructiveMutation(t *testing.T) {
+	skipDrillInShortMode(t)
+
 	root := t.TempDir()
 	stateDir := filepath.Join(root, "state")
 	if err := os.Mkdir(stateDir, 0o750); err != nil {
