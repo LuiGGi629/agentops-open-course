@@ -1,7 +1,7 @@
 ---
 title: "5. Gateway"
 description: Route and govern the agent's MCP, A2A, and model traffic through a local-first agentgateway data plane.
-url: "/5-gateway/"
+slug: "5-gateway"
 ---
 
 {{% admonition abstract "In one glance" %}}
@@ -18,7 +18,7 @@ This index only maps the reading order. The six hands-on pages then apply that s
 
 {{% collapsible note "Deeper: who builds agentgateway?" %}}
 
-agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an **[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in ADK/Python. {{% /collapsible %}}
+agentgateway was created by Solo.io and donated to the Linux Foundation; it is now an **[Agentic AI Foundation (AAIF)](https://aaif.io/projects/agentgateway/)** project. This chapter uses it as the connectivity and traffic-policy layer while keeping application approval and transactions in the Go ADK application. {{% /collapsible %}}
 
 ## Which page covers what?
 
@@ -71,7 +71,7 @@ The chapter checkpoint tests fail-closed MCP, A2A discovery, local model transla
 **You are done when:**
 
 - You can name the page that owns the MCP, A2A, and model boundaries, and the two pages that cut across all three.
-- The chapter's required drill is done: the `## Your turn` in [5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md#your-turn-how-do-you-take-one-tool-off-the-allowlist" >}}) took one tool away from every caller by editing one CEL rule, with nothing under `agents/python/` touched.
+- The chapter's required drill is done: the `## Your turn` in [5.2. MCP Gateway]({{< relref "/5. Gateway/5.2. MCP Gateway.md#your-turn-how-do-you-take-one-tool-off-the-allowlist" >}}) took one tool away from every caller by editing one CEL rule, with nothing under `agents/go/` touched.
 - You know where to find the listener map and the gateway-versus-ADK responsibility boundary.
 - Without reopening Chapter 4: you can name the callback that hardens a tool result before the model reads it, and say why the gateway's prompt guard does not replace it.
 

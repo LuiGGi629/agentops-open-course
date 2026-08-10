@@ -1,7 +1,6 @@
 ---
 title: "AgentOps Open Course"
 description: Build, evaluate, secure, deploy, and operate one production-shaped AI agent with an open-source AgentOps stack.
-url: "/"
 ---
 
 Learn from one completed **AgentOps Agent**, from its first local model call to an observable Kubernetes workload. Every chapter inspects and runs the same reference, so concepts stay connected to code, tests, policy, and operations. The capstone then guides you through replacing the fictional incident domain with your own agent platform.
@@ -9,7 +8,7 @@ Learn from one completed **AgentOps Agent**, from its first local model call to 
 {{% admonition abstract "In one glance" %}}
 
 - **You will:** Build, test, secure, deploy, and operate one production-shaped AI agent, then replace its domain with your own.
-- **You need:** Linux x86_64 with cgroup v2, git, and basic Python for the fully supported path. Linux arm64, macOS, and WSL2 are best-effort. No account, API key, or cloud project is required.
+- **You need:** Linux x86_64 with cgroup v2, Git, and basic Go for the fully supported path. Linux arm64, macOS, and WSL2 are best-effort. No account, API key, or cloud project is required.
 - **Time:** about 12 to 19 focused hours to read the course and clear each chapter's checkpoint. {{% /admonition %}}
 
 ## How should you start?
@@ -36,19 +35,19 @@ You need [mise](https://mise.jdx.dev/) and [Ollama](https://ollama.com/download)
 This shortest path omits `mise run doctor`, `mise run check:core`, and `mise run test`. Use the guarded sequence in [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when any command fails or before trusting the checkout. {{% /admonition %}}
 
 ```bash
-git clone https://github.com/MLOps-Courses/agentops-open-course.git
-cd agentops-open-course
+git clone https://github.com/MLOps-Courses/agentops-open-course-go.git
+cd agentops-open-course-go
 mise run install
 ollama pull qwen3:4b-instruct
-cd agents/python
+cd agents/go
 mise run run
 ```
 
-Ask `List the open incidents`. A correct run answers with exactly **INC-002, INC-005, and INC-010** — three ids from the committed seed dataset, not three it invented. That is the whole local loop in one turn: a model that reads real data through typed tools and refuses to make one up.
+Ask `List the open incidents`. The expected final answer names exactly **INC-002, INC-005, and INC-010**, but this console preview alone cannot prove whether the model read or guessed them.
 
 The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu" >}}) names the one variable to raise, and how to tell a slow turn from an unreachable model.
 
-`mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) repeats this run under `mise run web` so you can watch the `list_incidents` call that produced those three ids, and Chapter 2 explains how it is wired.
+`mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) repeats this run under `mise run web`, then requires the `list_incidents(status="open")` call, returned rows, and final identifiers in one observed turn before calling it grounded.
 
 ## What will you be able to do?
 
@@ -124,10 +123,10 @@ Those per-page times add up to about 29 hours. That is the figure for running ev
 
 ## What does "open source" mean here?
 
-Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, MLflow, Ollama, the Apache-2.0 open-weight Qwen3 model, and the course code form the required open-source path. The optional Gemini API, Vertex AI, GKE, and repository/site hosting are proprietary services. They are integrations, not hidden requirements.
+Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, Ollama, the Apache-2.0 open-weight Qwen3 model, and the course code form the required open-source path. The standalone Go evaluation harness records offline evidence without adding a runtime service. The optional Gemini API, Vertex AI, GKE, and repository/site hosting are proprietary services. They are integrations, not hidden requirements.
 
 ## How do you begin?
 
 Start reading at [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), or enter at the later stage that matches your current setup. Every chapter ends with a checkpoint; Chapters 5-7 also include explicit verification and teardown steps. Finish by adapting the reference through [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}).
 
-The source repository is public at [MLOps-Courses/agentops-open-course](https://github.com/MLOps-Courses/agentops-open-course). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.
+The source repository is public at [MLOps-Courses/agentops-open-course-go](https://github.com/MLOps-Courses/agentops-open-course-go). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.

@@ -1,6 +1,5 @@
 # https://gohugo.io/configuration/
-# Hugo build of the AgentOps Open Course documentation (was Zensical + Material for MkDocs).
-# The course content, agent, and infrastructure are unchanged; only the generator differs.
+# Hugo build of the Go-first AgentOps Open Course documentation.
 
 baseURL = "https://agentops-open-course.fmind.dev/"
 title = "AgentOps Open Course"
@@ -9,7 +8,7 @@ copyright = "Copyright © MLOps Courses"
 
 # Hugo has no single `strict: true`. It is assembled from three parts: this setting,
 # `--panicOnWarning` in the build tasks, and the nav-completeness gate in
-# scripts/check_conventions.py that replaces what MkDocs got from an explicit `nav:`.
+# the native conventions gate that replaces what a generated menu would infer.
 refLinksErrorLevel = "ERROR"
 
 enableGitInfo = false
@@ -19,16 +18,24 @@ enableRobotsTXT = false # static/robots.txt is served verbatim
 # taxonomy trees that the link and accessibility gates then have to walk.
 disableKinds = ["taxonomy", "term"]
 
-# Chapter directories and page files carry the numbering and contain spaces and dots
-# ("0. Overview/0.7. Glossary.md"). Hugo's default urlize would publish "/0.-overview/",
-# so every page declares an explicit `url` in its front matter instead, and
-# scripts/check_conventions.py:check_page_urls holds those 76 strings to the file tree.
+# Content paths remain readable authoring names while reviewed front-matter slugs own
+# the public Go v1 routes. Section slugs feed `:sectionslugs`; regular-page slugs feed
+# `:slug`. A full front-matter `url` would shadow this contract and is rejected.
+[[permalinks]]
+pattern = "/:sectionslugs/:slug/"
+[permalinks.target]
+kind = "page"
+
+[[permalinks]]
+pattern = "/:sectionslugs/"
+[permalinks.target]
+kind = "section"
 
 [module]
 [[module.imports]]
 path = "github.com/imfing/hextra"
 
-# The 34 `{{< include >}}` shortcodes quote real repository source. Mounting those
+# The `{{< include >}}` shortcodes quote real repository source. Mounting those
 # directories into assets/ makes Hugo read them through the resource pipeline, so the
 # dev server rebuilds a page when the code it quotes changes — os.ReadFile would not.
 [[module.mounts]]
@@ -37,6 +44,12 @@ target = "assets"
 [[module.mounts]]
 source = "agents"
 target = "assets/source/agents"
+[[module.mounts]]
+source = "evals"
+target = "assets/source/evals"
+[[module.mounts]]
+source = "tools"
+target = "assets/source/tools"
 [[module.mounts]]
 source = "infra"
 target = "assets/source/infra"
@@ -78,7 +91,7 @@ startLevel = 2
 endLevel = 3
 
 [params]
-description = "Build, evaluate, secure, deploy, and operate an AI agent with an open-source Google ADK, agentgateway, kagent, MLflow, and OpenTelemetry stack."
+description = "Build, evaluate, secure, deploy, and operate a Go AI agent with Google ADK, agentgateway, kagent, and OpenTelemetry."
 socialCard = "assets/social-card.png"
 
 [params.navbar]

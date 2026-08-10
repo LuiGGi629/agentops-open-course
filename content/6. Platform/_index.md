@@ -1,7 +1,7 @@
 ---
 title: "6. Platform"
 description: Run the same private AgentOps data plane on local k3d and an optional, explicitly planned GKE lab.
-url: "/6-platform/"
+slug: "6-platform"
 ---
 
 {{% admonition abstract "In one glance" %}}
@@ -77,7 +77,7 @@ Each page also owns the manifests below, so a symptom maps to one file:
 | Sub-page                                                                                    | What it adds                                                  | Owning manifest(s)                                             |
 | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
 | [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}})                             | Agents as Kubernetes workloads; the shared base and overlays  | `infra/k8s/base/kustomization.yaml`                            |
-| [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})                         | The multi-stage, digest-pinned agent image                    | `agents/python/Dockerfile`                                     |
+| [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})                         | The multi-stage, digest-pinned agent image                    | `agents/go/Dockerfile`                                         |
 | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}})             | Cluster/registry, kagent, and the Skaffold development loop   | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
 | [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md" >}})               | The hardened BYO `Agent` and gateway `ModelConfig`            | `infra/kagent/agent.yaml`, `modelconfig.yaml`                  |
 | [6.4. Platform Tools]({{< relref "/6. Platform/6.4. Platform Tools.md" >}})                 | The read-only MCP server and its governed `RemoteMCPServer`   | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`      |
@@ -127,7 +127,7 @@ Each row below is a symptom you can observe, the misconfiguration that usually c
 | Agent card fails to resolve though the pod is healthy | `AGENT_A2A_HOST` was left at `0.0.0.0` or the loopback default in-cluster, so the card advertises an uncallable URL                       | [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md#why-does-the-agent-advertise-a-different-a2a-host-than-it-binds" >}}) |
 | Dashboards are flat / a port-forward returns nothing  | Host Compose and the in-cluster stack were started together and bound the same local ports                                                | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
 | Agent turns fail in k3d                               | Ollama is not reachable from pods because it binds loopback instead of the k3d bridge                                                     | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#how-do-you-start-the-local-kubernetes-workloads" >}})               |
-| Eval evidence vanished                                | `MLFLOW_TRACKING_URI` was unset, so `mise run eval:mlflow` wrote to the local `evals/mlflow.db` no one else sees                          | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md#how-do-you-select-the-mlflow-destination" >}})                   |
+| Eval evidence is missing from Tempo and Prometheus    | `EVAL_OTEL_EXPORTER_OTLP_ENDPOINT` was unset, so the model-backed run produced only its sanitized JSON artifact                           | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md#how-does-evaluation-bind-the-tuple" >}})                         |
 | Pods stay `Pending`, or a container dies with `137`   | The machine is out of memory: host Compose and the in-cluster stack are running together, or the model plus k3s exceeds what the host has | [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md#what-do-you-do-when-the-machine-runs-out-of-memory" >}})            |
 
 ## What proves this chapter worked?

@@ -1,91 +1,78 @@
 ---
 title: "1. Setup"
-description: Set up a professional local environment and toolchain for building and operating agents.
-url: "/1-setup/"
+description: Install the pinned Go-first toolchain, prepare the local model path, and prove the deterministic workspace before building an agent.
+slug: "1-setup"
 ---
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Prepare the smallest local environment needed for the first agent conversation in Chapter 2.
-- **You need:** A terminal and an internet connection; everything else is installed here.
-- **Time:** about 8 minutes, orientation. {{% /admonition %}}
+- **You will:** Prepare the Go toolchain, optional runtimes, providers, and workspace contracts used by later chapters.
+- **You need:** Git, a Unix-like shell, and permission to install user-scoped tools.
+- **Time:** about 2 hours for the complete chapter, hands-on. {{% /admonition %}}
 
 ## Which pages do you need now?
 
-Follow four pages now, then defer the infrastructure-specific pages until the course needs them:
+Take the shortest path that matches your next chapter.
 
-- **1.0. System:** clone the repository and install the staged learner toolchain.
-- **1.1. Python:** inspect the locked Python project and prove it offline.
-- **1.4. Providers:** install Ollama, pull local Qwen3, and pass `doctor:model`.
-- **1.5. Workspace:** learn the repository contract and run the core gates.
-
-Skip **1.2. Containers** until Chapter 5 and **1.3. Kubernetes** until Chapter 6. Chapter 2 owns the first live conversation, after this setup is green.
+- **1.0. System:** install mise and prove the model-free baseline.
+- **1.1. Go:** inspect the three Go modules, their locks, and the agent's runtime dependencies.
+- **1.2. Containers:** install a container engine only before the image or gateway labs.
+- **1.3. Kubernetes:** install the local platform tools only before Chapter 6.
+- **1.4. Providers:** prepare the account-free Ollama path, then compare optional hosted providers.
+- **1.5. Workspace:** understand generated state, configuration validation, hooks, and gates.
 
 ## What will you set up in this chapter?
 
-You install one staged CLI toolchain, two locked Python environments, and the local model used by Chapters 2-4. Docker, Kubernetes, and a cloud account wait until later chapters. Plan about two hours for the four required pages, much of it spent waiting on downloads.
+The base install resolves Go modules for the agent, standalone evaluation harness, and repository tools, plus Hugo and dprint for the course site.
 
-The base agent venv contains runtime plus development/offline-test packages. Chapter 4 adds the heavier full-MLflow profile to that same locked environment with `cd agents/python && mise run install:eval`; the separate MLflow server environment and platform/cloud CLIs wait for `mise run install:platform`. The runtime image stays lean by installing with `--no-dev`.
+```bash
+mise run install
+mise run doctor
+```
 
-When a command in this chapter fails, match the symptom in [0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md" >}}) or re-run the `doctor` for your tier. New to a term along the way? The [0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md" >}}) defines every course term and links each back to where it is introduced.
-
-The six pages and the stage that owns each one:
-
-- **[1.0. System]({{< relref "/1. Setup/1.0. System.md" >}})** _(hands-on)_: supported systems, hardware, network needs, and the pinned mise toolchain.
-- **[1.1. Python]({{< relref "/1. Setup/1.1. Python.md" >}})** _(hands-on)_: the pinned Python and uv environment, runtime dependencies, and the model-free quality checkpoint.
-- **[1.2. Containers]({{< relref "/1. Setup/1.2. Containers.md" >}})** _(hands-on)_: the Docker-compatible runtime the Chapter 5 gateway wrapper needs, and the five engine capabilities it depends on — skip until Chapter 5.
-- **[1.3. Kubernetes]({{< relref "/1. Setup/1.3. Kubernetes.md" >}})** _(reference)_: the Chapter 6 platform tools, validated without creating a cluster yet — skip until Chapter 6.
-- **[1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}})** _(hands-on)_: local Qwen3 through Ollama by default, or optional native Gemini, configured without leaking credentials.
-- **[1.5. Workspace]({{< relref "/1. Setup/1.5. Workspace.md" >}})** _(hands-on)_: the repository, editor-neutral workflow, `AGENTS.md` guidance, git hooks, and your first full validation gate.
+The local model path is separate: Ollama serves `qwen3:4b-instruct` over an OpenAI-compatible endpoint. Container, Kubernetes, and cloud tooling remain opt-in.
 
 ## Why are the prerequisites staged instead of installed up front?
 
-An agent platform pulls in heavy, stateful dependencies — a running model server, a container engine, a Kubernetes cluster, a cloud project. Installing and starting all of them before the first lesson wastes time and money and makes failures hard to localize.
+Each stage adds cost, state, or operating surface.
 
-Staging keeps the base learning path account-free and free of containers, clusters, and cloud resources. You can finish Chapter 1 and read or build the whole course without Docker, a GPU, a provider key, or k3d.
+The deterministic Go and documentation gates need no model. Model exercises add Ollama. Gateway and image exercises add a container engine. Platform exercises add k3d and Kubernetes tools. The optional GKE lab adds a cloud account and billable resources.
 
-{{% collapsible note "Deeper: how the ladder is defined and pinned" %}}
-
-`scripts/doctor.sh` defines small, scoped profiles, so you pay for a dependency only at the boundary it validates. `mise.toml` still pins every tool for reproducibility, and `run_auto_install = false` makes a missing tool fail fast rather than silently installing it. {{% /collapsible %}}
+Staging keeps each checkpoint honest: passing an early gate does not imply a later service exists.
 
 ## Which tier does each chapter actually require?
 
-[1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) owns the exact profile-to-chapter map, independence rule, probes, and matching install tiers. Run the doctor named by the chapter you are entering; later pages repeat only the command they ask you to use.
-
-[1.5. Workspace]({{< relref "/1. Setup/1.5. Workspace.md" >}}) owns the offline learner gate and the broader maintainer boundary. Chapter 1 uses `mise run check:core`; the closing checkpoint below is its canonical command list.
+| Chapters                                   | Required profile                                  |
+| ------------------------------------------ | ------------------------------------------------- |
+| 0, 1, and deterministic parts of 2-4 and 8 | `mise run doctor`                                 |
+| Model-backed parts of 2-4                  | `mise run doctor:model`                           |
+| Chapter 5 host gateway                     | `mise run doctor:gateway` plus the model profile  |
+| Chapter 6 local platform                   | `mise run doctor:platform`                        |
+| Optional GKE path                          | `mise run doctor:gcp` and explicit cloud approval |
 
 ## What is deliberately not part of this chapter?
 
-Setup installs and probes local Qwen3, but it does not ask the agent a question. Each heavier runtime action arrives at the chapter that teaches it:
+Setup does not call a live model, start a gateway, create a cluster, deploy Kubernetes, or mutate cloud resources.
 
-- the first local Qwen3 conversation in Chapter 2;
-- the Docker-backed gateway in Chapter 5;
-- k3d and kagent in Chapter 6;
-- the optional GKE lab only if you explicitly choose it.
-
-Even then, `mise run doctor:gcp` and every cloud task stop short of creating a billable resource; the GKE path halts at `tofu plan` unless you later approve it.
+Those actions belong to pages that can state the expected evidence and teardown. A provider credential is never required for the account-free path.
 
 ## What proves this chapter worked?
 
-You are ready for Chapter 2 when the core environment and local model checks pass. These commands do not start a container or cluster, create cloud resources, or send a prompt:
+Run the deterministic checkpoint from the repository root:
 
 ```bash
-mise run doctor         # base prerequisites and learner environments
-mise run doctor:model   # Ollama serves qwen3:4b-instruct
-mise run format:core    # early source formatting
-mise run check:core     # model/container/cluster/cloud-free validation
-mise run test           # the Python agent's offline suite
-mise run build:docs     # the static site renders from docs/
+mise run doctor
+mise run config:check
+mise run check:core
+mise run test
 ```
 
-When they are green, [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) runs the AgentOps Agent on local Qwen3.
+The Go suites report measured coverage, but the repository enforces no percentage threshold because the owner has not selected one.
 
 **You are done when:**
 
-- `mise run doctor` prints `base       ready`, followed by an `env` line; both `.env available to explicit live/config tasks` and `optional .env is absent` are passes.
-- `mise run doctor:model` confirms `qwen3:4b-instruct` is served locally.
-- `mise run format:core`, `mise run check:core`, `mise run test`, and `mise run build:docs` each finish without reporting an error.
-- You can say which pages you skipped and what brings you back: 1.2. Containers at Chapter 5, 1.3. Kubernetes at Chapter 6.
-- Without reopening Chapter 0: you can name the model path you chose in [0.4. Providers]({{< relref "/0. Overview/0.4. Providers.md" >}}) and say why it needs no account, and you can name the one variable to raise when a local turn is slower than the agent's 60-second model deadline.
+- The base doctor and typed configuration check exit zero.
+- The core check and all three Go module test suites pass without a model or platform service.
+- You know which later page authorizes each heavier dependency.
 
-Continue to [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when you are ready to install the learner toolchain.
+Continue to [2. Agents]({{< relref "/2. Agents/_index.md" >}}) when the deterministic setup is green.

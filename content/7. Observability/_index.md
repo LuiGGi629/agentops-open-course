@@ -1,12 +1,12 @@
 ---
 title: "7. Observability"
 description: "Gain insight into the agent in production: reproducibility, tracing, monitoring, cost, feedback, online evaluation, governance, and incident response."
-url: "/7-observability/"
+slug: "7-observability"
 ---
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** See how one agent turn becomes a trace, a metric, and a log line, and know which page owns which signal.
+- **You will:** See how one agent turn becomes metrics and logs, when synthetic tracing is explicitly risk-accepted, and which page owns each signal.
 - **You need:** Chapter 5 finished and Docker running. Only [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) also needs the Chapter 6 cluster.
 - **Time:** about 6 minutes, orientation. {{% /admonition %}}
 
@@ -25,7 +25,7 @@ mise run doctor:gateway    # checks Docker, Compose, and the other container pre
 mise run observability:up  # Tempo, Loki, the collector, Prometheus, Alertmanager, Grafana
 ```
 
-Then open Grafana at `http://localhost:3002` and keep that one tab open for the rest of the chapter. Grafana is provisioned with all three stores as datasources — Prometheus, Loki, and Tempo — so a trace, a metric, and a log line are three views in one UI rather than three tabs you correlate by hand. Your own turns only appear there once the agent exports to the collector, which [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}}) _(hands-on)_ sets up. {{% /admonition %}}
+Then open Grafana at `http://localhost:3002` and keep that one tab open for the rest of the chapter. Prometheus, Loki, and Tempo are provisioned as datasources. The agent exports metrics and sanitized logs when configured, but ADK spans stay off until [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}}) explicitly accepts their synthetic-lab content risk. {{% /admonition %}}
 
 Every later page assumes one telemetry topology and one set of ports. This landing page is the map: which signal answers which question, what runs where, and which port each piece listens on.
 
@@ -33,16 +33,16 @@ Every later page assumes one telemetry topology and one set of ports. This landi
 
 Traces, metrics, logs, assessments, and audit rows each answer a different operational question; open the page that owns the signal you actually need:
 
-| When you ask...                            | Signal to read                        | Where it lives                      | Page                                                                                                         |
-| ------------------------------------------ | ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Can I rebuild this exact release?          | code/image/model/prompt/data lineage  | git, registry, offline MLflow       | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md" >}}) _(hands-on)_              |
-| What happened inside one turn?             | ADK/gateway trace                     | Tempo `:3200`, read in Grafana      | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}})                                           |
-| Is the service healthy right now?          | RED + gateway metrics, alerts         | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md" >}}) _(hands-on)_                        |
-| What did the work cost?                    | token counters + stated assumptions   | Prometheus, docs                    | [7.3. Costs]({{< relref "/7. Observability/7.3. Costs.md" >}}) _(hands-on)_                                  |
-| Was this answer any good?                  | human assessment on an eval trace     | offline MLflow                      | [7.4. Feedback]({{< relref "/7. Observability/7.4. Feedback.md" >}}) _(hands-on)_                            |
-| Are answers drifting at scale?             | sampled trace scoring (design)        | a Tempo sample, design only         | [7.5. Online Evaluation]({{< relref "/7. Observability/7.5. Online Evaluation.md" >}}) _(optional hands-on)_ |
-| Who approved this write, and what changed? | append-only audit row                 | SQLite audit table                  | [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) _(hands-on, needs the cluster)_     |
-| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent | every signal above, joined          | [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}) _(hands-on)_          |
+| When you ask...                            | Signal to read                            | Where it lives                      | Page                                                                                                         |
+| ------------------------------------------ | ----------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Can I rebuild this exact release?          | code/image/model/instruction/data lineage | Git, registry, sanitized artifacts  | [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md" >}}) _(hands-on)_              |
+| What happened inside one turn?             | risk-accepted ADK or gateway trace        | Tempo `:3200`, read in Grafana      | [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}})                                           |
+| Is the service healthy right now?          | RED + gateway metrics, alerts             | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md" >}}) _(hands-on)_                        |
+| What did the work cost?                    | token counters + stated assumptions       | Prometheus, docs                    | [7.3. Costs]({{< relref "/7. Observability/7.3. Costs.md" >}}) _(hands-on)_                                  |
+| Was this answer any good?                  | sanitized human or judge verdict          | JSON artifact and optional OTLP     | [7.4. Feedback]({{< relref "/7. Observability/7.4. Feedback.md" >}}) _(hands-on)_                            |
+| Are answers drifting at scale?             | sampled trace scoring (design)            | a Tempo sample, design only         | [7.5. Online Evaluation]({{< relref "/7. Observability/7.5. Online Evaluation.md" >}}) _(optional hands-on)_ |
+| Who approved this write, and what changed? | append-only audit row                     | SQLite audit table                  | [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) _(hands-on, needs the cluster)_     |
+| The agent itself broke — now what?         | detect→triage→mitigate→review→prevent     | every signal above, joined          | [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}) _(hands-on)_          |
 
 Each of those pages is also explicit about where the shipped stack stops.
 
@@ -56,7 +56,7 @@ One collector receives what the agent and gateway emit, then fans that single st
 
 ```mermaid
 flowchart LR
-    Agent[agentops-agent] -->|OTLP :4318| Collector[OTel Collector]
+    Agent[agentops-agent] -->|metrics and sanitized logs; ADK traces opt-in| Collector[OTel Collector]
     Gateway[agentgateway] -.->|OTLP traces :4317, k8s only| Collector
     Collector -->|traces, OTLP/HTTP :4318| Tempo[Tempo :3200]
     Collector -->|logs /otlp| Loki[Loki :3100]
@@ -69,19 +69,19 @@ flowchart LR
     Prometheus --> Alertmanager[Alertmanager :9093]
 ```
 
-**Diagram in words:** The agent pushes OTLP to the collector on `:4318`, and in Kubernetes the gateway pushes its traces on `:4317`. The collector splits that one stream three ways — spans to Tempo, log records to Loki, span-derived metrics to Prometheus. Grafana reads all three, and Prometheus additionally feeds fired alerts to Alertmanager. The two dotted edges between Tempo and Loki are not data flows: they are the shared `trace_id` that lets Grafana walk from a trace to its logs and back again.
+**Diagram in words:** The agent pushes metrics and sanitized logs to the collector on `:4318`; ADK spans use that path only after explicit risk acceptance. Kubernetes gateway traces enter on `:4317`. The collector routes available spans to Tempo, logs to Loki, and metrics to Prometheus. Grafana reads all three stores, and Prometheus feeds Alertmanager.
 
 Three names in that diagram are worth pinning down now:
 
 - **OTLP** — the OpenTelemetry wire protocol that carries traces, metrics, and logs off the agent ([0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md#otlp" >}})).
 - **`span_metrics`** — the collector connector that turns spans into request-count and duration metrics.
-- **`trace_id`** — the one identifier every span and every log record of a single turn carries. It is why the dotted edges exist: in Grafana a trace opens its logs and a log line opens its trace, without you copying anything.
+- **`trace_id`** — the identifier a log record carries when it is emitted inside a recorded span. It enables Grafana's trace-to-log links during the explicit tracing exercise.
 
 The shipped OSS stack is Tempo, the OpenTelemetry Collector, Prometheus, Alertmanager, Loki, and Grafana. Each piece listens on one port, and every later page assumes you already know which:
 
 | Component                  | Port                       | What it is for                                                                                  |
 | -------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| OpenTelemetry Collector    | `:4317` gRPC, `:4318` HTTP | receives the agent's traces, metrics, and logs                                                  |
+| OpenTelemetry Collector    | `:4317` gRPC, `:4318` HTTP | receives gateway traces, agent metrics/logs, and explicitly risk-accepted ADK traces            |
 | Tempo                      | `:4318` in, `:3200` query  | stores the traces and answers the queries Grafana reads one turn through                        |
 | Loki                       | `:3100/otlp`               | stores the logs                                                                                 |
 | Collector metrics endpoint | `:8889`                    | exposes `span_metrics` and native metrics for Prometheus                                        |
@@ -105,7 +105,7 @@ This table is the canonical deployment-profile split; sibling pages link back in
 
 {{% collapsible note "Deeper: how the collector splits one stream three ways" %}}
 
-The collector receives OTLP on `:4317` (gRPC) and `:4318` (HTTP), then splits it three ways: traces go to Tempo over OTLP/HTTP at `tempo:4318`, logs go to Loki at `:3100/otlp`, and the `span_metrics` connector plus native metrics are exposed for Prometheus on `:8889`. Prometheus (`:9090`) stores them, evaluates alert rules into Alertmanager (`:9093`), and Grafana (`:3002`, host profile only) reads Prometheus, Loki, and Tempo. Every service in that path is a pinned upstream image driven by a config file in the repository; none of them is built from course source. Nothing you maintain sits between an emitted span and a stored one. Agent traces, metrics, and logs always arrive over OTLP; agentgateway pushes OTLP traces to the collector only in the Kubernetes profiles, and its own metrics live at `:15020` — scraped directly by Prometheus on the host and by the collector in Kubernetes. {{% /collapsible %}}
+The collector receives OTLP on `:4317` (gRPC) and `:4318` (HTTP), then splits available signals three ways: traces go to Tempo, logs go to Loki, and span-derived plus native metrics reach Prometheus on `:8889`. Agent metrics and sanitized logs use OTLP when configured; ADK traces require explicit risk acceptance. agentgateway pushes traces only in Kubernetes, while its metrics remain on `:15020`. {{% /collapsible %}}
 
 ## What proves this chapter worked?
 
@@ -116,7 +116,7 @@ The chapter checkpoint uses local or already-running lab telemetry. It does not 
 - `mise run observability:up` has finished and `http://localhost:3200/ready` reports Tempo ready.
 - `http://localhost:3002` opens Grafana without asking you to log in, with Prometheus, Loki, and Tempo all listed under its datasources.
 - For a trace, a metric, a log line, an assessment, and an audit row, you can name the page that owns it.
-- You can say which port the agent exports to, and which store keeps each of the three signals.
+- You can say which port the agent exports to, which store keeps each signal, and why ADK traces are off by default.
 - You finished the required drill in [7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md#your-turn-how-do-you-add-an-alert-rule-and-its-runbook" >}}): your own alert rule passed `promtool check rules`, reached `firing` at `http://localhost:9090/alerts`, and resolved when you cleared the condition.
 - Without reopening Chapter 4, you can name the offline gate that proves a guardrail before release and the runtime signal that proves it in production — and say why neither replaces the other.
 

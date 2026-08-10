@@ -1,12 +1,10 @@
 // Give Hextra's FlexSearch box the combobox semantics a screen reader needs.
 //
-// This replaces the Zensical shim that used to live here. Hextra renders a bare
-// `<input type="search">` with an `aria-label`, a detached results `<ul>`, and a polite status
+// Hextra renders a bare `<input type="search">` with an `aria-label`, a detached results `<ul>`, and a polite status
 // region, but nothing ties them together: a screen-reader user is never told that results
-// appeared or how many. The pattern below is the WAI-ARIA editable combobox with list
-// autocomplete, which is what the search reported before the migration.
+// appeared or how many. The pattern below is the WAI-ARIA editable combobox with list autocomplete.
 //
-// The gate that holds this honest is scripts/accessibility_browser.py:search_smoke.
+// The native browser acceptance gate holds this behavior honest.
 
 const RESULTS_ID = "hextra-search-results";
 

@@ -1,7 +1,7 @@
 ---
 title: "0. Overview"
 description: "Orient before you build: decide when an agent is justified, map the AgentOps lifecycle, assign ownership across the stack, and choose the required OSS path or an optional hosted provider."
-url: "/0-overview/"
+slug: "0-overview"
 ---
 
 {{% admonition abstract "In one glance" %}}
@@ -27,7 +27,7 @@ This chapter covers:
 - **[0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}})** _(orientation · ~20 min)_: outcome, audience, prerequisites, time, cost, and learning paths.
 - **[0.1. Agents]({{< relref "/0. Overview/0.1. Agents.md" >}})** _(concept · ~16 min)_: what an AI agent is, the agentic loop, common patterns, and when a workflow or plain code is the better choice.
 - **[0.2. AgentOps]({{< relref "/0. Overview/0.2. AgentOps.md" >}})** _(concept · ~12 min)_: the AgentOps lifecycle and how MLOps, LLMOps, and AgentOps relate.
-- **[0.3. Ecosystem]({{< relref "/0. Overview/0.3. Ecosystem.md" >}})** _(lookup · bookmark)_: ownership boundaries across ADK, agentgateway, kagent, OTel, Tempo, MLflow, MCP, A2A, AAIF, and CNCF — the page you return to when you need to know who owns a boundary.
+- **[0.3. Ecosystem]({{< relref "/0. Overview/0.3. Ecosystem.md" >}})** _(lookup · bookmark)_: ownership boundaries across ADK, agentgateway, kagent, OTel, Tempo, the Go evaluation harness, MCP, A2A, AAIF, and CNCF — the page you return to when you need to know who owns a boundary.
 - **[0.4. Providers]({{< relref "/0. Overview/0.4. Providers.md" >}})** _(concept · ~15 min)_: local Qwen3 by default, then optional Gemini or Vertex AI compared explicitly.
 - **[0.5. Resources]({{< relref "/0. Overview/0.5. Resources.md" >}})** _(lookup · bookmark)_: primary documentation, open-source development tools, and community routes.
 - **[0.6. Troubleshooting]({{< relref "/0. Overview/0.6. Troubleshooting.md" >}})** _(lookup · bookmark)_: symptom-first fixes for the most common setup and runtime failures.
@@ -48,7 +48,7 @@ flowchart TD
 
 The lifecycle you meet in [0.2. AgentOps]({{< relref "/0. Overview/0.2. AgentOps.md" >}}) is not only a mental model — it is the order of the course. Build ([2. Agents]({{< relref "/2. Agents/_index.md" >}})), Capabilities ([3. Capabilities]({{< relref "/3. Capabilities/_index.md" >}})), Quality ([4. Quality]({{< relref "/4. Quality/_index.md" >}})), Gateway ([5. Gateway]({{< relref "/5. Gateway/_index.md" >}})), Platform ([6. Platform]({{< relref "/6. Platform/_index.md" >}})), and Observe ([7. Observability]({{< relref "/7. Observability/_index.md" >}})) each own one phase. That is why the chapters run from a first model call to a monitored workload rather than in any other sequence. The full phase-to-chapter table is on that page, under "How does the lifecycle map to the course?".
 
-One thread runs underneath every decision above: the open-source boundary. The required path — ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Grafana, MLflow, Ollama, and the Apache-2.0 open-weight Qwen3 model — needs no account and no fee. Gemini, Vertex AI, and GKE are optional proprietary comparisons the course never relabels as open source.
+One thread runs underneath every decision above: the open-source boundary. The required path — ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Grafana, Ollama, the standalone Go evaluation harness, and the Apache-2.0 open-weight Qwen3 model — needs no account and no fee. Gemini, Vertex AI, and GKE are optional proprietary comparisons the course never relabels as open source.
 
 ## What do you need to run this chapter?
 

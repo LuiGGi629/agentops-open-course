@@ -21,7 +21,7 @@ keywords:
   - Google ADK
   - agentgateway
   - kagent
-  - MLflow
+  - Grafana
   - Kubernetes
   - OpenTelemetry
 abstract: A local-first, open-source course for building, evaluating, securing, deploying, and operating a production-shaped AI agent. The reference software is MIT licensed; the course chapters are CC-BY-4.0.

@@ -1,148 +1,97 @@
 ---
 title: "3. Capabilities"
-description: Give the agent real powers — tools, skills, MCP, memory, workflows, and A2A — with clean, packaged code.
-url: "/3-capabilities/"
+description: Add typed tools, reviewed skills, MCP, retrieval, bounded workflows, A2A, and least-privilege delegation to the Go agent.
+slug: "3-capabilities"
 ---
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Map the eight capabilities this chapter bolts onto the agent you already ran, and learn which one to reach for when.
-- **You need:** Chapter 2 finished, with `mise run test` green in `agents/python`.
-- **Time:** about 8 minutes, orientation. {{% /admonition %}}
+- **You will:** Choose the smallest composition boundary for each capability and prove its authority offline.
+- **You need:** Chapter 2's Go agent and development loop.
+- **Time:** about 4 hours for the complete chapter, orientation. {{% /admonition %}}
 
 ## Which capabilities will you add?
 
-Your agent can now hold a conversation ([Chapter 2]({{< relref "/2. Agents/_index.md" >}})). This chapter gives it things it can do — one capability per page, in reading order:
+Chapter 3 expands one composed agent without widening every boundary.
 
-- **[3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})** _(reference)_: The uv package, the lazy ADK import, and the entrypoints every later page depends on.
-- **[3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})** _(hands-on)_: Typed reads, guarded writes, and a bounded local capability prototype.
-- **[3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})** _(reference)_: Written procedures the agent loads only when the task needs them.
-- **[3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}})** _(hands-on)_: Those same read tools served over a protocol, and the server you can call yourself.
-- **[3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}})** _(reference)_: What the agent keeps between turns and sessions, and how it looks a runbook up.
-- **[3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})** _(hands-on)_: A bounded `plan → investigate → evidence_review → recommend` graph.
-- **[3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})** _(hands-on)_: The network endpoint that lets a separate agent send this one a task.
-- **[3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}})** _(concept)_: A coordinator that hands work to specialists holding fewer tools than it does.
+- **3.0. Packaging:** Go modules, tool directives, and optional vendoring.
+- **3.1. Tools:** typed reads, confirmed writes, timeouts, circuits, and atomic audit.
+- **3.2. Skills:** progressively disclosed reviewed instruction.
+- **3.3. MCP:** a remote, filtered six-read tool surface.
+- **3.4. Memory:** sessions, operator notes, runbooks, and bounded retrieval.
+- **3.5. Workflows:** a fixed read-only investigation graph.
+- **3.6. A2A:** durable network tasks, streaming, and cancellation.
+- **3.7. Multi-Agent:** a coordinator with restricted specialists.
 
-Each is a small, single-purpose unit that composes cleanly.
-
-**Key term:** A [_composition root_]({{< relref "/0. Overview/0.7. Glossary.md#composition-root" >}}) is the single place that constructs an application and wires its dependencies.
-
-Everything assembles in that composition root. `composition.py` builds `root_agent` and hands it a single flat tool list, and each entry in that list is owned by a different module this chapter teaches:
-
-{{< include path="agents/python/src/agent/composition.py" region="root-agent" lang="python" >}}
-
-Read only the `tools=` line for now. Cross-cutting policy is attached separately by `AgentOpsPolicyPlugin` on the `App`, owned by [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md" >}}).
-
-That one assignment is the map for the whole chapter. One branch, `_read_tools()`, decides whether reads run locally or over the governed MCP toolset. **MCP** is the Model Context Protocol: one contract for serving a tool to any agent that speaks it ([0.7. Glossary]({{< relref "/0. Overview/0.7. Glossary.md#mcp" >}})).
-
-The guarded writes, long-term memory, and skills always stay in-process, and [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}}) wraps the finished agent for the network:
-
-```mermaid
-flowchart TD
-    root["root_agent<br/>composition.py"]
-    root --> branch{"AGENT_MCP_URL set?"}
-    branch -->|no| local["ALL_TOOLS · 3.1<br/>KNOWLEDGE_TOOLS · 3.4"]
-    branch -->|yes| mcp["ops_mcp_toolset · 3.3"]
-    root --> actions["ACTION_TOOLS<br/>guarded writes · 3.1 / 4.5"]
-    root --> memory["MEMORY_TOOLS · 3.4"]
-    root --> skills["skill_toolset · 3.2"]
-    root --> server["agent.server<br/>A2A endpoint · 3.6"]
-```
+{{< include path="agents/go/compose/composition.go" region="root-agent" lang="go" >}}
 
 ## Which composition should you reach for?
 
-Six ways to compose work appear in this chapter. The rule for choosing between them: **take the cheapest option that fits.**
-
-Five of them form one ladder — plain Python, one agent, a fixed Workflow graph, in-process delegation, and networked A2A — while MCP is the orthogonal move that publishes a capability outward. That rule is the same as everywhere else in the course. Walk the questions top to bottom and stop at the first "yes".
+Choose by authority and control-flow need, not novelty.
 
 ```mermaid
 flowchart TD
-    Q1{"Does the step need model judgment at all?"} -->|no| Plain["Plain Python<br/>if / for / a function call"]
-    Q1 -->|yes| Q2{"Is the order of steps a fixed requirement<br/>where deviation is a defect?"}
-    Q2 -->|yes| WF["Fixed Workflow graph · 3.5<br/>you own the order, the model owns each node"]
-    Q2 -->|no| Q3{"Does one authority + toolset cover the whole task?"}
-    Q3 -->|yes| One["One agent · 3.1<br/>the root_agent you have built"]
-    Q3 -->|no| Q4{"Do the specialists share process, trust,<br/>and lifecycle with the coordinator?"}
-    Q4 -->|yes| Deleg["In-process delegation · 3.7<br/>coordinator + least-privilege sub-agents"]
-    Q4 -->|no| A2A["Networked A2A · 3.6<br/>separate process, trust, and lifecycle"]
-    Q1 -.->|"expose a function to other agents"| MCP["MCP tool · 3.3<br/>publish a read tool over the wire"]
+    Q1{"Need model judgment?"} -->|no| Go["plain Go"]
+    Q1 -->|yes| Q2{"Fixed bounded order?"}
+    Q2 -->|yes| W["ADK workflow"]
+    Q2 -->|no| Q3{"Independent deployment boundary?"}
+    Q3 -->|yes| A2A["A2A service"]
+    Q3 -->|no| Q4{"Distinct specialist authority?"}
+    Q4 -->|yes| M["in-process delegation"]
+    Q4 -->|no| A["single agent"]
 ```
 
-- **Plain Python** — no judgment is required, so no model call belongs here.
-- **One agent** — judgment is needed but one authority and toolset cover the task; this is the `root_agent` that the whole chapter assembles.
-- **Fixed Workflow graph** — the order `plan → investigate → evidence_review → recommend` is a requirement, not a choice, so you write it down as a graph.
-- **In-process delegation** — different authority per specialist, but same process, trust, and lifecycle: a coordinator transfers to least-privilege sub-agents, each holding only the tools its own job needs.
-- **Networked A2A** — a separate process, trust, and lifecycle forces a network boundary; delegate to a peer agent over the protocol.
-- **MCP tool** — the orthogonal move: expose one of your functions so _other_ agents can call it.
+**Diagram in words:** Work with no model judgment stays plain Go. Model-backed work with a fixed order uses a workflow. A real deployment boundary uses A2A. Distinct authority inside one runtime uses delegation. Everything else stays one agent.
 
-The dashed edge marks MCP as orthogonal to the ladder: it is about publishing a capability outward, not about which composition runs your own work.
-
-Each box names the page that owns its option. The ranking of the orchestration technology itself — plain Python, ADK `Workflow`, a graph library, a durable engine — is owned by [3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md#what-is-a-workflow" >}}).
+MCP is orthogonal: it moves a tool boundary across a process or network without deciding the agent's orchestration shape.
 
 ## Which capability lives in which module?
 
-Each capability has exactly one owner, so a failure has one place to look. This chapter's pages map onto the reference package like this:
-
-| Sub-page                                                                  | What it adds                                                                 | Owning module(s)                                              |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})     | The uv package and lazy `root_agent` discovery                               | `pyproject.toml`, `__init__.py`                               |
-| [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})             | Typed read tools over validated, resettable incident state                   | `tools.py`, `data.py`                                         |
-| [3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})           | Progressive-disclosure procedures via `skill_toolset()`                      | `skills.py`                                                   |
-| [3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}})                 | The governed MCP server and client for the read tools                        | `mcp_server.py`, `mcp_client.py`                              |
-| [3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}})           | Conversation, notes, history compaction, and deterministic runbook retrieval | `memory.py`, `longterm.py`, `compaction.py`, `retrieval.py`   |
-| [3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})     | The bounded planning and evidence-review graph                               | `workflow.py`, selected with `AGENT_ENTRYPOINT=workflow`      |
-| [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})                 | The persistent A2A server, card, and task store                              | `server.py`                                                   |
-| [3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}}) | A coordinator with least-privilege specialists                               | `delegation.py`, selected with `AGENT_ENTRYPOINT=coordinator` |
-
-{{% collapsible note "Deeper: how 3.5 and 3.7 share one package boundary" %}}
-
-The `triage_workflow` graph and `coordinator_agent` are runnable selections, while `agent` remains the default.
-
-```bash
-cd agents/python
-mise run workflow
-mise run coordinator
-```
-
-All three tasks resolve the lazy `root_agent` from `src/agent`. The task aliases set the validated `AGENT_ENTRYPOINT`; implementations remain in `agent/workflow.py` and `agent/delegation.py`, with no sibling discovery packages to maintain. {{% /collapsible %}}
+| Capability                  | Source authority                                           |
+| --------------------------- | ---------------------------------------------------------- |
+| Packaging                   | `agents/go/go.mod`, `go.sum`, and `vendor/` when generated |
+| Incident tools and actions  | `agents/go/tools/`                                         |
+| Skills                      | `agents/go/compose/skills.go` and `agents/data/skills/`    |
+| MCP server/client           | `agents/go/mcpserver/` and `agents/go/compose/mcp.go`      |
+| Memory and retrieval        | `agents/go/memory/`                                        |
+| Workflow and delegation     | `agents/go/compose/workflow.go` and `delegation.go`        |
+| A2A runtime                 | `agents/go/a2aserver/`                                     |
+| Black-box protocol evidence | `evals/`                                                   |
 
 ## Which switches change this chapter's behavior?
 
-One composition selector and three opt-in switches change what runs.
+Typed configuration owns the switches.
 
-The task aliases set the composition selector. Every capability switch defaults to the offline, deterministic path, so the test gate needs no model, network, or embedding server.
+- `AGENT_MCP_URL` moves conversational reads to remote MCP.
+- `AGENT_ENTRYPOINT` selects agent, workflow, coordinator, or structured report composition.
+- `AGENT_SEMANTIC_RETRIEVAL` enables the bounded embedding path.
+- `AGENT_MAX_HISTORY_MESSAGES` and `AGENT_MAX_TOKENS_PER_SESSION` bound context work.
+- `AGENT_A2A_MAX_LLM_CALLS` and `AGENT_A2A_STREAMING` bound A2A execution and publication.
+- `AGENT_WRITES_DISABLED` disables action execution without changing read schemas.
 
-{{% collapsible note "Deeper: the selector and three capability switches" %}}
-
-`config.py` parses every choice once. Knowing them up front tells you what is conditional as you read each page:
-
-| Setting                    | Default | Effect when changed                                                               | Page      |
-| -------------------------- | ------- | --------------------------------------------------------------------------------- | --------- |
-| `AGENT_ENTRYPOINT`         | `agent` | Selects the workflow or coordinator behind the shared package boundary            | 3.5 / 3.7 |
-| `AGENT_MCP_URL`            | unset   | `_read_tools()` swaps the local read tools for the governed MCP toolset           | 3.3       |
-| `AGENT_SEMANTIC_RETRIEVAL` | `false` | Runbook search uses local-embedding vector retrieval, falling back to keywords    | 3.4       |
-| `AGENT_A2A_STREAMING`      | `false` | The A2A server emits partial per-token events, at the redaction cost 3.6 explains | 3.6       |
-| {{% /collapsible %}}       |         |                                                                                   |           |
+Run `mise run config:check` after changing any of them.
 
 ## What proves this chapter worked?
 
-The chapter checkpoint is the offline test suite for tools, skills, MCP, retrieval, workflows, delegation, and A2A server construction. It runs without a model or network:
+Run the complete Go module evidence without a model:
 
 ```bash
-cd agents/python
+cd agents/go
+mise run check
 mise run test
+cd ../../evals
+mise run eval:validate
 ```
 
-That is the umbrella gate (`uv run pytest` over the full suite). Each sub-page also has a scoped checkpoint you can run in isolation, so you can verify one capability at a time as you build it. Two examples: `uv run pytest tests/test_tools.py tests/test_data.py` for [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}}), and `uv run pytest tests/test_server.py tests/test_delegation.py` for [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}}).
-
-Model-backed behavior remains separate because a green offline suite proves wiring, not reasoning. `mise run eval` exercises the default agent; `mise run eval:workflow` exercises the bounded workflow's read-only evidence path.
+The test task reports measured coverage; no percentage threshold is enforced because the owner has not selected one.
 
 **You are done when:**
 
-- `mise run test` passes in `agents/python`, with no model server and no network running.
-- The chapter's required drill is done: [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}) proves a local `get_oncall_schedule` slice with valid and rejected inputs, proves the public MCP surface stayed fixed, then removes only the experiment files.
-- You can name the sub-page that owns each capability, and the module behind it.
-- You can point at the one branch in `composition.py` that decides whether reads run locally or over MCP.
-- Without reopening Chapter 2: you can say why the model can only ever _ask_ for a state change, and name the two tools it has to ask for.
+- Tools, skills, MCP, retrieval, workflow, A2A, and delegation tests pass under the race detector.
+- You kept the [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}) read tool with parse-at-the-boundary input, bounded output, cancellation coverage, and an explicit MCP exposure decision.
+- The focused tool diff contains no generated runtime state or unrelated change, and the complete Go module gate is green.
+- Evaluation assets validate without importing the agent implementation.
+- You can choose among plain Go, workflow, one agent, delegation, and A2A from the decision tree.
+- You can name the authority that each capability intentionally lacks.
 
-Continue to [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}}) when the `tools=` line of `root_agent` reads as a map of this chapter rather than a list of unfamiliar names.
+Continue to [4. Quality]({{< relref "/4. Quality/_index.md" >}}) when the capabilities are narrow enough to score and secure.

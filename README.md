@@ -1,194 +1,214 @@
 # AgentOps Open Course
 
-[![CI](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml) [![Docs](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml) [![Security](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml) [![GitHub stars](https://img.shields.io/github/stars/MLOps-Courses/agentops-open-course?style=flat)](https://github.com/MLOps-Courses/agentops-open-course/stargazers) [![Course license: CC BY 4.0](https://img.shields.io/badge/course-CC_BY_4.0-blue.svg)](./static/LICENSE.txt) [![Software license: MIT](https://img.shields.io/badge/software-MIT-green.svg)](./LICENSE)
+Learn the complete lifecycle of a production-shaped AI agent in Go: build it with Google ADK, govern traffic with agentgateway, run it with kagent, and collect OpenTelemetry traces, logs, metrics, and evaluation evidence.
 
-Learn the complete lifecycle of a production-shaped AI agent, from a first local model call to an observable Kubernetes workload. The course uses [Google ADK](https://google.github.io/adk-docs/), [agentgateway](https://agentgateway.dev/), [kagent](https://kagent.dev/), [OpenTelemetry](https://opentelemetry.io/) into [Grafana Tempo](https://grafana.com/oss/tempo/), and [MLflow](https://mlflow.org/) for offline evaluation, with runnable Python, tests, policies, and infrastructure.
+This checkout is a complete local reference and Hugo evaluation build. It is not published from this repository; release, repository identity, DNS, and documentation publication remain owner-gated.
 
-**[Read the course](https://agentops-open-course.fmind.dev/)** | **[Start locally](#local-quickstart)** | **[Build your capstone](https://agentops-open-course.fmind.dev/8.%20Community/8.7.%20Capstone.html)** | **[Contribute](./CONTRIBUTING.md)**
+## What makes the course practical?
 
-## How is the course structured?
+- **One executable reference:** every chapter inspects and runs the same AgentOps Agent, then the capstone adapts it to a learner-owned domain.
+- **Go from runtime to gates:** the agent, black-box evaluation harness, and repository maintenance tools are separate Go modules.
+- **Account-free default:** local Qwen3 through Ollama requires no mandatory SaaS, provider account, or usage fee.
+- **Typed operational boundaries:** tools, Agent Skills, MCP, A2A, confirmation, redaction, append-only audit evidence, persistent sessions, and recovery are implemented.
+- **Bounded orchestration:** the conversational agent plans multi-step investigations; a runnable workflow enforces plan, investigate, evidence review, and recommendation.
+- **One governed data plane:** agentgateway routes MCP, A2A, and OpenAI-compatible Responses API traffic.
+- **One container contract:** the same static distroless image runs on the host, local k3d, and the optional GKE laboratory.
+- **One observability stack:** OTLP fans out to Tempo, Loki, Prometheus, Alertmanager, and Grafana.
+- **Evidence at the wire:** the standalone evaluator folds ADK REST and A2A events into the same typed turn and emits sanitized JSON plus OpenTelemetry evidence.
+- **Source-linked teaching:** critical excerpts are rendered directly from named regions in `agents/go`, `evals`, `tools`, and infrastructure sources.
 
-Nine chapters follow the AgentOps lifecycle, from a first local model call to an observable Kubernetes workload. Every page opens with an **In one glance** block — what you will do, what you need first, and how long it takes — and ends with a checkpoint you can verify, so you can skim the opening and skip a page when it is not for you today. Depth that is not needed on a first pass sits behind collapsible sections rather than being cut.
+The required path is open source and uses open-weight model artifacts. Gemini, Vertex AI, GKE, GCS, Artifact Registry, and hosted repository services are optional proprietary comparisons.
 
-## What makes this course practical?
+The course's defensible difference is scope, not a “best course” claim: one Go application and one wire-only Go evaluator cover typed tools, safety, gateway policy, Kubernetes, recovery, telemetry, and release evidence without requiring hosted evaluation.
 
-- **One completed reference:** every chapter inspects and runs the same AgentOps Agent, then the capstone guides you through replacing its fictional domain with your own platform.
-- **OSS-first and account-free:** run the Apache-2.0 open-weight [Qwen3](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) model through Ollama with no account, no mandatory SaaS, and no usage fee.
-- **Real operational boundaries:** tools, Agent Skills, MCP, A2A, human approval, PII redaction, append-only audit records, and persistent sessions are implemented in the reference agent.
-- **Bounded reasoning:** the conversational agent is instructed to plan multi-step work and verify approved actions; a runnable plan → investigate → evidence review → recommend workflow enforces deeper orchestration structurally.
-- **One data plane:** agentgateway routes and governs MCP, A2A, and OpenAI-compatible model traffic.
-- **One local-to-cloud contract:** the same container and Kubernetes base run on k3d and on a small GKE lab; only overlays and model identity change.
-- **Observable end to end:** optional OTLP telemetry flows to self-hosted Tempo traces, Loki logs, and Prometheus metrics, all read through one Grafana.
-- **Verified examples:** critical documentation snippets are included directly from source under `agents/`, while commands and deployable resources mirror `infra/`.
+## What will you build?
 
-The required host and local Kubernetes path uses open-source software and open-weight model artifacts. Gemini and Google Cloud are optional proprietary integrations; neither is presented as open source or required for completion. Repository and documentation hosting are release concerns, not runtime dependencies.
-
-## What will you learn from?
-
-The completed **AgentOps Agent** is an on-call assistant for a fictional service. Ask it to investigate `INC-002` and initiate a guarded restart if the evidence supports one. It gathers the evidence, calls the guarded tool, and then ADK pauses before the function can change anything:
+The AgentOps Agent is an on-call assistant for a fictional platform. Ask it to investigate `INC-002` and initiate a guarded restart only if the evidence supports one:
 
 ```text
 > Investigate INC-002. If the evidence supports it, initiate a guarded inventory restart.
-  → get_incident(incident_id="INC-002")   INC-002 · inventory · SEV1 · open
-  → get_service_status(name="inventory")   inventory: down
-  → search_service_logs(service="inventory")   panic · restarts · readiness refused · stock lookup 503
-  → get_runbook(slug="service-down")
-
-  INC-002 is a SEV1: inventory is down, its container keeps restarting, and stock lookups fail.
-  After diagnosis, the runbook supports a restart to clear this crash loop.
-  → restart_service(name="inventory")
-      ADK requests confirmation; the function has not run.
-  [awaiting human approval + rationale · no state change]
+  -> get_incident(incident_id="INC-002")
+  -> get_service_status(name="inventory")
+  -> search_service_logs(service="inventory")
+  -> get_runbook(slug="service-down")
+  -> restart_service(name="inventory")
+     ADK requests confirmation; the function has not run.
+  [awaiting human approval and rationale; no state change]
 ```
 
-Every claim traces to a tool result. The guarded call creates ADK's confirmation request; only an approved call with a rationale executes `restart_service` and appends an audit record. The agent reads a committed SQLite seed, service logs, Markdown runbooks, and least-privilege Agent Skills; runtime state is copied into `.state/`, so exercises never mutate the course dataset. `AGENT_MCP_URL` reroutes only the conversational entrypoint's six reads; workflows and coordinator specialists keep local tools, and guarded writes always remain in-process. New to the acronyms below (MCP, A2A, OTLP)? The [glossary](https://agentops-open-course.fmind.dev/0.%20Overview/0.7.%20Glossary.html) defines every term.
+Every domain claim must come from a tool result. The guarded call creates a confirmation request; only a later confirmed execution with a rationale can mutate state and append an audit record.
 
 ```mermaid
 flowchart LR
     User[Engineer or A2A client] -->|A2A :3001| Gateway[agentgateway]
-    Agent[AgentOps Agent<br/>Google ADK] -->|OpenAI-compatible :4000| Gateway
+    Agent[Go AgentOps Agent] -->|Responses API :4000| Gateway
     Agent -->|MCP :3000| Gateway
-    Gateway -->|MCP| MCP[Ops MCP server :8000]
-    Gateway -->|local profile| Ollama[Ollama + Qwen3]
-    Gateway -->|GKE profile + WIF| Vertex[Vertex AI Gemini]
+    Gateway -->|MCP| MCP[Go MCP server :8000]
+    Gateway -->|local| Ollama[Ollama and Qwen3]
+    Gateway -->|optional cloud| Vertex[Vertex AI Gemini]
     Gateway -->|A2A| Agent
-    Agent -->|OTLP :4317/:4318| OTel[OpenTelemetry Collector]
-    OTel --> Tempo[Tempo traces]
-    OTel --> Loki[Loki logs]
-    OTel --> Prometheus[Prometheus + Grafana]
-    Agent --> State[(SQLite state + audit)]
+    Agent -->|OTLP :4317 or :4318| Collector[OpenTelemetry Collector]
+    Collector --> Tempo[Tempo]
+    Collector --> Loki[Loki]
+    Collector --> Prometheus[Prometheus and Grafana]
+    Agent --> State[(SQLite state and audit)]
 ```
+
+**Diagram in words:** An engineer reaches the Go agent through agentgateway. The agent uses the same gateway for MCP, A2A, and model traffic; it writes controlled SQLite state and exports optional telemetry to the OpenTelemetry backends.
 
 ## Local quickstart
 
-You need a Unix-like shell (Linux, macOS, or WSL2), git, and basic Python. Install and activate mise first:
+You need a Unix-like shell, Git, and [mise](https://mise.jdx.dev/). Install and activate mise, then run the model-free gates:
 
 ```bash
-curl -fsSL https://mise.run | sh
-# Follow mise's printed instructions to activate it in your shell.
-```
-
-The learner bootstrap installs only the pinned core tools and environments, then runs the offline gates. It makes no model, cloud, container, deployment, or advisory-service calls. The separate maintainer and CI gate `check:vuln` refreshes package advisories.
-
-```bash
-git clone https://github.com/MLOps-Courses/agentops-open-course.git
-cd agentops-open-course
 mise run install
 mise run doctor
 mise run check:core
 mise run test
 ```
 
-The core gate validates course content, data, Python, shell, workflows, links, and licenses without invoking Docker or infrastructure tooling. Expected final output also includes a passing pytest summary and coverage at or above the enforced 95% branch threshold:
+The learner gate does not start a model, container, cluster, collector, paid API, or cloud resource.
 
-```text
-... passed
-Required test coverage of 95% reached
-```
+No Go coverage threshold is enforced because the owner has not selected one. `mise run coverage` reports measured coverage as evidence; it is not a pass policy.
 
-For the shortest unverified preview, the published course keeps a separate [six-command fast path](https://agentops-open-course.fmind.dev/#what-are-the-six-commands-that-reach-the-first-agent-turn); return to this guarded sequence before treating the checkout as validated.
-
-For the first interactive run, install [Ollama](https://ollama.com/download), then pull Qwen3 (~2.5 GB, Apache-2.0 open weights):
+For the first grounded turn, install [Ollama](https://ollama.com/download), then run:
 
 ```bash
 ollama pull qwen3:4b-instruct
 mise run doctor:model
+cd agents/go
+mise run web
 ```
 
-Then run the agent directly against Ollama. These are the default settings, so no provider account or `.env` file is required:
+Open the ADK web UI on `http://127.0.0.1:8002/ui/`, ask `List the open incidents`, and inspect the event stream for `list_incidents(status="open")`, its returned seed rows, and the final answer. Matching seed IDs without the observed call and result is only a plausible answer, not grounding evidence. `mise run run` is a faster console preview but cannot prove the trajectory. The first CPU turn can be slow while the model loads; a connection error usually means `ollama serve` is not running.
 
-```bash
-cd agents/python
-mise run run
-```
+Model-backed commands are observations, not offline gate proof. They may vary across runs even with temperature zero.
 
-Ask `List the open incidents`, then compare the answer with the seed's three open rows: **INC-002, INC-005, and INC-010**. Any extra id is ungrounded. That is the whole local loop: an agent that reads real data through typed tools and refuses to make one up. `mise run run` prints the answer, not the tool calls behind it; use `mise run web` and its Events timeline to watch those. Chapter 2 explains how it is wired.
-
-Later, Chapter 3 compares the same conversational agent with `mise run workflow` and `mise run coordinator`. Those tasks select bounded orchestration through the same lazy `src/agent` package; the default runtime tasks stay pinned to the conversational composition.
-
-The first turn on CPU can take tens of seconds while the model loads; later turns are faster. A connection error (not just slowness) usually means `ollama serve` is not running — see the [troubleshooting guide](./content/0.%20Overview/0.6.%20Troubleshooting.md).
-
-That is the first complete loop. [1. Setup](./content/1.%20Setup/_index.md) stages later prerequisites only when the corresponding chapter needs them.
-
-## Run and tear down the full local stack
-
-The gateway, Kubernetes, and observability tiers stay out of first-run setup. `mise run install:platform` adds that toolchain; the optional GKE path adds `mise run install:gcp`.
-
-Their exact start order, verification, and every teardown belong to the chapters that own them: [5. Gateway](./content/5.%20Gateway/_index.md) for the host agentgateway process order and its smoke check, [6. Platform](./content/6.%20Platform/_index.md) for the Ollama bridge, the k3d deployment, backup, and the guarded cluster and cloud teardowns.
-
-Follow those pages instead of a second infrastructure runbook here. Teardown deletes PersistentVolumeClaims and their data, and a duplicated copy of a destructive command is the copy that goes stale.
+Continue with the [canonical roughly three-hour build-first route](./content/0.%20Overview/0.0.%20Course.md#what-is-the-roughly-three-hour-build-first-route) before entering the longer production-operations track.
 
 ## Which learning path should you choose?
 
-| Path                | Model                | Infrastructure     | Best for                                                               |
-| ------------------- | -------------------- | ------------------ | ---------------------------------------------------------------------- |
-| Offline engineering | None                 | Host process       | Tests, tools, policies, data, and code review                          |
-| Required OSS path   | Qwen3 through Ollama | Host, then k3d     | Completing every core outcome with no account, mandatory SaaS, or fee  |
-| Optional provider   | Gemini               | Host process       | Comparing ADK's native provider integration after the local path works |
-| Optional cloud lab  | Gemini on Vertex AI  | Zonal GKE Standard | Workload Identity, GCS artifacts, and production-shaped cloud delivery |
+| Path                | Model                | Infrastructure     | Best for                                                   |
+| ------------------- | -------------------- | ------------------ | ---------------------------------------------------------- |
+| Offline engineering | None                 | Host process       | Source, tests, tools, policy, state, and docs              |
+| Required OSS path   | Qwen3 through Ollama | Host, then k3d     | Completing core outcomes without an account or fee         |
+| Optional provider   | Gemini               | Host process       | Comparing ADK's native provider after the local path works |
+| Optional cloud lab  | Gemini on Vertex AI  | Zonal GKE Standard | Workload Identity, GCS artifacts, and cloud delivery       |
 
-The GKE path is an optional lab, not a production reference architecture. Its single Spot node can be interrupted and is not highly available, and it bills real money — [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md) owns the current estimate and the date it was checked. Always inspect the OpenTofu plan and current [GKE pricing](https://cloud.google.com/kubernetes-engine/pricing) before applying it.
+The GKE path is a billable, interruptible laboratory, not a production architecture. [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md) owns the current estimate and verification date.
 
 ## Course map
 
-| Chapter                                                      | Outcome                                                                            |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| [0. Overview](./content/0.%20Overview/_index.md)             | Choose the right agent architecture, stack, and learning path.                     |
-| [1. Setup](./content/1.%20Setup/_index.md)                   | Install the staged prerequisites for the checkpoint you are running.               |
-| [2. Agents](./content/2.%20Agents/_index.md)                 | Run and understand the ADK reference agent on local Qwen3.                         |
-| [3. Capabilities](./content/3.%20Capabilities/_index.md)     | Inspect typed tools, skills, MCP, memory, workflows, and A2A.                      |
-| [4. Quality](./content/4.%20Quality/_index.md)               | Enforce typing, tests, evaluations, guardrails, and adversarial regressions.       |
-| [5. Gateway](./content/5.%20Gateway/_index.md)               | Move the stable model contract behind agentgateway and govern MCP and A2A traffic. |
-| [6. Platform](./content/6.%20Platform/_index.md)             | Deliver the same image to local k3d and an optional GKE lab with kagent.           |
-| [7. Observability](./content/7.%20Observability/_index.md)   | Trace, measure, evaluate, and audit the running system with OSS backends.          |
-| [8. Community](./content/8.%20Community/_index.md)           | Maintain, release, and document an open-source agent project.                      |
-| [8.7. Capstone](./content/8.%20Community/8.7.%20Capstone.md) | Transform the completed reference into your own evidence-backed agent platform.    |
+| Chapter                                                      | Outcome                                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| [0. Overview](./content/0.%20Overview/_index.md)             | Choose the architecture, stack, and learning path.                                   |
+| [1. Setup](./content/1.%20Setup/_index.md)                   | Install only the prerequisites needed for the current checkpoint.                    |
+| [2. Agents](./content/2.%20Agents/_index.md)                 | Run and understand the ADK Go agent on local Qwen3.                                  |
+| [3. Capabilities](./content/3.%20Capabilities/_index.md)     | Inspect typed tools, skills, MCP, memory, workflows, and A2A.                        |
+| [4. Quality](./content/4.%20Quality/_index.md)               | Enforce types, tests, black-box evaluations, guardrails, and adversarial regression. |
+| [5. Gateway](./content/5.%20Gateway/_index.md)               | Govern MCP, A2A, and Responses API traffic with agentgateway.                        |
+| [6. Platform](./content/6.%20Platform/_index.md)             | Deliver the same static image to k3d and the optional GKE lab.                       |
+| [7. Observability](./content/7.%20Observability/_index.md)   | Trace, measure, evaluate, audit, and recover the system.                             |
+| [8. Community](./content/8.%20Community/_index.md)           | Maintain, document, and prepare an open-source agent project.                        |
+| [8.7. Capstone](./content/8.%20Community/8.7.%20Capstone.md) | Adapt the completed reference into an evidence-backed platform.                      |
 
 ## Repository layout
 
 ```text
-agents/python/  Reference ADK agent, tests, evaluations, and A2A server
-agents/data/    Immutable SQLite, runbook, skill, and log seed data
-clients/web/    Minimal offline A2A web client for the AgentOps Agent
-load/           k6 load tests and latency budgets for the platform
-content/        FAQ-based course pages, built into site/ by Hugo
-layouts/        Hugo templates: include shortcode, admonitions, sidebar
-data/nav.yaml   The explicit learning path rendered in the sidebar
-infra/          agentgateway, kagent, k3d/GKE, and OTel/Tempo/Loki resources
-skills/         Installable Agent Skills packaging the course's patterns
+agents/go/     Go ADK agent, protocols, policy, state, tests, and image
+agents/data/   Immutable SQLite, runbook, skill, and log seed data
+evals/         Standalone black-box Go evaluation module and assets
+tools/         Standalone Go repository-maintenance commands
+clients/web/   Minimal dependency-free A2A web client
+load/          k6 load tests and latency budgets
+content/       76 FAQ-based Hugo course pages
+layouts/       Hugo templates, source includes, and accessibility helpers
+data/nav.yaml  Explicit hand-ordered learning path
+infra/         agentgateway, kagent, k3d/GKE, and observability resources
+skills/        Portable Agent Skills distilled from the course
 ```
 
-## Reuse the patterns in your own agents
-
-The top-level [`skills/`](./skills/) directory packages this course's operational patterns — telemetry, guardrails, resilience, token budgets, least privilege, evaluation, incident response — in the portable [Agent Skills format](https://agentskills.io/specification) for installation with the [`skills` CLI](https://github.com/vercel-labs/skills):
-
-```bash
-npx skills add MLOps-Courses/agentops-open-course --all
-```
-
-Each skill is tool-agnostic guidance that points back to the exact reference file it distils. See [`skills/README.md`](./skills/README.md).
+The root `go.mod` exists only for the Hextra Hugo Module. Application, evaluation, and repository-tool dependencies stay in their own modules.
 
 ## Everyday commands
 
-```bash
-mise run install    # core pinned tools, docs/agent environments, and hooks
-mise run serve      # documentation at http://127.0.0.1:8003
-mise run doctor     # base docs/Python entry prerequisites
-mise run format:core # dprint + Ruff + shfmt
-mise run check:core # static gate without Docker or infrastructure execution
-mise run test       # deterministic offline tests with branch coverage
-mise run course:evidence # clean-revision completion manifest from both gates
+From the repository root:
 
-mise run install:maintainer # complete platform/security toolchain and environments
-mise run format             # core plus OpenTofu
-mise run check              # core plus both infrastructure overlays
-mise run scan               # gitleaks history + Trivy scans
+```bash
+mise run install
+mise run doctor
+mise run format
+mise run check:core
+mise run check
+mise run test
+mise run scan
+mise run build:docs
+mise run serve
 ```
 
-To reset only the agent's local writable state, run `cd agents/python && mise run data:reset`; it never touches the seed. For anything that will not start, the [troubleshooting guide](./content/0.%20Overview/0.6.%20Troubleshooting.md) is the owning page.
+From `agents/go`:
 
-## Contributing and reuse
+```bash
+mise run check
+mise run test
+mise run coverage
+mise run build
+mise run run
+mise run workflow
+mise run coordinator
+mise run web
+mise run a2a
+mise run mcp
+mise run mcp:http
+mise run data:reset
+```
 
-Course prose is [CC BY 4.0](./static/LICENSE.txt); software and repository automation are [MIT](./LICENSE). See [SUPPORT.md](./SUPPORT.md), [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), [SECURITY.md](./SECURITY.md), and [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before opening a change. Release-facing changes are tracked in [CHANGELOG.md](./CHANGELOG.md), and academic/technical citations are available in [CITATION.cff](./CITATION.cff).
+From `evals`:
 
-The rendered course is published at [agentops-open-course.fmind.dev](https://agentops-open-course.fmind.dev/). The source remains the verification surface: every critical excerpt, command, policy, and deployment contract is checked from this repository.
+```bash
+mise run eval:validate # offline
+mise run check
+mise run test
+mise run eval:policy-trial     # exact-source REST calibration samples
+mise run eval:a2a:policy-trial # exact-source A2A calibration samples
+mise run eval:judge-calibration:trial # judge evidence before policy approval
+mise run eval                  # approved-policy REST qualification
+mise run eval:a2a              # approved-policy A2A qualification
+```
+
+`release-policy.json` is currently `calibration-required`, so canonical qualification and judge calibration fail closed until reviewed Go trials establish and approve the pass and judge-agreement floors, repeat count, mandatory outcomes, and usage budgets. Trial tasks collect evidence but cannot qualify a release.
+
+Resetting agent state removes only `agents/go/.state`; it never changes `agents/data/incidents.db`.
+
+## What does release evidence contain?
+
+Model-backed evaluation produces sanitized handoffs at the `evals` module root:
+
+- `eval-results.json`
+- `judge-calibration-results.json`
+- `cost-observed.json`
+
+The schema-3 run artifact carries separate source mode, identity, revision, tree digest, dirty/shallow state, platform identity, model identity, evalset digest, policy identity, transport, repeated trajectory/judge/control scores, and usage. The schema-3 calibration handoff carries the same source and policy plus typed judge provider/name/digest and the exact policy floor.
+
+Other campaigns use separate result filenames so they cannot overwrite the core release artifact. See [evals/README.md](./evals/README.md) for the exact schema and task mapping.
+
+Release qualification requires all three handoffs plus the repository policy and expected source tree. The qualifier—not the candidate artifact—requires policy status `approved`, recomputes mandatory outcomes, requires judge and control-specific scorer coverage, binds source/tree/platform/model/judge/evalset/calibration/cost identities, and enforces the approved pass, agreement, repeat, and usage floors.
+
+Local files are not release proof by themselves. Exact-head hosted CI, runtime storage, artifact attestation, and public publication are separate boundaries.
+
+## How do you preview the course?
+
+```bash
+mise run serve
+# open http://localhost:8003
+```
+
+The Hugo build treats warnings and bad references as errors, derives canonical routes from reviewed page and section slugs, checks rendered canonical/Open Graph/search/sitemap/navigation/fragment parity, and extracts code from named source regions. Every changed Mermaid diagram needs equivalent prose.
+
+This checkout does not publish the site. A successful local build proves rendering only.
+
+## Reuse and contribution
+
+The top-level [`skills/`](./skills/) directory packages telemetry, guardrails, resilience, token budgets, least privilege, evaluation, and incident-response patterns in the portable Agent Skills format.
+
+Course prose is [CC BY 4.0](./static/LICENSE.txt); software and repository automation are [MIT](./LICENSE). Read [SUPPORT.md](./SUPPORT.md), [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), and [SECURITY.md](./SECURITY.md) before proposing a change.

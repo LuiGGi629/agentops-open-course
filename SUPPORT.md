@@ -1,108 +1,147 @@
 # Support
 
-This policy says which surfaces are stable, where the complete path is verified, and how to upgrade or roll back. The course is pre-1.0: the software contracts below are versioned and change deliberately, while the course prose is still being improved release by release.
+This policy defines stable surfaces, verified platforms, compatibility, upgrade, rollback, and explicit non-goals. The course is pre-1.0: software contracts change deliberately, while course prose can improve between releases.
 
 ## What does the course support?
 
 The supported outcome is the account-free OSS path from a clean checkout to:
 
-- the offline course, agent, security, and infrastructure gates;
-- the conversational agent, bounded workflow, and coordinator on Qwen3 through Ollama;
-- the six read tools, repository Agent Skills, MCP, guarded writes, memory, and A2A;
-- the host agentgateway path and the local k3d platform;
-- self-hosted MLflow, OpenTelemetry, Prometheus, Grafana, and Loki;
-- state backup and restore, deterministic adversarial tests, model evaluation, and load testing.
+- Offline course, Go agent, evaluation, repository-tool, security, and infrastructure gates.
+- The conversational agent, bounded workflow, and coordinator on Qwen3 through Ollama.
+- Typed read tools, repository Agent Skills, MCP, guarded writes, memory, and A2A.
+- The host agentgateway path and local k3d platform.
+- OpenTelemetry collection into Tempo, Loki, Prometheus, Alertmanager, and Grafana.
+- State backup and crash-recoverable restore, deterministic adversarial tests, black-box evaluation, and load testing.
 
-The complete release gate is verified on Linux x86_64 with cgroup v2. CI uses Ubuntu 24.04; the maintainer gate also runs on Debian 12. Kubernetes removed cgroup v1 support in 1.35, and `mise run doctor:platform` checks the required cgroup v2 hierarchy before creating the pinned cluster.
+The complete release gate targets Linux x86_64 with cgroup v2. This rewritten checkout has not re-run the k3d runtime campaign; the authoring host uses cgroup v1, and the platform doctor fails before creating a cluster there. Hosted CI uses its declared runner image.
 
-This table is the course's single capacity-planning authority. **Total RAM** is installed physical memory; **available RAM** is what the operating system can allocate now; **free disk** is unused filesystem capacity. Values are binary GiB, not decimal GB. “Not measured” means the course has no honest minimum yet: pass the named doctor and gate instead of treating a guess as a requirement.
+This table is the capacity-planning authority. Values are conservative planning figures, not measured minima or performance guarantees.
 
 <!-- local-platform-capacity: total-ram-gib=14 free-disk-gib=15 -->
 
-| Work tier               | Install/profile                                   | Capacity contract                                                                                                                                                        |
-| ----------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Read the course         | No install                                        | No measured minimum beyond a browser or Markdown reader.                                                                                                                 |
-| Offline engineering     | `install`; `doctor`; `check:core`; `test`         | No measured RAM or disk minimum. The two locked Python environments and repository checkout must fit; the gates are authoritative.                                       |
-| Local model             | Offline tier plus `doctor:model`                  | No measured host minimum. The Qwen3 download and runtime consume additional disk and available RAM; model speed is hardware-dependent.                                   |
-| Host gateway            | Local-model tier plus `doctor:gateway`            | No separate measured minimum. A working container engine and enough available RAM for Ollama, the agent, and the gateway are required.                                   |
-| Complete local platform | `install:platform`; `doctor:platform`             | Conservative planning value: **14 GiB total RAM** and **15 GiB free disk** for the model, images, one k3d cluster, and observability running at once.                    |
-| Optional GKE laboratory | `install:gcp`; `doctor:gcp`; reviewed `tofu plan` | Local capacity is not the cloud quota. The canonical billable resource shape and dated estimate live only in [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md). |
+| Work tier               | Install or profile                                                                         | Capacity contract                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Read the course         | No install                                                                                 | No measured minimum beyond a browser or Markdown reader.                                                                              |
+| Offline engineering     | `install`; `doctor`; `check:core`; `test`                                                  | No measured RAM or disk minimum; the checkout, module caches, and gates are authoritative.                                            |
+| Local model             | Offline tier plus `doctor:model`                                                           | No measured host minimum; model disk, memory, and speed are hardware-dependent.                                                       |
+| Host gateway            | Model tier plus `doctor:gateway`                                                           | No separate measured minimum; requires a working container engine and capacity for model, agent, gateway, and optional webhook.       |
+| Complete local platform | `install:platform`; `doctor:platform`                                                      | Plan for **14 GiB total RAM** and **15 GiB free disk** for model, images, one k3d cluster, and observability together.                |
+| Optional GKE laboratory | Reviewed host Google Cloud CLI plus `install:platform`; `doctor:gcp`; reviewed `tofu plan` | Local capacity is not cloud quota; [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md) owns billable shape and dated estimate. |
 
-The local-platform numbers are conservative planning values, not measured minima or performance guarantees. `doctor:*` can verify tools, services, credentials, cgroup mode, and some free-disk boundaries; portable measurement of “enough available RAM” is not reliable across supported systems, so it does not pretend to certify that property.
+macOS, Linux arm64, and WSL2 are best-effort. Tool locks may resolve there, but that does not imply the full container, relay, k3d, and restore journey is release-gated.
 
-macOS, Linux arm64, and WSL2 remain best-effort. Their lock entries keep tool installation reproducible, but they are not release-gated through the full container, loopback-relay, and k3d journey. Closed [issue #111](https://github.com/MLOps-Courses/agentops-open-course/issues/111) records the evidence that would be needed before expanding that matrix. Report platform-specific defects, but do not infer full-platform support from a successful `mise run install`.
-
-The admitted interpreter is CPython 3.13.x only: every Python project declares `>=3.13,<3.14`, ty checks 3.13, and CI plus both runtime images use that line. Python 3.14 is explicitly unsupported until the locked ADK/GenAI dependency chain imports warning-free and the full agent boundary suite passes on it. A newer interpreter existing upstream is not a support claim.
+The admitted language toolchain is the Go version pinned in root `mise.toml`, `agents/go/go.mod`, `evals/go.mod`, `tools/go.mod`, and the agent Dockerfile. Those pins must agree before a version is supported.
 
 ## Which interfaces are stable?
 
-Stability is split by payload, because a course page and a database schema fail differently.
+Stable software contracts are:
 
-**Software contracts** are versioned and change only as described below:
+- The `agent` executable and its documented subcommands.
+- The `agent`, `workflow`, and `coordinator` `AGENT_ENTRYPOINT` values.
+- Documented environment variables, defaults, validation rules, and network ports in `AGENTS.md`.
+- Immutable seed data, writable-state separation, SQLite schema versions, append-only audit behavior, and backup manifest format.
+- The documented six read-only MCP tools and guarded in-process write tools.
+- A2A message, task, streaming, approval, reconnect, persistence, cancellation, and error behavior.
+- The host, local k3d, and optional GKE configuration shapes, Kubernetes resource names, image names, and versioned image tags.
+- Evaluation input schemas, the black-box import boundary, stable OpenTelemetry signal names, and sanitized result schemas documented in `evals/README.md`.
 
-- the `agent` Python distribution, its package-level `root_agent`, and the `agent`, `workflow`, and `coordinator` `AGENT_ENTRYPOINT` values;
-- documented environment variables, defaults, validation rules, and the network ports listed in `AGENTS.md`;
-- immutable seed data, writable-state separation, SQLite schema versions, append-only audit behavior, and backup snapshot format;
-- the documented six read-only MCP tools, the guarded in-process write tools, and the A2A task, streaming, approval, reconnect, persistence, cancellation, and error behavior;
-- the host, local k3d, and optional GKE configuration shapes; Kubernetes resource names; image names; and versioned GHCR tags.
+Course prose is not frozen. Chapters can be reordered or rewritten, but an owner-approved publication must preserve or redirect previously released URLs.
 
-**Course prose** gets exactly one guarantee: published course URLs are never left to 404. Chapters may be reordered, pages renamed, split, merged, or rewritten in any release, and a moved page keeps a redirect from its previous URL. Pedagogy improves faster than schemas do, and freezing page names would only protect the wrong thing.
+Internal Go packages, unexported identifiers, test fixtures, generated HTML, unversioned commits, and upstream implementation details are not public APIs. The repository adapts incompatible upstream changes before changing its documented contract.
 
-Internal Python modules, test helpers, generated HTML, unversioned Git commits, and upstream implementation details are not public APIs. Upstream MCP, A2A, ADK, kagent, and agentgateway contracts remain pinned dependencies; this repository adapts incompatible upstream changes before changing its own documented surface.
+## What does evaluation support mean?
+
+`evals` is a standalone Go module that calls the agent through ADK REST or A2A. It must not require or import the agent module.
+
+Offline support covers asset validation, typed event folding, transport equivalence fixtures, deterministic scorers, judge parsing and calibration fixtures, sanitized artifact schemas, and in-memory OpenTelemetry evidence.
+
+Model-backed support requires an explicitly configured model and records one source commit, model identity, evalset digest, transport, pass rate, minimum pass rate, required-case status, and positive usage.
+
+No Go coverage threshold is enforced because the owner has not selected one. Coverage output is measured evidence only and is not a compatibility or release criterion.
+
+The committed cost baseline is schema-valid but remains inherited evidence until a reviewed Go-agent run replaces it. Offline validation must never be presented as that model-backed proof.
 
 ## How are compatibility and deprecations handled?
 
-Patch releases fix defects without intentionally breaking a stable software contract. Minor releases may add backward-compatible configuration, tools, schema fields, or manifests, and may restructure course pages. While the project is pre-1.0, a breaking change to a software contract requires a minor release and a documented migration; after 1.0 it will require a major release.
+Patch releases fix defects without intentionally breaking stable software contracts. Minor releases may add backward-compatible fields, tools, schema versions, or manifests and may restructure course pages.
 
-When practical, a deprecated interface remains functional for at least the next minor release. Its replacement and removal target appear in the changelog and at the use site. Security fixes may remove an unsafe interface sooner; the release notes then explain the risk and migration. Migrations must be atomic, repeatable, restore-tested, and reject unknown future schema versions.
+ADK Go v2.1.0 currently owns two supported dependency ceilings:
 
-Versioned container tags are immutable. Deploy by digest when exact bytes matter; the project does not publish a floating `latest` deployment contract.
+- `openai-go/v3` v3.8.1 and `genai` v1.63.0 remain paired. Newer openai-go function-call arguments use a union struct that this ADK release does not compile against.
+- OpenTelemetry stable 1.44 and log 0.19 remain paired. OTel 1.45 and log 0.21 remove log value APIs this ADK release uses internally.
 
-## How do I upgrade between supported releases?
+These are upstream compatibility constraints, not general bans on newer clients. A replacement ADK/client family becomes supported only when `cd agents/go && mise run check && mise run test` compiles and passes telemetry, command, and full race tests. Never override the ceiling by upgrading one transitive module alone.
 
-The target release prepares runtime state at the normal writable startup boundary. Seed data is never migrated. Version-specific schema or configuration changes belong in that target's changelog entry, so this procedure remains valid after the next release.
+Two runtime pins remain explicit evidence holds:
 
-1. Stop the agent, MCP, A2A, gateway, and platform processes that can write state.
-1. On the currently running supported release, run `mise run state:backup` and keep the completed snapshot outside the working tree.
-1. Record that release's Git tag, deployed image digests, and configuration.
-1. Read every changelog entry between the recorded release and the target release, including its migration and rollback notes.
-1. Check out the target release, then run `mise run install` and `mise run check:core`.
-1. Start one writable agent or A2A process and run the shortest incident read before restoring normal traffic.
-1. Run `mise run state:drill` or the Chapter 6 Kubernetes restore drill before treating the upgrade as accepted.
+| Held pin                         | Owner                    | Constraint                                                                                        | Validator                                                                                                      |
+| -------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| k3s `v1.36.2-k3s1`               | Local platform campaign  | A newer node image needs a cgroup-v2 host and cannot be qualified by manifest rendering alone.    | `mise run cluster:start`, `mise run platform:dev`, deployed HITL, trace/log correlation, and restart survival. |
+| Ollama workflow archive `0.32.5` | Go evaluation cost owner | A newer server changes the serving identity before this checkout has a reviewed Go cost baseline. | The full Eval workflow, judge calibration, exported OTel evidence, and a reviewed cost re-baseline.            |
 
-To roll back, stop writers, return to the recorded release tag or image digests, restore its configuration, and restore the pre-upgrade snapshot with `mise run state:restore -- <snapshot>`. Do not open a migrated database with older code unless the target release notes explicitly declare that downgrade safe.
+`check:freshness` reports both newer candidates as review work rather than claiming they are current. These holds preserve exact inputs; they do not convert the missing runtime evidence into release proof.
+
+While pre-1.0, a breaking software-contract change requires a minor release and documented migration. After 1.0 it requires a major release.
+
+When practical, a deprecated interface remains functional for at least the next minor release. Its replacement and removal target appear in the changelog and at the use site. Security fixes can remove unsafe behavior sooner with a documented migration.
+
+State migrations must be atomic, repeatable, restore-tested, and reject unknown future schema versions. Container version tags are immutable; deploy by digest when exact bytes matter. No floating `latest` deployment contract is supported.
+
+## How do I upgrade?
+
+The target release prepares runtime state at the normal write-owning startup boundary. Seed data is never migrated.
+
+1. Stop every agent, MCP, A2A, gateway, and platform process that can write state.
+1. On the current supported release, run the documented state backup and retain the completed snapshot outside the working tree.
+1. Record the release tag, deployed image digests, configuration, source commit, and current schema versions.
+1. Read every changelog entry through the target release, including migration and rollback notes.
+1. Check out the target, then run `mise run install`, `mise run check:core`, and `mise run test`.
+1. Start one writable agent or A2A process and perform the shortest incident read before restoring traffic.
+1. Run the host or Kubernetes restore drill before accepting the upgrade.
+
+Do not open migrated state with older code unless the target release explicitly declares downgrade compatibility.
+
+## How do I roll back?
+
+Stop every writer, return to the recorded tag or exact image digests, restore its configuration, and restore the pre-upgrade snapshot through the documented state command.
+
+Restore is crash-recoverable, not an instantaneous multi-file rename. Never copy database files around the state boundary or delete unexplained `.restore-*` evidence.
+
+If the candidate changed an evalset or qualification policy, do not reuse results from the previous digest. Release evidence is source-commit and evalset scoped.
 
 ## What must a production owner add?
 
-The optional GKE path is a low-cost, production-shaped laboratory, not a production environment. This table is the explicit delta; none of these controls is implied by a green lab.
+The optional GKE path is a low-cost, production-shaped laboratory, not a production environment.
 
-| Concern                        | Course laboratory                         | Production owner must define and prove                                  |
-| ------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------- |
-| Availability                   | One zonal Spot node; single replicas      | Regional/multi-zone failure domains, disruption budgets, and HA stores  |
-| Public access                  | Port-forwards; no public application edge | TLS, identity, authorization, abuse controls, and edge threat model     |
-| Backup and disaster recovery   | Same-cluster PVC snapshot drill           | Off-cluster encrypted copies, restore objectives, and recurring drills  |
-| Retention and subject requests | Local retention; no unified subject API   | Retention schedule plus authenticated discovery/export/erasure workflow |
-| Storage protection             | Cost-first defaults                       | Deletion protection, bucket versioning/soft deletion, and key ownership |
-| Network                        | Public control-plane/cloud service paths  | Private nodes, controlled egress/NAT/proxy, DNS policy, and audit       |
-| Capacity                       | Fixed resource bounds and one replica     | Load-derived autoscaling, quotas, capacity tests, and failure budgets   |
-| Reliability ownership          | Demonstration alerts and local evidence   | SLOs, paging routes, escalation, runbooks, and accountable owners       |
+| Concern                        | Course laboratory                            | Production owner must define and prove                              |
+| ------------------------------ | -------------------------------------------- | ------------------------------------------------------------------- |
+| Availability                   | One zonal Spot node; single replicas         | Failure domains, disruption budgets, HA stores, and tested failover |
+| Public access                  | Port-forwards; no public application edge    | TLS, identity, authorization, abuse controls, and edge threat model |
+| Backup and recovery            | Same-environment restore drill               | Off-environment encrypted copies, objectives, and recurring drills  |
+| Retention and subject requests | Local retention; no unified subject API      | Schedule plus authenticated discovery, export, and erasure workflow |
+| Storage protection             | Cost-first defaults                          | Deletion protection, versioning or soft deletion, and key ownership |
+| Network                        | Public control-plane and cloud service paths | Private nodes, controlled egress, DNS policy, and audit             |
+| Capacity                       | Fixed bounds and one replica                 | Load-derived scaling, quotas, capacity tests, and failure budgets   |
+| Reliability ownership          | Demonstration alerts and local evidence      | SLOs, paging, escalation, runbooks, and accountable owners          |
 
-The course deliberately excludes a model-callable or public subject-data administration endpoint. A production operator who promises coordinated subject discovery, export, or erasure must build it outside the agent tool surface, authenticated and dry-run-first, while recording legal retention exceptions and an administrative audit trail.
+The course intentionally excludes a model-callable subject-data administration endpoint. A production operator must build that function outside the agent tool surface, authenticated, dry-run-first, and administratively audited.
 
 ## What is outside the contract?
 
-- Live GCP deployment, Vertex calls, cloud cost acceptance, public TLS/auth, high availability, disaster recovery, and production operations.
-- Completing the capstone in a maintainer-chosen domain. The capstone is intentionally the learner's adaptation and is scored by its published rubric; independent learner validation remains external evidence.
-- Full-path release qualification on macOS, Linux arm64, or WSL2.
-- Formal WCAG conformance certification or an exhaustive assistive-technology matrix.
-- PDF and ebook publication. Repository Markdown is the accessible offline fallback; another format requires independent learner and accessibility evidence first.
-- Coordinated subject discovery, export, or erasure across long-term notes, ADK sessions, A2A tasks, and MLflow.
-- Compatibility for forks, local patches, mutable upstream tags, or unsupported dependency combinations.
+- Live cloud deployment, hosted-model calls, cloud cost acceptance, public TLS/auth, HA, disaster recovery, and production operation.
+- Automatic online answer scoring or a public human-feedback endpoint.
+- Runtime prompt or response content capture by default.
+- Full-path release qualification on best-effort operating systems.
+- Formal accessibility certification or an exhaustive assistive-technology matrix.
+- PDF and ebook publication.
+- Coordinated subject discovery, export, or erasure across notes, ADK sessions, A2A tasks, traces, and release artifacts.
+- Compatibility for forks, unreviewed patches, mutable tags, or unsupported dependency combinations.
+- Publication of this Hugo evaluation checkout.
 
 ## How long is a release supported?
 
-The latest release and `main` receive security and correctness fixes. Older releases do not. This file owns that window: `SECURITY.md` and `GOVERNANCE.md` link here rather than restating it.
+The latest release and `main` receive security and correctness fixes. Older releases do not.
 
-Dependency updates and security triage are best effort from a single maintainer — typically within a week, faster for an exploitable finding with a published fix. The maintainer targets small patch releases as fixes accumulate and a reviewed minor release when a capability is ready. If the project cannot be maintained safely for six months, the maintainer will announce archival, disable unsupported publication workflows, and seek a successor under `GOVERNANCE.md`.
+Dependency updates and security triage are best effort from a single maintainer. If safe maintenance stops for six months, the maintainer will announce archival, disable unsupported publication workflows, and seek a successor under [GOVERNANCE.md](./GOVERNANCE.md).
 
 Use [SECURITY.md](./SECURITY.md) for vulnerabilities, [ACCESSIBILITY.md](./ACCESSIBILITY.md) for accessibility barriers, and a public issue for other support requests.

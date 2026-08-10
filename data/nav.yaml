@@ -10,9 +10,9 @@
 #   2. The nested "Optional OSS maintenance" group inside chapter 8.
 #
 # `page` is the path under content/. `label` overrides the page title in the sidebar, and is
-# used only for the two prerequisite entries. scripts/check_conventions.py:check_navigation
+# used only for the two prerequisite entries. The native conventions navigation check
 # fails the build when a page under content/ is missing here, or when an entry names a page
-# that does not exist — the strictness MkDocs got from `strict: true` for free.
+# that does not exist.
 
 - page: _index.md
   label: Home
@@ -35,7 +35,7 @@
     - page: 1. Setup/_index.md
       label: Setup
     - page: 1. Setup/1.0. System.md
-    - page: 1. Setup/1.1. Python.md
+    - page: 1. Setup/1.1. Go.md
     - page: 1. Setup/1.4. Providers.md
     - page: 1. Setup/1.5. Workspace.md
 
@@ -67,7 +67,7 @@
   children:
     - page: 4. Quality/_index.md
       label: Quality
-    - page: 4. Quality/4.0. Typing.md
+    - page: 4. Quality/4.0. Type Safety.md
     - page: 4. Quality/4.1. Linting.md
     - page: 4. Quality/4.2. Testing.md
     - page: 4. Quality/4.3. Metrics.md
