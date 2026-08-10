@@ -3,7 +3,7 @@
 ## Offline implementation
 
 - Standalone Go module with no requirement or resolved import from `agents/go`.
-- One typed `Turn` fold shared by verified ADK Go 2.1.0 REST and deployed A2A wire shapes.
+- One typed `Turn` fold shared by verified ADK Go 2.2.0 REST and deployed A2A wire shapes.
 - Streaming partials retained as raw events and excluded from folded text, tools, and usage.
 - Deterministic trajectory, cost, groundedness, and strict report-schema scorers.
 - Gateway JSON verdict judge plus balanced calibration parsing and sanitized result evidence.

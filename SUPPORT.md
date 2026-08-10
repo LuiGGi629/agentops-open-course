@@ -65,10 +65,10 @@ The committed cost baseline is schema-valid but remains inherited evidence until
 
 Patch releases fix defects without intentionally breaking stable software contracts. Minor releases may add backward-compatible fields, tools, schema versions, or manifests and may restructure course pages.
 
-ADK Go v2.1.0 currently owns two supported dependency ceilings:
+ADK Go v2.2.0 currently owns two supported dependency ceilings:
 
-- `openai-go/v3` v3.8.1 and `genai` v1.63.0 remain paired. Newer openai-go function-call arguments use a union struct that this ADK release does not compile against.
-- OpenTelemetry stable 1.44 and log 0.19 remain paired. OTel 1.45 and log 0.21 remove log value APIs this ADK release uses internally.
+- `openai-go/v3` v3.49.0 and `genai` v1.66.0 remain paired, because ADK's own module requires them together. Move them when ADK moves, not before.
+- OpenTelemetry stable 1.44 and log 0.20 remain paired. OTel 1.45 and log 0.21 remove log value APIs this ADK release uses internally.
 
 These are upstream compatibility constraints, not general bans on newer clients. A replacement ADK/client family becomes supported only when `cd agents/go && mise run check && mise run test` compiles and passes telemetry, command, and full race tests. Never override the ceiling by upgrading one transitive module alone.
 

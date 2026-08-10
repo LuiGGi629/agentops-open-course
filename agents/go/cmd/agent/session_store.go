@@ -16,7 +16,7 @@ import (
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 )
 
-// sessionStore makes database ownership explicit around ADK v2.1.0's session
+// sessionStore makes database ownership explicit around ADK v2.2.0's session
 // service. The upstream concrete service owns a GORM handle but exposes no
 // Close, so the repository supplies and retains the database/sql pool itself.
 type sessionStore struct {

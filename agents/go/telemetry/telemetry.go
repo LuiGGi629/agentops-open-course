@@ -13,7 +13,7 @@
 //
 // # What ADK does not do, and this package therefore does
 //
-//  1. Metrics. ADK v2.1.0 constructs no MeterProvider at all — its own TODO
+//  1. Metrics. ADK v2.2.0 constructs no MeterProvider at all — its own TODO
 //     says so — so [InstallMeterProvider] builds the OTLP metric pipeline the
 //     four custom agentops.* counters need to reach Prometheus. See metrics.go.
 //  2. Trace-correlated logs. Go's log/slog knows nothing about OpenTelemetry,
@@ -103,7 +103,7 @@ const (
 // pinned ADK's unsafe spans unless the operator explicitly accepts their
 // content-bearing behavior.
 //
-// ADK Go v2.1.0 always serializes tool arguments and results onto execute_tool
+// ADK Go v2.2.0 always serializes tool arguments and results onto execute_tool
 // spans and records raw error text in exception events. Neither capture switch
 // controls those fields, and the ADK provider offers no stable field-filtering
 // seam. Therefore false, unset, or malformed

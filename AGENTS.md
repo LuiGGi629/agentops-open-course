@@ -86,10 +86,10 @@ Use locks and manifests as authority, never a number copied into prose:
 - Workflow-only Buildx: explicit version inputs in the release workflow.
 - Evaluation inputs: three `evals/*.evalset.json` files, `release-policy.json`, `cost_baseline.json`, and `judge-calibration.json`.
 
-Two transitive families are explicit ADK Go v2.1.0 compatibility ceilings, not stale pins:
+Two transitive families are explicit ADK Go v2.2.0 compatibility ceilings, not stale pins:
 
-- ADK's own module pairs `github.com/openai/openai-go/v3` v3.8.1 with `google.golang.org/genai` v1.63.0. A trial of openai-go v3.50.0 failed inside ADK because function-call `Arguments` changed from a string to a union struct. ADK owns this pair; do not bump either client independently.
-- ADK uses OpenTelemetry log `Value` and `KeyValue` APIs removed by the OTel 1.45 and log 0.21 family. OTel stable 1.44 with log 0.19 is the highest compiling family for this ADK release.
+- ADK's own module pairs `github.com/openai/openai-go/v3` v3.49.0 with `google.golang.org/genai` v1.66.0, and minimal version selection resolves both from ADK itself. ADK owns this pair; do not bump either client independently. (openai-go v3.50.0 does compile and pass against ADK v2.2.0 — the union-struct breakage that justified the older v3.8.1 floor is fixed upstream — but the pair still moves with ADK, not ahead of it.)
+- ADK uses OpenTelemetry log `Value` and `KeyValue` APIs removed by the OTel 1.45 and log 0.21 family. OTel stable 1.44 with log 0.20 is the highest compiling family for this ADK release.
 
 The validator for either ceiling is `cd agents/go && mise run check && mise run test`; it must compile ADK and pass the focused telemetry, command, and full race suite before the constraint or prose changes. A newer resolved module is not supported evidence.
 
