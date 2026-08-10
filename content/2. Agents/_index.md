@@ -84,7 +84,7 @@ mise run test
 
 That is the offline test suite. The required drill in [2.3. Instructions]({{< relref "/2. Agents/2.3. Instructions.md#your-turn-which-case-catches-a-deleted-rule" >}}) is deterministic too: delete one instruction rule, watch the focused contract fail, then restore it. A live-model comparison remains optional evidence.
 
-The whole run can take several minutes depending on the machine and cache state. It reports measured coverage and ends with the Go test result. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup. No coverage percentage is enforced because the owner has not selected one.
+The whole run can take several minutes depending on the machine and cache state. It ends with the Go test result and one coverage line per package, and it fails when any package falls under the 80% line-coverage floor, which catches code that shipped without tests. Nothing in it needs a model or a network, so a red line is a real failure rather than a missing piece of setup.
 
 A green run proves the agent is assembled correctly, not that it reasons well. Model-backed evaluation is a separate evidence lane, owned by [2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}}).
 
@@ -97,7 +97,7 @@ cd agents/go
 go test ./model ./config
 ```
 
-That focused subset exits cleanly and gives fast feedback. `mise run test` adds race detection and a coverage profile around the complete suite; the percentage remains reported evidence, not policy.
+That focused subset exits cleanly and gives fast feedback. `mise run test` adds race detection and a coverage profile around the complete suite, then rejects any package under 80% — a floor on how much code the tests reach, not on how good they are.
 
 Those cover provider resolution and the fail-fast cross-field checks in `config/config.go` — a bad `AGENT_MODEL_PROVIDER` combination fails at construction with a message that names the fix, not deep inside a turn. Model-backed behavior stays a separate evidence path ([2.5. Dev Loop]({{< relref "/2. Agents/2.5. Dev Loop.md" >}})'s `mise run eval`), because a green offline suite proves the agent is assembled correctly, not that it reasons well. {{% /collapsible %}}
 

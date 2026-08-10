@@ -67,7 +67,7 @@ mise run check:core
 mise run test
 ```
 
-The Go suites report measured coverage, but the repository enforces no percentage threshold because the owner has not selected one.
+The Go suites also enforce a floor: `mise run test` fails when any package in `agents/go` or `evals` drops below 80% line coverage, so a green run means the tests passed _and_ no package went untested.
 
 **You are done when:**
 

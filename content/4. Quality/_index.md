@@ -50,13 +50,13 @@ Neither needs a model, a provider key, or a network.
 
 **You are done when:**
 
-- `mise run test` passes under the race detector and reports measured coverage; no percentage threshold is enforced.
+- `mise run test` passes under the race detector and every package clears the 80% line-coverage floor it enforces.
 - Root `mise run redteam` passes the deterministic adversarial policy cases.
 - You kept the [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#your-turn-how-do-you-add-one-adversarial-case-and-deterministic-validator" >}}) unseen adversarial case, validator, and red-green regression; no generated result artifact or unrelated baseline changed.
 - The [4.5. Guardrails]({{< relref "/4. Quality/4.5. Guardrails.md#your-turn-does-a-tool-name-prove-trusted-provenance" >}}) name-based trust experiment went red, then the identity check was restored with a clean focused diff.
 - Standalone evaluation validation and tests pass without a model.
 - You can use the page markers above to say which checkpoints need a configured model and which run offline.
-- You can point to [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#which-artifacts-can-qualify-a-release" >}}) for the chapter's release-evidence contract.
+- You can point to [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#how-can-an-evaluation-lie" >}}) for the ways a green run can still mislead you.
 - Without reopening Chapter 3: you can name which of the six memory stores a value belongs in when it must survive the next turn but not the next session.
 
 Continue to [4.0. Type Safety]({{< relref "/4. Quality/4.0. Type Safety.md" >}}) when you know the first three pages need no model or provider account.

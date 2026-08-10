@@ -83,7 +83,7 @@ cd ../../evals
 mise run eval:validate
 ```
 
-The test task reports measured coverage; no percentage threshold is enforced because the owner has not selected one.
+The test task also enforces an 80% line-coverage floor per package, so a capability added without tests fails the gate instead of quietly diluting a module average.
 
 **You are done when:**
 
