@@ -112,7 +112,9 @@ source_json="$(go -C ../../tools run ./cmd/source-identity --root .. --mode "$bu
 source_identity="$(printf '%s\n' "$source_json" | jq -er '.display')"
 source_revision="$(printf '%s\n' "$source_json" | jq -er '.revision // ""')"
 source_tree_digest="$(printf '%s\n' "$source_json" | jq -er '.tree_digest')"
-source_dirty="$(printf '%s\n' "$source_json" | jq -er '.dirty')"
+# Task bodies cannot source scripts/lib.sh, so this inlines its json_flag helper:
+# `jq -e` calls a false boolean a failure, which would abort every clean checkout.
+source_dirty="$(printf '%s\n' "$source_json" | jq -er '.dirty | select(type == "boolean") | tostring')"
 if [ -n "${AGENT_SOURCE_COMMIT:-}" ] && [ "$AGENT_SOURCE_COMMIT" != "$source_identity" ]; then
   printf 'AGENT_SOURCE_COMMIT %s does not match resolved source %s\n' "$AGENT_SOURCE_COMMIT" "$source_identity" >&2
   exit 1

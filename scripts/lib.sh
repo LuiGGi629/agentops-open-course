@@ -44,6 +44,22 @@ absolute_path() {
 	printf '%s/%s\n' "${parent}" "$(basename -- "${path}")"
 }
 
+# json_flag <filter> <json> — read one JSON boolean as the literal text `true` or `false`.
+#
+# `jq -e` reports a false result as failure, so reading a boolean with it aborts the caller
+# exactly when the flag is false — for source identity, that means every clean checkout.
+# Validating the value's spelling keeps the fail-fast guard for a missing or non-boolean
+# field while letting `false` through as data.
+json_flag() {
+	local filter="$1"
+	local json="$2"
+
+	# Select on the type, not the rendered text: `tostring` alone would also accept the
+	# string "false", which is how a mis-typed producer would slip a flag past this guard.
+	jq -er "${filter} | select(type == \"boolean\") | tostring" <<<"${json}" ||
+		fail "expected a JSON boolean at ${filter}"
+}
+
 # require_cmd <command> [doctor-profile] — assert a tool is on PATH, naming how to install it.
 require_cmd() {
 	local command_name="$1"

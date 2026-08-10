@@ -202,7 +202,9 @@ source_json="$(cd tools && go run ./cmd/source-identity --root .. --mode "$build
 source_identity="$(jq -er '.display' <<<"$source_json")"
 source_revision="$(jq -er '.revision // ""' <<<"$source_json")"
 source_tree_digest="$(jq -er '.tree_digest' <<<"$source_json")"
-source_dirty="$(jq -er '.dirty' <<<"$source_json")"
+# Task bodies cannot source scripts/lib.sh, so this inlines its json_flag helper:
+# `jq -e` calls a false boolean a failure, which would abort every clean checkout.
+source_dirty="$(jq -er '.dirty | select(type == "boolean") | tostring' <<<"$source_json")"
 if [[ -n "${AGENT_SOURCE_COMMIT:-}" && "$AGENT_SOURCE_COMMIT" != "$source_identity" ]]; then
   printf 'AGENT_SOURCE_COMMIT %s does not match resolved source %s\n' "$AGENT_SOURCE_COMMIT" "$source_identity" >&2
   exit 1
@@ -601,7 +603,9 @@ export AGENT_BUILD_MODE=development
 export AGENT_SOURCE_COMMIT="$(jq -er '.display' <<<"$source_json")"
 export AGENT_SOURCE_REVISION="$(jq -er '.revision // ""' <<<"$source_json")"
 export AGENT_SOURCE_TREE_DIGEST="$(jq -er '.tree_digest' <<<"$source_json")"
-export AGENT_SOURCE_DIRTY="$(jq -er '.dirty' <<<"$source_json")"
+# Task bodies cannot source scripts/lib.sh, so this inlines its json_flag helper:
+# `jq -e` calls a false boolean a failure, which would abort every clean checkout.
+export AGENT_SOURCE_DIRTY="$(jq -er '.dirty | select(type == "boolean") | tostring' <<<"$source_json")"
 export AGENT_IMAGE_TAG="development-${AGENT_SOURCE_TREE_DIGEST#sha256:}"
 export OCI_CREATED="$(git show -s --format=%cI HEAD)"
 export OCI_VERSION=development

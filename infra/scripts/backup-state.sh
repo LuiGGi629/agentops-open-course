@@ -22,7 +22,7 @@ source_json="$(go -C "${repo_dir}/tools" run ./cmd/source-identity --root "${rep
 source_identity="$(jq -er '.display' <<<"${source_json}")"
 source_revision="$(jq -er '.revision // ""' <<<"${source_json}")"
 source_tree_digest="$(jq -er '.tree_digest' <<<"${source_json}")"
-source_dirty="$(jq -er '.dirty' <<<"${source_json}")"
+source_dirty="$(json_flag '.dirty' "${source_json}")"
 build_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 readonly source_identity source_revision source_tree_digest source_dirty build_timestamp
 

@@ -64,7 +64,7 @@ export OCI_VERSION=development
 AGENT_SOURCE_COMMIT="$(jq -er '.display' <<<"${source_identity_json}")"
 AGENT_SOURCE_REVISION="$(jq -er '.revision // ""' <<<"${source_identity_json}")"
 AGENT_SOURCE_TREE_DIGEST="$(jq -er '.tree_digest' <<<"${source_identity_json}")"
-AGENT_SOURCE_DIRTY="$(jq -er '.dirty' <<<"${source_identity_json}")"
+AGENT_SOURCE_DIRTY="$(json_flag '.dirty' "${source_identity_json}")"
 AGENT_IMAGE_TAG="development-${AGENT_SOURCE_TREE_DIGEST#sha256:}"
 OCI_CREATED="$(git show -s --format=%cI HEAD)"
 

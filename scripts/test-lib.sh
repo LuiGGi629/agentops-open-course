@@ -84,3 +84,16 @@ if (assert_eq "named invariant" "actual" "expected") 2>"${tmp_dir}/assert"; then
 	fail "assert_eq accepted different values"
 fi
 grep -Fqx "named invariant: got 'actual', want 'expected'" "${tmp_dir}/assert"
+
+# The false case is the regression that matters: every clean checkout reports dirty=false,
+# and a `jq -e` read of it aborted check:infra, the image builds, and the backup drill.
+flag="$(json_flag '.dirty' '{"dirty":false}')"
+assert_eq "false flag" "${flag}" "false"
+flag="$(json_flag '.dirty' '{"dirty":true}')"
+assert_eq "true flag" "${flag}" "true"
+for invalid in '{}' '{"dirty":null}' '{"dirty":"false"}' '{"dirty":0}'; do
+	if (json_flag '.dirty' "${invalid}") >/dev/null 2>"${tmp_dir}/flag"; then
+		fail "json_flag accepted a non-boolean: ${invalid}"
+	fi
+	grep -Fqx "expected a JSON boolean at .dirty" "${tmp_dir}/flag"
+done
