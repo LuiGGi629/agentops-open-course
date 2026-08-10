@@ -16,7 +16,7 @@
 # --- Stage 1: resolve dependencies into /app/.venv with uv -------------------
 # --8<-- [start:base-images]
 FROM ghcr.io/astral-sh/uv:0.12.0@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 AS uv
-FROM python:3.13.14-slim-trixie@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS build
+FROM python:3.13.14-slim-trixie@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6 AS build
 # --8<-- [end:base-images]
 
 COPY --from=uv /uv /uvx /bin/
