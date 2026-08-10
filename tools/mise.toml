@@ -1,0 +1,62 @@
+# https://mise.jdx.dev
+# Repository-maintenance tools. This module keeps authoring, release, platform,
+# and browser gates in Go without adding application dependencies to the root
+# Hugo module.
+
+[settings.task]
+run_auto_install = false
+
+[tasks.install]
+alias = "i"
+description = "Resolve and download repository-tool dependencies"
+depends = ["install:go", "build"]
+env = { GOFLAGS = "-mod=readonly" }
+
+[tasks."install:go"]
+description = "Download the reviewed repository-tool dependencies without changing manifests"
+run = "GOFLAGS=-mod=readonly go mod download"
+
+[tasks.format]
+alias = "f"
+description = "Format repository-tool Go sources"
+depends = ["format:go"]
+
+[tasks."format:go"]
+description = "Sort imports and format Go sources"
+run = [
+  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course-go/tools -w .",
+  "go tool gofumpt -extra -w .",
+]
+
+[tasks.check]
+alias = "c"
+description = "Run offline repository-tool checks"
+depends = ["check:format", "check:lint", "check:tidy"]
+
+[tasks."check:tidy"]
+description = "Verify the Go module manifests are already tidy"
+run = "go mod tidy -diff"
+
+[tasks."check:format"]
+description = "Check Go formatting without writing"
+run = "golangci-lint fmt --diff"
+
+[tasks."check:lint"]
+description = "Lint repository-tool sources"
+run = "golangci-lint run ./..."
+
+[tasks."check:vuln"]
+description = "Audit repository-tool dependencies (network required)"
+run = "go tool govulncheck ./..."
+
+[tasks.test]
+alias = "t"
+description = "Run repository-tool tests"
+run = "gotestsum --format pkgname -- -race ./..."
+
+[tasks.build]
+alias = "b"
+description = "Compile every repository-tool command into tools/bin"
+sources = ["go.mod", "go.sum", "**/*.go"]
+outputs = ["bin"]
+run = "mkdir -p bin && GOFLAGS=-mod=readonly GOBIN=\"$PWD/bin\" go install ./cmd/..."
