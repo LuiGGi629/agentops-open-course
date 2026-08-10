@@ -17,14 +17,12 @@ import (
 //
 // # Why this is two pieces and not one
 //
-// Python needed a pure-ASGI middleware and a ContextVar because its A2A request
-// converter ran in a task the middleware could not reach any other way. Go has
-// no such problem — a context value set on the request flows to every handler
-// on the same request — but ADK Go reads the caller identity from exactly one
-// place, a2asrv.CallContext.User.Name (server/adka2a/v2/metadata.go), and the
-// A2A transport creates that CallContext itself, inside its own ServeHTTP,
-// after any HTTP middleware has already run. So the value has to be handed
-// across in two steps:
+// ADK Go reads the caller identity from exactly one place,
+// a2asrv.CallContext.User.Name (server/adka2a/v2/metadata.go), and the A2A
+// transport creates that CallContext itself, inside its own ServeHTTP, after
+// any HTTP middleware has already run. A context value set on the request does
+// reach every handler on that request, but it cannot reach a CallContext that
+// does not exist yet, so the value has to be handed across in two steps:
 //
 //  1. [Server.bindVerifiedIdentity] reads and validates the header at the HTTP
 //     boundary — this is where a duplicate header can still be answered with a
@@ -35,7 +33,7 @@ import (
 //
 // # What depends on it
 //
-// Both of the things the Python comment names, and one more:
+// Three consumers read it:
 //
 //   - the run's user id, which becomes the audit row's approved_by, because
 //     adka2a's toInvocationMeta prefers CallContext.User.Name over the

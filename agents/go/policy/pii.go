@@ -95,10 +95,10 @@ func persistedPolicy() redactionPolicy {
 // wants reports whether this policy removes the given class.
 func (r redactionPolicy) wants(name entity) bool { return slices.Contains(r.entities, name) }
 
-// credentialPatterns are the pre-analysis tripwires, ported verbatim from
-// pii.py and applied in order. They run before any entity analysis so that a
-// credential is masked even when it sits inside a construct the entity policy
-// deliberately ignores, such as a URL query string.
+// credentialPatterns are the pre-analysis tripwires, applied in order. They run
+// before any entity analysis so that a credential is masked even when it sits
+// inside a construct the entity policy deliberately ignores, such as a URL
+// query string.
 var credentialPatterns = []struct {
 	pattern *regexp.Regexp
 	// replacement is expanded by regexp.ReplaceAllString, so ${label} below
@@ -137,10 +137,10 @@ var credentialPatterns = []struct {
 // intact: incident ids, severities, latency percentiles, semver-ish release
 // tags and ISO-8601 timestamps.
 //
-// Python spells the boundaries with lookaround; RE2 has none, so
-// boundedMatches applies them. The incident-id shape is spelled here as it is
-// in Python — domain.ParseIncidentID owns the same shape, and a pivot that
-// changes the prefix has to change both.
+// RE2 has no lookaround, so the surrounding-character rule these tokens need is
+// applied by boundedMatches instead of being spelled in the pattern. The
+// incident-id shape is duplicated here — domain.ParseIncidentID owns the same
+// shape, and a pivot that changes the prefix has to change both.
 var domainSafeToken = regexp.MustCompile(
 	`(?i)INC-[0-9]+` +
 		`|SEV[0-9]+` +
@@ -379,17 +379,20 @@ func maskProtected(text string, protected []span) string {
 // boundedMatches returns every match of pattern that is not glued to a
 // surrounding identifier character.
 //
-// Python spells that rule with lookaround — (?<![\w-]) and (?![\w-]) — which
-// RE2 does not have, so it is checked here. A rejected candidate advances the
-// scan by one byte rather than past its end, so an overlapping candidate
-// starting one position later is still reachable.
+// The rule is the one a lookaround pair — (?<![\w-]) and (?![\w-]) — would
+// express, and RE2 has no lookaround, so it is checked here instead. A rejected
+// candidate advances the scan by one byte rather than past its end, so an
+// overlapping candidate starting one position later is still reachable.
 //
-// One divergence is inherent, and documented rather than hidden: Python's
-// engine, on a failing trailing lookahead, backtracks into the alternation and
-// may settle for a shorter token, while RE2 cannot. A pathological input such
-// as a doubly-suffixed version tag is therefore protected in Python and not
-// here. It protects less, never more, and no layer-1 recognizer matches a
-// version string, so the difference is not observable in what gets redacted.
+// One limit is inherent to RE2 and documented rather than hidden: a
+// backtracking engine, on a failing trailing boundary, can retreat into the
+// alternation and settle for a shorter token that does satisfy the boundary,
+// and RE2 cannot. A pathological input such as a doubly-suffixed version tag is
+// therefore left unprotected here. The bias is one-way — this protects fewer
+// tokens than a backtracking engine would, never more, so the only reachable
+// effect is an extra redaction, never a missed one — and no layer-1 recognizer
+// matches a version string, so the difference is not observable in what gets
+// redacted.
 func boundedMatches(pattern *regexp.Regexp, text string) []span {
 	var found []span
 	for offset := 0; offset < len(text); {
@@ -409,8 +412,9 @@ func boundedMatches(pattern *regexp.Regexp, text string) []span {
 }
 
 // isIdentifierByte reports whether the byte at index continues an identifier.
-// Python's [\w-] is Unicode-aware; this is the ASCII reading, which is what
-// every token the pattern can produce is written in.
+// The reading is ASCII rather than Unicode-aware on purpose: every token
+// domainSafeToken can produce is written in ASCII, so widening it would buy
+// nothing and would cost a rune decode on every boundary test.
 func isIdentifierByte(text string, index int) bool {
 	if index < 0 || index >= len(text) {
 		return false
@@ -560,9 +564,8 @@ func (p *Policy) RedactPersistedValue(ctx context.Context, value any) any {
 // The shapes handled are the ones that actually cross this boundary: ADK
 // round-trips a tool result through JSON, so a result is a map of strings,
 // numbers, booleans, nils, slices and maps. Typed string maps and slices are
-// handled too because Go-native callers build them directly — they are this
-// port's counterpart of the Python tuple branch. Anything else is returned
-// unchanged, which is exactly what the Python recursion did with a number.
+// handled too because Go-native callers build them directly. Anything else — a
+// number, a bool — is returned unchanged, because it holds no text to redact.
 func (p *Policy) redactValue(value any, policy redactionPolicy) any {
 	switch typed := value.(type) {
 	case string:

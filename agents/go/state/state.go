@@ -30,11 +30,12 @@
 //
 // The `.complete` marker records the SHA-256 of `manifest.json`, and the schema
 // identity of every database is a SHA-256 over its serialized `sqlite_schema`
-// rows. Both are byte contracts, and both are also the contract the Python
-// track writes, so this package reproduces Python's json.dumps output exactly:
-// sorted keys, two-space indent, no HTML escaping, and every non-ASCII rune
-// escaped as \uXXXX. A snapshot published by either track restores under the
-// other.
+// rows. Both are byte contracts: re-encoding the same content a different way
+// gives the same snapshot a different digest, so validation would reject a
+// snapshot that is in fact intact. The encoding is therefore pinned to one
+// spelling — sorted keys, two-space indent, no HTML escaping, and every
+// non-ASCII rune escaped as \uXXXX — and the encoders below exist to hold those
+// four properties.
 package state
 
 import (
@@ -98,25 +99,25 @@ const stampLayout = "20060102T150405Z"
 const (
 	// dirPerm is the mode of every directory this package creates.
 	dirPerm = 0o750
-	// documentPerm matches what the Python track's json write produced under a
-	// standard umask, so a snapshot taken by one track stays readable to an
-	// operator restoring it from the other under a different account.
+	// documentPerm is readable beyond the owner on purpose: a manifest is the
+	// evidence an operator reads to decide whether a restore is safe, and the
+	// account doing that reading is often not the one that published it.
 	documentPerm = 0o644
 	// privatePerm is for the journal and the lock: transaction-local files that
 	// only the process that owns the state directory ever reads.
 	privatePerm = 0o600
 )
 
-// hashChunkSize is the streaming digest buffer, matching the Python track's
-// 1 MiB reads. State databases are small, but the snapshot path must not be
-// bounded by the size of a file it is asked to hash.
+// hashChunkSize is the streaming digest buffer. State databases are small, but
+// the snapshot path must not be bounded by the size of a file it is asked to
+// hash.
 const hashChunkSize = 1 << 20
 
 // ErrSnapshot marks every failure this package reports.
 //
-// It is the Go counterpart of Python's StateSnapshotError. Callers that need to
-// tell "the snapshot boundary rejected this" apart from any other failure test
-// it with errors.Is; the cause wrapped underneath keeps the original message.
+// Callers that need to tell "the snapshot boundary rejected this" apart from
+// any other failure test it with errors.Is; the cause wrapped underneath keeps
+// the original message.
 var ErrSnapshot = errors.New("state snapshot failed")
 
 // snapshotErrorf reports a snapshot failure with no underlying cause.
@@ -195,10 +196,10 @@ func closeQuietly(file *os.File, path string) error {
 // databaseFiles lists the SQLite databases directly inside a directory, sorted
 // by name.
 //
-// Dot-prefixed entries are skipped because Python's Path.glob("*.db") skips
-// them, and both tracks have to agree on what a snapshot contains. os.ReadDir
-// already returns entries sorted by name, which is the order the manifest and
-// every publication loop rely on.
+// Dot-prefixed entries are skipped so that nothing hidden beside the databases
+// — this package's own journal, lock and transaction directories included — can
+// be captured as part of a snapshot. os.ReadDir already returns entries sorted
+// by name, which is the order the manifest and every publication loop rely on.
 func databaseFiles(directory string) ([]string, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -223,7 +224,7 @@ func removeIfPresent(path string) error {
 	return nil
 }
 
-// encodeDocument renders a JSON document the way the Python track writes one:
+// encodeDocument renders a JSON document in the pinned snapshot encoding:
 // two-space indent, sorted keys, ASCII only, and a trailing newline.
 //
 // Sorting comes free from encoding/json, which always emits map keys in sorted
@@ -240,8 +241,8 @@ func encodeCompact(payload any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Encoder.Encode always terminates its value with a newline; Python's
-	// json.dumps does not, and the digest is taken over dumps' output.
+	// Encoder.Encode always terminates its value with a newline, and the digest
+	// is defined over the value without it.
 	return bytes.TrimSuffix(encoded, []byte("\n")), nil
 }
 
@@ -249,10 +250,10 @@ func encodeCompact(payload any) ([]byte, error) {
 func encodeJSON(payload any, indent string) ([]byte, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
-	// Go escapes <, > and & by default and Python does not. The seed's audit
-	// schema contains a CHECK constraint with a comparison operator, so leaving
-	// this on would give the same database two different schema digests
-	// depending on which track hashed it.
+	// Go escapes <, > and & by default; the pinned encoding leaves them alone.
+	// This is not hypothetical: the seed's audit schema contains a CHECK
+	// constraint with a comparison operator, so leaving the default on would
+	// change that database's schema identity.
 	encoder.SetEscapeHTML(false)
 	if indent != "" {
 		encoder.SetIndent("", indent)
@@ -263,7 +264,8 @@ func encodeJSON(payload any, indent string) ([]byte, error) {
 	return escapeNonASCII(buffer.Bytes()), nil
 }
 
-// escapeNonASCII reproduces Python's ensure_ascii=True.
+// escapeNonASCII rewrites every non-ASCII rune as a \uXXXX escape, the last of
+// the four pinned encoding properties.
 //
 // Every structural character in JSON is ASCII, so a non-ASCII byte can only
 // appear inside a string literal and rewriting it in place is safe.
@@ -278,8 +280,8 @@ func escapeNonASCII(encoded []byte) []byte {
 		case character < utf8.RuneSelf:
 			out.WriteByte(byte(character))
 		case character > 0xFFFF:
-			// Python emits a surrogate pair for a non-BMP rune, so the escaped
-			// form is identical on both tracks.
+			// A \u escape carries sixteen bits, so a rune outside the basic
+			// plane has to be written as the surrogate pair JSON defines for it.
 			high, low := utf16.EncodeRune(character)
 			fmt.Fprintf(&out, `\u%04x\u%04x`, high, low)
 		default:
@@ -313,17 +315,18 @@ func writeJSONDocument(path string, payload map[string]any, perm fs.FileMode) er
 
 // loadJSONObject reads a JSON object with numbers preserved as literals.
 //
-// json.Number rather than float64 is what lets the validators reproduce
-// Python's isinstance(value, int) checks exactly: "1" parses as an integer and
-// "1.0" does not, and Go's float64 cannot tell those apart.
+// json.Number rather than float64 is what lets the validators insist a field
+// was written as an integer literal: "1" is an integer and "1.0" is not, and
+// float64 cannot tell those apart.
 func loadJSONObject(path string) (map[string]any, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Could not read snapshot metadata %s: %w", ErrSnapshot, path, err)
 	}
 	if !utf8.Valid(content) {
-		// Python raises UnicodeError here rather than a JSON error; the message
-		// is the same either way.
+		// encoding/json replaces invalid UTF-8 inside a string with U+FFFD
+		// rather than failing, so corrupted metadata would otherwise decode as
+		// if it were clean. The check has to run before the decoder does.
 		return nil, snapshotErrorf("Could not read snapshot metadata %s", path)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
@@ -332,8 +335,8 @@ func loadJSONObject(path string) (map[string]any, error) {
 	if err := decoder.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: Could not read snapshot metadata %s: %w", ErrSnapshot, path, err)
 	}
-	// json.loads rejects a document with a second value after the first;
-	// json.Decoder happily reads it as the next value, so the check is explicit.
+	// json.Decoder reads whatever follows the first value as simply the next
+	// value rather than as an error, so trailing content is rejected here.
 	// More skips whitespace, which is why a trailing newline still parses.
 	if decoder.More() {
 		return nil, snapshotErrorf("Could not read snapshot metadata %s", path)
@@ -365,9 +368,9 @@ func hasText(value any) bool {
 	return ok && text != ""
 }
 
-// renderJSONValue describes a decoded JSON value the way Python's %r does, so a
-// rejection message shows whether the offending field was a string, a number,
-// or absent.
+// renderJSONValue describes a decoded JSON value for a rejection message, so a
+// reader can tell whether the offending field was a string, a number, or
+// absent — an absent field renders as "None", not as "null".
 func renderJSONValue(value any) string {
 	switch typed := value.(type) {
 	case nil:
@@ -394,11 +397,10 @@ func isHex(value string) bool {
 // newTransactionID mints the identifier that names a restore transaction's
 // journal, staging directory, and quarantine directory.
 //
-// It is 16 random bytes rendered as 32 lowercase hex characters — the same
-// shape as Python's uuid4().hex, and the shape the journal validator enforces.
-// It is not a formatted UUID: nothing reads the version or variant bits, and
-// the format's only requirement is that the identifier be unguessable and
-// exactly 32 hex characters.
+// It is 16 random bytes rendered as 32 lowercase hex characters, which is the
+// shape the journal validator enforces. It is not a formatted UUID: nothing
+// reads the version or variant bits, and the format's only requirement is that
+// the identifier be unguessable and exactly 32 hex characters.
 func newTransactionID() (string, error) {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {

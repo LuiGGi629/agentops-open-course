@@ -25,9 +25,9 @@ const (
 	// indexFormatVersion is the shape of the two tables below. Bump it when the
 	// schema changes so an old generation is rebuilt rather than misread.
 	//
-	// It is 2 rather than 1 because the Python track's version 1 stored chunks in
-	// a sqlite-vec virtual table. Its metadata row is otherwise identical, so a
-	// state directory shared between the two tracks would pass every provenance
+	// It is 2 rather than 1 because version 1 stored chunks in a sqlite-vec
+	// virtual table. Its metadata row is otherwise identical, so a state
+	// directory still carrying a version 1 index would pass every provenance
 	// check and then fail to read a table this binary cannot open — which is
 	// precisely the misread this field exists to prevent.
 	indexFormatVersion = 2
@@ -70,9 +70,9 @@ var headingPattern = regexp.MustCompile(`(?m)^#{2,3}\s`)
 // reason. An operator has to see this one.
 var ErrEmptyCorpus = errors.New("no runbook chunks to index")
 
-// ErrInvalidLimit refuses a non-positive result count. It is the Go counterpart
-// of the Python ValueError, and deliberately not an embedding failure: a caller
-// asking for zero results has a bug, and keyword retrieval would not fix it.
+// ErrInvalidLimit refuses a non-positive result count. It is deliberately not
+// an embedding failure: a caller asking for zero results has a bug, and keyword
+// retrieval would not fix it.
 var ErrInvalidLimit = errors.New("invalid semantic search limit")
 
 // errVectorStore marks every failure of the vector store itself.
@@ -346,9 +346,9 @@ func (r *Retriever) matches(ranked []scoredChunk, limit int) ([]SemanticMatch, e
 		results = append(results, SemanticMatch{
 			Slug:    slug,
 			Content: content,
-			// Rounded for the same reason the Python track rounds: a distance is
-			// reported to a human, and sixteen significant digits of float noise
-			// makes two identical rankings look different.
+			// Rounded because a distance is reported to a human, and sixteen
+			// significant digits of float noise makes two identical rankings
+			// look different.
 			Distance: math.Round(best[slug]*1e4) / 1e4,
 		})
 	}
@@ -742,8 +742,11 @@ func (r *Retriever) open(ctx context.Context, immediate bool) (*sql.DB, error) {
 }
 
 // serializeVector packs a vector as little-endian IEEE-754 float32, one value
-// after another — the same compact layout the Python track stored, so the
-// on-disk size lesson holds and a 768-dimension vector is 3 KB rather than 6.
+// after another.
+//
+// float32 rather than float64 halves the index on disk — a 768-dimension vector
+// is 3 KB rather than 6 — and costs nothing that matters here, because the
+// distance it feeds is rounded to four decimals before anyone sees it.
 func serializeVector(vector []float64) []byte {
 	blob := make([]byte, 4*len(vector))
 	for index, value := range vector {
@@ -829,11 +832,11 @@ func ChunkRunbook(slug, content string) []string {
 // hashCorpus fingerprints the whole normalized corpus.
 //
 // The encoding is JSON — a slug-sorted array of [slug, content] pairs with no
-// whitespace and every non-ASCII character escaped — reproduced byte for byte
-// from the Python track so the two tracks compute the same corpus hash for the
-// same runbooks. encoding/json cannot be used directly: it escapes HTML
-// characters that Python leaves alone and leaves non-ASCII characters that
-// Python escapes, and the runbooks contain em dashes.
+// whitespace and every non-ASCII character escaped. It is spelled out by hand
+// because encoding/json cannot produce it: encoding/json escapes the HTML
+// characters this encoding leaves alone and leaves the non-ASCII characters
+// this encoding escapes, and the runbooks contain em dashes. The hash decides
+// whether a whole index generation is still fresh, so its bytes are pinned.
 func hashCorpus(corpus [][2]string) string {
 	encoded := make([]byte, 0, 4096)
 	encoded = append(encoded, '[')
@@ -852,12 +855,13 @@ func hashCorpus(corpus [][2]string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// appendJSONString writes one JSON string literal with Python's
-// ensure_ascii=True escaping.
+// appendJSONString writes one JSON string literal, escaping every non-ASCII
+// rune.
 //
-// Invalid UTF-8 is the one input where the two implementations part company:
-// Go's range yields U+FFFD where Python would have failed to decode the file at
-// all. A runbook that is not valid UTF-8 is a broken runbook either way.
+// Invalid UTF-8 is the one input it cannot fingerprint faithfully: ranging a
+// string yields U+FFFD for each bad byte, so a corrupt runbook hashes as though
+// it held replacement characters. A runbook that is not valid UTF-8 is a broken
+// runbook either way.
 func appendJSONString(dst []byte, value string) []byte {
 	dst = append(dst, '"')
 	for _, character := range value {
@@ -881,7 +885,8 @@ func appendJSONString(dst []byte, value string) []byte {
 			case character >= 0x20 && character <= 0x7e:
 				dst = append(dst, byte(character))
 			case character > 0xFFFF:
-				// Outside the basic plane Python emits a UTF-16 surrogate pair.
+				// A \u escape carries sixteen bits, so a rune outside the
+				// basic plane needs the surrogate pair JSON defines for it.
 				high, low := utf16.EncodeRune(character)
 				dst = appendUnicodeEscape(dst, high)
 				dst = appendUnicodeEscape(dst, low)
@@ -893,7 +898,8 @@ func appendJSONString(dst []byte, value string) []byte {
 	return append(dst, '"')
 }
 
-// appendUnicodeEscape writes \uXXXX with lowercase hex, as Python's json does.
+// appendUnicodeEscape writes \uXXXX with lowercase hex. The case is part of the
+// bytes the corpus hash covers, so it is not free to change.
 func appendUnicodeEscape(dst []byte, character rune) []byte {
 	const digits = "0123456789abcdef"
 	return append(dst, '\\', 'u',
