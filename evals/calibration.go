@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 )
@@ -35,15 +34,15 @@ type CalibrationCaseResult struct {
 	Matched       bool   `json:"matched"`
 }
 
+// CalibrationResult is a measurement, not a verdict. Agreement says how often
+// the configured judge matched a human label on a balanced labeled set; what
+// counts as good enough for a given course, model, and risk is a human call.
 type CalibrationResult struct {
 	Source            SourceEvidence          `json:"source"`
-	Policy            *PolicyEvidence         `json:"policy,omitempty"`
-	Platform          string                  `json:"platform_identity"`
 	JudgeModel        ModelEvidence           `json:"judge_model"`
 	CalibrationDigest string                  `json:"calibration_digest"`
 	Cases             []CalibrationCaseResult `json:"cases"`
 	SchemaVersion     int                     `json:"schema_version"`
-	Floor             float64                 `json:"floor"`
 	Matches           int                     `json:"matches"`
 	Total             int                     `json:"total"`
 	Agreement         float64                 `json:"agreement"`
@@ -118,28 +117,18 @@ func Calibrate(
 	judge VerdictJudge,
 	judgeModel ModelEvidence,
 	source SourceEvidence,
-	platform string,
-	floor float64,
 ) (CalibrationResult, error) {
-	if math.IsNaN(floor) || math.IsInf(floor, 0) || floor <= 0 || floor > 1 {
-		return CalibrationResult{}, errors.New("judge agreement floor must be greater than 0 and at most 1")
-	}
 	if err := source.Validate(); err != nil {
 		return CalibrationResult{}, err
 	}
-	if !validPlatformIdentity(platform) {
-		return CalibrationResult{}, errors.New("judge calibration needs a platform identity")
-	}
-	if judgeModel.Provider == "" || judgeModel.Name == "" || !validSHA256Digest(judgeModel.Digest) {
-		return CalibrationResult{}, errors.New("judge calibration needs provider, model name, and immutable SHA-256 digest")
+	if judgeModel.Provider == "" || judgeModel.Name == "" {
+		return CalibrationResult{}, errors.New("judge calibration needs a judge provider and model name")
 	}
 	result := CalibrationResult{
-		SchemaVersion:     3,
+		SchemaVersion:     4,
 		Source:            source,
-		Platform:          platform,
 		JudgeModel:        judgeModel,
 		CalibrationDigest: set.Digest,
-		Floor:             floor,
 		Total:             len(set.Cases),
 		Cases:             make([]CalibrationCaseResult, 0, len(set.Cases)),
 	}
@@ -166,10 +155,6 @@ func Calibrate(
 	}
 	result.Agreement = float64(result.Matches) / float64(result.Total)
 	return result, nil
-}
-
-func (r CalibrationResult) Passed() bool {
-	return r.Total > 0 && r.Agreement >= r.Floor
 }
 
 func WriteJSONArtifact(path string, value any) error {

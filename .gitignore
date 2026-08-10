@@ -45,8 +45,8 @@ tmp/
 # ADK runtime and generated evaluation evidence
 **/.adk/
 **/.state/
+evals/results.json
 evals/*-results.json
-evals/cost-observed.json
 evals/*-comparison.json
 evals/*.log
 

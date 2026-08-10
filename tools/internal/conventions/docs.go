@@ -126,7 +126,6 @@ func CheckDocs(root string) []Problem {
 	problems = append(problems, checkDocumentedTasks(root, pages)...)
 	problems = append(problems, checkOfflineModuleChecks(root)...)
 	problems = append(problems, checkSerializedModuleChecks(root)...)
-	problems = append(problems, checkReleaseQualificationPrivacy(root)...)
 	problems = append(problems, checkReadOnlyInstalls(root)...)
 	problems = append(problems, checkNestedMiseTrust(pages)...)
 	problems = append(problems, checkHugoExtendedTool(root)...)
@@ -145,8 +144,7 @@ func CheckDocs(root string) []Problem {
 	problems = append(problems, checkMaintainerDrift(root, pages)...)
 	problems = append(problems, checkGCPRunbook(root)...)
 	problems = append(problems, checkSkaffoldRunbooks(root)...)
-	problems = append(problems, checkEvalReleaseOrchestration(root)...)
-	problems = append(problems, checkEvalRuntimeBaseline(root)...)
+	problems = append(problems, checkEvalContract(root)...)
 	return problems
 }
 

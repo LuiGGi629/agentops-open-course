@@ -25,7 +25,7 @@ func TestRetrievalCommandRejectsInvalidTimeoutBeforeStartingAgent(t *testing.T) 
 	t.Parallel()
 	var output bytes.Buffer
 	err := execute(t.Context(), []string{
-		"retrieval", "--source-commit", "commit", "--agent-binary", "unused", "--request-timeout", "-1s",
+		"retrieval", "--agent-binary", "unused", "--request-timeout", "-1s",
 	}, &output, &output)
 	if err == nil || !strings.Contains(err.Error(), "timeouts must not be negative") {
 		t.Fatalf("error = %v", err)
@@ -71,48 +71,7 @@ func TestClientFactoryRejectsUnknownRuntime(t *testing.T) {
 	}
 }
 
-func TestPolicyCalibrationCollectsFailedThresholdEvidence(t *testing.T) {
-	t.Parallel()
-	failed := evals.RunArtifact{Summary: evals.RunSummary{
-		PassRate: 0.25, MinimumPassRate: 0.33, RequiredCasesPassed: false,
-	}}
-	if err := runThresholdError(failed, true); err != nil {
-		t.Fatalf("calibration trial error = %v", err)
-	}
-	if err := runThresholdError(failed, false); err == nil {
-		t.Fatal("ordinary run accepted failed thresholds")
-	}
-}
-
-func TestCalibrateCommandRejectsCallerFloorWithReleasePolicy(t *testing.T) {
-	t.Parallel()
-	var output bytes.Buffer
-	err := calibrateCommand(t.Context(), []string{
-		"--release-policy", "release-policy.json", "--source-mode", "release", "--floor", "0.5",
-	}, &output)
-	if err == nil || !strings.Contains(err.Error(), "policy owns") {
-		t.Fatalf("caller-selected release floor error = %v", err)
-	}
-}
-
-func TestCostIdentityRejectsNonFiniteTemperature(t *testing.T) {
-	for _, value := range []string{"NaN", "+Inf", "-Inf"} {
-		t.Run(value, func(t *testing.T) {
-			t.Setenv("AGENT_MODEL_TEMPERATURE", value)
-			_, err := currentCostIdentity("provider", "model", "", evals.SourceEvidence{
-				Mode:       evals.SourceRelease,
-				Identity:   strings.Repeat("a", 40),
-				Revision:   strings.Repeat("a", 40),
-				TreeDigest: "sha256:" + strings.Repeat("b", 64),
-			}, strings.Repeat("c", 64))
-			if err == nil || !strings.Contains(err.Error(), "finite") {
-				t.Fatalf("temperature %s error = %v", value, err)
-			}
-		})
-	}
-}
-
-func TestReadSourceIdentityAlwaysExecutesRepositorySource(t *testing.T) {
+func TestResolveCheckoutAlwaysExecutesRepositorySource(t *testing.T) {
 	t.Parallel()
 
 	repositoryRoot := filepath.Join(string(filepath.Separator), "checkout")
@@ -123,8 +82,8 @@ func TestReadSourceIdentityAlwaysExecutesRepositorySource(t *testing.T) {
 		case "git":
 			return []byte(repositoryRoot + "\n"), nil
 		case "go":
-			encoded, err := json.Marshal(sourceIdentity{
-				Mode: "development", Display: strings.Repeat("a", 40), Revision: strings.Repeat("a", 40),
+			encoded, err := json.Marshal(checkoutIdentity{
+				Revision:   strings.Repeat("a", 40),
 				TreeDigest: "sha256:" + strings.Repeat("b", 64),
 			})
 			if err != nil {
@@ -137,14 +96,75 @@ func TestReadSourceIdentityAlwaysExecutesRepositorySource(t *testing.T) {
 		}
 	}
 
-	if _, err := readSourceIdentityWithCommand(t.Context(), "development", runner); err != nil {
+	source, err := resolveCheckoutWithCommand(t.Context(), runner)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if source.Revision != strings.Repeat("a", 40) || source.Dirty {
+		t.Fatalf("resolved checkout = %+v", source)
 	}
 	want := []string{
 		"go", "-C", filepath.Join(repositoryRoot, "tools"), "run", "./cmd/source-identity",
-		"--root", repositoryRoot, "--mode", "development",
+		"--root", repositoryRoot,
 	}
 	if len(calls) != 2 || strings.Join(calls[1], "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("source command calls = %q, want second call %q", calls, want)
+	}
+}
+
+func TestResolveCheckoutRejectsAnInconsistentIdentity(t *testing.T) {
+	t.Parallel()
+
+	runner := func(_ context.Context, name string, _ ...string) ([]byte, error) {
+		if name == "git" {
+			return []byte("/checkout\n"), nil
+		}
+		// A dirty tree that still claims HEAD would let a stale binary match.
+		encoded, err := json.Marshal(checkoutIdentity{
+			Revision: strings.Repeat("a", 40), TreeDigest: "sha256:" + strings.Repeat("b", 64), Dirty: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded, nil
+	}
+	if _, err := resolveCheckoutWithCommand(t.Context(), runner); err == nil ||
+		!strings.Contains(err.Error(), "validate source identity") {
+		t.Fatalf("error = %v, want inconsistent identity rejection", err)
+	}
+}
+
+func TestPreviousRunArtifactTreatsAMissingFileAsNoBaseline(t *testing.T) {
+	t.Parallel()
+
+	if _, found := previousRunArtifact(filepath.Join(t.TempDir(), "results.json")); found {
+		t.Fatal("a missing results file was reported as a previous run")
+	}
+}
+
+// The taught command carries four required cases, and `mise run eval -- ...` appends to
+// it. A repeatable flag could therefore only grow, which is what made the README's
+// other-evalset recipes impossible; a replaceable one lets the last value win.
+func TestSplitCaseListLetsTheLastValueWin(t *testing.T) {
+	for name, test := range map[string]struct {
+		value string
+		want  []string
+	}{
+		"the taught four": {"a,b,c,d", []string{"a", "b", "c", "d"}},
+		"cleared":         {"", nil},
+		"only separators": {" , ,", nil},
+		"trimmed":         {" a , b ", []string{"a", "b"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := splitCaseList(test.value)
+			if len(got) != len(test.want) {
+				t.Fatalf("splitCaseList(%q) = %#v, want %#v", test.value, got, test.want)
+			}
+			for i := range got {
+				if got[i] != test.want[i] {
+					t.Fatalf("splitCaseList(%q) = %#v, want %#v", test.value, got, test.want)
+				}
+			}
+		})
 	}
 }

@@ -27,7 +27,7 @@ func TestEvidenceRecorderRejectsNonFiniteScores(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, endRun, err := recorder.StartRun(context.Background(), RunEvidence{
-		RunID: "run-1", Source: testSourceEvidence(), Platform: "test-process",
+		RunID: "run-1", Source: testSourceEvidence(),
 		Model: "model", EvalSet: "set", Transport: "rest",
 	})
 	if err != nil {
@@ -50,6 +50,68 @@ func TestEvidenceRecorderRejectsNonFiniteScores(t *testing.T) {
 	}
 }
 
+func TestEvidenceRecorderRefusesOrphanEvidence(t *testing.T) {
+	t.Parallel()
+
+	if _, err := NewRecorder(nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "tracer and meter providers are required") {
+		t.Fatalf("NewRecorder(nil, nil) error = %v, want a missing-provider refusal", err)
+	}
+	recorder, err := NewNoopRecorder()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Evidence is only usable if every span and sample can be traced back to the
+	// run and case it belongs to, so an unanchored or unidentified emission fails
+	// instead of landing in the collector as something nobody can correlate.
+	valid := RunEvidence{
+		RunID: "run-1", Model: "model", EvalSet: "set", Transport: "rest", Source: testSourceEvidence(),
+	}
+	for name, mutate := range map[string]func(*RunEvidence){
+		"no run id":    func(run *RunEvidence) { run.RunID = "" },
+		"no model":     func(run *RunEvidence) { run.Model = "" },
+		"no evalset":   func(run *RunEvidence) { run.EvalSet = "" },
+		"no transport": func(run *RunEvidence) { run.Transport = "" },
+		"no source":    func(run *RunEvidence) { run.Source = SourceEvidence{Revision: "abc"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			run := valid
+			mutate(&run)
+			if _, _, startErr := recorder.StartRun(context.Background(), run); startErr == nil {
+				t.Fatalf("StartRun(%+v) error = nil, want an incomplete-identity refusal", run)
+			}
+		})
+	}
+
+	if _, _, caseErr := recorder.StartCase(context.Background(), CaseEvidence{CaseID: "case-1", Sample: 1}); caseErr == nil ||
+		!strings.Contains(caseErr.Error(), "active evaluation run") {
+		t.Fatalf("StartCase(no run) error = %v, want an unanchored-case refusal", caseErr)
+	}
+	ctx, endRun, err := recorder.StartRun(context.Background(), valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { endRun(RunOutcome{}) })
+	for name, evidence := range map[string]CaseEvidence{
+		"no case id": {Sample: 1},
+		"no sample":  {CaseID: "case-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, _, caseErr := recorder.StartCase(ctx, evidence); caseErr == nil ||
+				!strings.Contains(caseErr.Error(), "case id and positive sample") {
+				t.Fatalf("StartCase(%+v) error = %v, want an unidentified-case refusal", evidence, caseErr)
+			}
+		})
+	}
+	if err := recorder.RecordScore(ctx, NewBinaryScore("trajectory", true, "reason")); err == nil ||
+		!strings.Contains(err.Error(), "active evaluation case") {
+		t.Fatalf("RecordScore(no case) error = %v, want an unanchored-score refusal", err)
+	}
+}
+
 func TestEvidenceRecorderEmitsRunCaseScoreTraceAndMetrics(t *testing.T) {
 	t.Parallel()
 	spanExporter := tracetest.NewInMemoryExporter()
@@ -61,7 +123,7 @@ func TestEvidenceRecorderEmitsRunCaseScoreTraceAndMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, endRun, err := recorder.StartRun(context.Background(), RunEvidence{
-		RunID: "run-1", Source: testSourceEvidence(), Platform: "test-process",
+		RunID: "run-1", Source: testSourceEvidence(),
 		Model: "model", EvalSet: "set", Transport: "rest",
 	})
 	if err != nil {
@@ -221,7 +283,7 @@ func TestOTLPRecorderShutdownOmitsCollectorBodies(t *testing.T) {
 func emitOTLPTestEvidence(t *testing.T, recorder *Recorder) {
 	t.Helper()
 	_, endRun, err := recorder.StartRun(t.Context(), RunEvidence{
-		RunID: "otlp-security-test", Source: testSourceEvidence(), Platform: "test-process",
+		RunID: "otlp-security-test", Source: testSourceEvidence(),
 		Model: "model", EvalSet: "set", Transport: "rest",
 	})
 	if err != nil {

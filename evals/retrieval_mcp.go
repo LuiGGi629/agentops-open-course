@@ -141,7 +141,6 @@ type MCPRetrievalRuntimeFactoryConfig struct {
 // a CLI cannot label one embedding model while the child process runs another.
 type MCPRetrievalEvaluationConfig struct {
 	Source               SourceEvidence
-	Platform             string
 	EmbeddingModelDigest string
 	Runtime              MCPRetrievalRuntimeFactoryConfig
 }
@@ -159,7 +158,6 @@ func RunMCPRetrievalEvaluation(
 		Factory:              factory,
 		DataDir:              config.Runtime.DataDir,
 		Source:               config.Source,
-		Platform:             config.Platform,
 		EmbeddingModel:       config.Runtime.EmbeddingModel,
 		EmbeddingModelDigest: config.EmbeddingModelDigest,
 	})
@@ -218,7 +216,7 @@ func startMCPRetrievalRuntime(
 	if err != nil {
 		return fail(err)
 	}
-	if identityErr := verifyProcessRuntimeIdentity(ctx, binary, config.Source, executeRuntimeCommand); identityErr != nil {
+	if identityErr := verifyRuntimeIdentity(ctx, binary, config.Source, executeRuntimeCommand); identityErr != nil {
 		return fail(identityErr)
 	}
 	port, err := FreePort()

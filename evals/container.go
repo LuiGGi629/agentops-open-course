@@ -27,7 +27,6 @@ type AgentContainerConfig struct {
 	Environment     map[string]string
 	Engine          string
 	Image           string
-	SourceIdentity  string
 	Transport       string
 	Entrypoint      string
 	Port            int
@@ -115,11 +114,8 @@ func startAgentContainer(
 	if config.Engine == "" {
 		config.Engine = defaultContainerEngine
 	}
-	if config.Image == "" || config.SourceIdentity == "" || config.Entrypoint == "" || config.Port < 1 {
-		return nil, errors.New("agent container needs an image, source identity, entrypoint, and positive port")
-	}
-	if strings.TrimSpace(config.SourceIdentity) != config.SourceIdentity || strings.ContainsAny(config.SourceIdentity, "\r\n") {
-		return nil, errors.New("agent container source identity must be one non-empty line")
+	if config.Image == "" || config.Entrypoint == "" || config.Port < 1 {
+		return nil, errors.New("agent container needs an image, entrypoint, and positive port")
 	}
 	if config.Transport != "rest" && config.Transport != "a2a" {
 		return nil, fmt.Errorf("unsupported agent container transport %q", config.Transport)
@@ -142,7 +138,6 @@ func startAgentContainer(
 	arguments := []string{
 		"run", "--rm", "--name", name, "--network", "host",
 		"--tmpfs", containerStateMount,
-		"--label", "agentops.eval.source_identity=" + config.SourceIdentity,
 	}
 	for _, key := range environmentKeys {
 		// Passing only the name keeps credentials out of the process arguments;

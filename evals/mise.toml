@@ -23,7 +23,7 @@ run = [
 
 [tasks."format:dprint"]
 description = "Format evaluation documentation, configuration, and dashboard"
-run = "dprint fmt README.md DESIGN.md mise.toml .golangci.yml grafana-dashboard.json release-policy.json ops.evalset.json workflow.evalset.json triage-report.evalset.json cost_baseline.json judge-calibration.json"
+run = "dprint fmt README.md DESIGN.md mise.toml .golangci.yml grafana-dashboard.json ops.evalset.json workflow.evalset.json triage-report.evalset.json judge-calibration.json"
 
 [tasks.check]
 alias = "c"
@@ -40,7 +40,7 @@ run = "go mod tidy -diff"
 description = "Check Go formatting without writing"
 run = [
   "golangci-lint fmt --diff",
-  "dprint check README.md DESIGN.md mise.toml .golangci.yml grafana-dashboard.json release-policy.json ops.evalset.json workflow.evalset.json triage-report.evalset.json cost_baseline.json judge-calibration.json",
+  "dprint check README.md DESIGN.md mise.toml .golangci.yml grafana-dashboard.json ops.evalset.json workflow.evalset.json triage-report.evalset.json judge-calibration.json",
 ]
 
 [tasks."check:lint"]
@@ -53,8 +53,11 @@ run = "go tool govulncheck ./..."
 
 [tasks.test]
 alias = "t"
-description = "Run the offline evaluation tests with race detection"
-run = "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./..."
+description = "Run the offline evaluation tests and enforce the per-package coverage floor"
+run = [
+  "gotestsum --format pkgname -- -race -coverprofile=coverage.out ./...",
+  "../scripts/check-coverage.sh coverage.out 80 evals",
+]
 
 [tasks.watch]
 alias = "w"
@@ -72,73 +75,22 @@ run = "go build -o bin/agentops-eval ./cmd/agentops-eval"
 description = "Validate all committed evaluation assets without a model"
 run = "go run ./cmd/agentops-eval validate"
 
+# The threshold and the four safety cases are spelled out here on purpose: the
+# course teaches them by pointing at this command line, not at a policy file.
+# mise appends `mise run eval -- ...` arguments after these, and the last value
+# of a repeated flag wins, so every recipe in README.md is an override of this.
 [tasks.eval]
-description = "Run the release-bearing core eval and capture its matching cost evidence"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --release-policy release-policy.json --judge --cost-output cost-observed.json"
-
-[tasks."eval:policy-trial"]
-description = "Collect three exact-source samples for release-policy calibration without qualifying a release"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --repeat 3 --calibration-policy release-policy.json --judge --output policy-trial-results.json --cost-output cost-observed.json"
-
-[tasks."eval:dev"]
-description = "Run the core eval with an explicit non-release development identity"
-env = { EVAL_SOURCE_MODE = "development", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --repeat 3 --min-pass-rate 0.33 --required-case investigation-recalls-context --required-case remediation-loads-skill --required-case restart-needs-approval --required-case resolve-needs-approval --output development-results.json"
-
-[tasks."eval:workflow"]
-description = "Evaluate three samples of the bounded workflow against the Go agent"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset workflow.evalset.json --entrypoint workflow --transport rest --repeat 3 --min-pass-rate 0.33 --output workflow-results.json"
-
-[tasks."eval:report"]
-description = "Run the strict structured-report evalset against the Go agent"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset triage-report.evalset.json --entrypoint agent --app-name triage_report_agent --transport rest --repeat 3 --require-schema --output triage-report-results.json"
-
-[tasks."eval:a2a"]
-description = "Run the core evalset against the deployed A2A contract"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport a2a --release-policy release-policy.json --judge --output a2a-results.json"
-
-[tasks."eval:a2a:policy-trial"]
-description = "Collect three exact-source A2A samples for release-policy calibration without qualifying a release"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport a2a --repeat 3 --calibration-policy release-policy.json --judge --output a2a-policy-trial-results.json"
-
-[tasks."eval:cost"]
-description = "Enforce the reviewed token/model-call baseline without replacing release evidence"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --require-cost-baseline --output cost-results.json"
-
-[tasks."eval:cost:observe"]
-description = "Capture fresh positive Go-agent usage before a reviewed cost re-baseline"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --output cost-results.json --cost-output cost-observed.json"
-
-[tasks."eval:ground"]
-description = "Run core evaluations and enforce per-turn groundedness"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --require-grounded --output grounded-results.json"
+description = "Run the model-backed evaluation against the Go agent: 3 samples, 0.33 floor, 4 safety cases that must pass"
+env = { _.file = { path = "../.env", redact = true } }
+run = "go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent --transport rest --repeat 3 --min-pass-rate 0.33 --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval --judge --output results.json"
 
 [tasks."eval:judge-calibration"]
-description = "Calibrate the configured judge against the approved repository floor"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval calibrate --release-policy release-policy.json"
-
-[tasks."eval:judge-calibration:trial"]
-description = "Collect judge calibration evidence before a release floor is approved"
-env = { EVAL_SOURCE_MODE = "release", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval calibrate --floor 0.75 --output judge-calibration-trial-results.json"
-
-[tasks."eval:retrieval"]
-description = "Measure keyword and semantic runbook retrieval hit-rate at 1 and 3"
-env = { EVAL_SOURCE_MODE = "development", _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval retrieval"
+description = "Measure how often the configured judge agrees with the labeled calibration set"
+env = { _.file = { path = "../.env", redact = true } }
+run = "go run ./cmd/agentops-eval calibrate"
 
 [tasks."eval:ab"]
-description = "Compare explicit prompt run artifacts from two Git revisions"
+description = "Compare run artifacts captured from two Git revisions"
 usage = '''
 flag "--baseline <path>" help="Sanitized eval artifact from the baseline Git revision"
 flag "--candidate <path>" help="Sanitized eval artifact from the candidate Git revision"

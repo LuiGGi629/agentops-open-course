@@ -14,7 +14,6 @@ type RunReference struct {
 	Model     ModelEvidence   `json:"model"`
 	EvalSet   EvalSetEvidence `json:"evalset"`
 	RunID     string          `json:"run_id"`
-	Platform  string          `json:"platform_identity"`
 	Transport string          `json:"transport"`
 	Source    SourceEvidence  `json:"source"`
 }
@@ -137,8 +136,8 @@ func validateComparisonRunIdentity(artifact RunArtifact) error {
 	if artifact.SchemaVersion != RunArtifactSchemaVersion || artifact.RunID == "" {
 		return errors.New("schema version and run id are required")
 	}
-	if artifact.Source.Validate() != nil || !validPlatformIdentity(artifact.Platform) {
-		return errors.New("valid source and platform identities are required")
+	if artifact.Source.Validate() != nil {
+		return errors.New("a valid source identity is required")
 	}
 	if artifact.Model.Provider == "" || artifact.Model.Name == "" ||
 		artifact.EvalSet.ID == "" || artifact.EvalSet.Digest == "" {
@@ -175,8 +174,9 @@ func validateComparisonScores(role string, cases []CaseResult) error {
 	return nil
 }
 
-// ComparePromptRuns keeps Git as the only instruction authority. Comparing
-// the same source revision would label model variance as a prompt change.
+// ComparePromptRuns keeps Git as the only instruction authority. Comparing two
+// runs of the same revision would label model variance as a prompt change, and
+// a dirty tree cannot name the instructions it ran.
 func ComparePromptRuns(baseline, candidate RunArtifact) (ComparisonArtifact, error) {
 	if !isCleanExactRevision(baseline.Source) || !isCleanExactRevision(candidate.Source) {
 		return ComparisonArtifact{}, errors.New("prompt comparison artifacts must use clean exact revisions")
@@ -184,14 +184,8 @@ func ComparePromptRuns(baseline, candidate RunArtifact) (ComparisonArtifact, err
 	if baseline.Source.Revision == candidate.Source.Revision {
 		return ComparisonArtifact{}, errors.New("prompt comparison artifacts must use distinct clean exact revisions")
 	}
-	if baseline.Source.TreeDigest == candidate.Source.TreeDigest {
-		return ComparisonArtifact{}, errors.New("prompt comparison artifacts must use different source trees")
-	}
 	if baseline.Model != candidate.Model {
 		return ComparisonArtifact{}, errors.New("prompt comparison artifacts must use the same model identity")
-	}
-	if baseline.Platform != candidate.Platform {
-		return ComparisonArtifact{}, errors.New("prompt comparison artifacts must use the same platform identity")
 	}
 	if baseline.Transport != candidate.Transport {
 		return ComparisonArtifact{}, errors.New("prompt comparison artifacts must use the same transport")
@@ -200,12 +194,12 @@ func ComparePromptRuns(baseline, candidate RunArtifact) (ComparisonArtifact, err
 }
 
 func isCleanExactRevision(source SourceEvidence) bool {
-	return source.Validate() == nil && !source.Dirty && source.Revision != "" && source.Identity == source.Revision
+	return source.Validate() == nil && !source.Dirty && source.Revision != ""
 }
 
 func runReference(artifact RunArtifact) RunReference {
 	return RunReference{
-		RunID: artifact.RunID, Source: artifact.Source, Platform: artifact.Platform,
+		RunID: artifact.RunID, Source: artifact.Source,
 		Model: artifact.Model, EvalSet: artifact.EvalSet, Transport: artifact.Transport,
 	}
 }

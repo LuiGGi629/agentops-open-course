@@ -37,7 +37,7 @@ func newProcessClientFactory(
 	if config.Transport == "a2a" && config.Entrypoint != "agent" {
 		return nil, errors.New("the deployed A2A contract serves only the agent entrypoint")
 	}
-	if err := verifyProcessRuntimeIdentity(ctx, config.Binary, config.Source, run); err != nil {
+	if err := verifyRuntimeIdentity(ctx, config.Binary, config.Source, run); err != nil {
 		return nil, err
 	}
 	return func(ctx context.Context, evalCase EvalCase, _ int) (AgentClient, func() error, error) {
@@ -50,7 +50,7 @@ func newProcessClientFactory(
 			_ = removeState()
 			return nil, nil, err
 		}
-		if identityErr := verifyProcessRuntimeIdentity(ctx, binary, config.Source, run); identityErr != nil {
+		if identityErr := verifyRuntimeIdentity(ctx, binary, config.Source, run); identityErr != nil {
 			_ = removeState()
 			return nil, nil, identityErr
 		}

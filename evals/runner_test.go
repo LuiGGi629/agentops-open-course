@@ -32,7 +32,7 @@ func TestRunnerProducesSanitizedReleaseEvidence(t *testing.T) {
 	artifact, err := Run(context.Background(), RunnerConfig{
 		EvalSet: evalset,
 		Domain:  Domain{Incidents: map[string]Incident{}, Services: map[string]struct{}{}, Runbooks: map[string]struct{}{}},
-		RunID:   "run", Source: testSourceEvidence(), Platform: "test-process",
+		RunID:   "run", Source: testSourceEvidence(),
 		Model:     ModelEvidence{Provider: "provider", Name: "model"},
 		Transport: "rest", MinimumPassRate: 0.33, RequiredCases: []string{"case-one"},
 		Recorder: recorder,
@@ -68,34 +68,6 @@ func TestRunnerProducesSanitizedReleaseEvidence(t *testing.T) {
 	if !decoded.Passed() {
 		t.Fatalf("serialized artifact cannot independently prove threshold: %+v", decoded.Summary)
 	}
-	contextLength := int64(8192)
-	temperature := 0.0
-	ollamaVersion := "ollama version is 0.32.6"
-	identity := CostIdentity{
-		ModelProvider:            artifact.Model.Provider,
-		Model:                    artifact.Model.Name,
-		Source:                   artifact.Source,
-		ContextLength:            &contextLength,
-		OllamaVersion:            &ollamaVersion,
-		Temperature:              &temperature,
-		PromptSelection:          PromptAuthorityGit,
-		EvaluationContractDigest: artifact.EvalSet.Digest,
-	}
-	observation, err := NewCostObservation(artifact, identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(observation.Cases) != 1 || observation.Cases[0] != (CostSample{
-		ID: "case-one", Sample: 1, TotalTokens: 10, ModelCalls: 1,
-	}) {
-		t.Fatalf("cost observation = %+v", observation)
-	}
-	if observation.PromptSelection != PromptAuthorityGit || observation.ContextLength == nil ||
-		*observation.ContextLength != contextLength || observation.OllamaVersion == nil ||
-		*observation.OllamaVersion != ollamaVersion || observation.Temperature == nil ||
-		*observation.Temperature != temperature {
-		t.Fatalf("cost observation lost comparable runtime identity: %+v", observation)
-	}
 }
 
 func TestRunnerOmitsProviderErrorCodes(t *testing.T) {
@@ -116,7 +88,7 @@ func TestRunnerOmitsProviderErrorCodes(t *testing.T) {
 				}},
 			}},
 		},
-		RunID: "run", Source: testSourceEvidence(), Platform: "test-process",
+		RunID: "run", Source: testSourceEvidence(),
 		Model: ModelEvidence{Provider: "provider", Name: "model"}, Transport: "rest",
 		Recorder: recorder,
 		ClientFactory: func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
@@ -131,29 +103,6 @@ func TestRunnerOmitsProviderErrorCodes(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), marker) {
 		t.Fatal("Run() error retained provider-controlled error code")
-	}
-}
-
-func TestCostObservationPreservesRepeatedSamples(t *testing.T) {
-	t.Parallel()
-	artifact := RunArtifact{
-		Source: testSourceEvidence(), Model: ModelEvidence{Provider: "provider", Name: "model"},
-		EvalSet: EvalSetEvidence{ID: "set", Digest: strings.Repeat("a", 64)},
-		Cases: []CaseResult{
-			{ID: "case", Sample: 1, Usage: Usage{TotalTokens: 10, ModelCalls: 1}},
-			{ID: "case", Sample: 2, Usage: Usage{TotalTokens: 11, ModelCalls: 1}},
-		},
-	}
-	observation, err := NewCostObservation(artifact, CostIdentity{
-		ModelProvider: artifact.Model.Provider, Model: artifact.Model.Name,
-		Source: artifact.Source, PromptSelection: PromptAuthorityGit,
-		EvaluationContractDigest: artifact.EvalSet.Digest,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(observation.Cases) != 2 || observation.Cases[1].Sample != 2 {
-		t.Fatalf("repeated observation = %+v", observation.Cases)
 	}
 }
 
@@ -173,7 +122,7 @@ func TestRunnerRequiresKnownRequiredCases(t *testing.T) {
 				}},
 			}},
 		},
-		RunID: "run", Source: testSourceEvidence(), Platform: "test-process", Model: ModelEvidence{Provider: "p", Name: "m"},
+		RunID: "run", Source: testSourceEvidence(), Model: ModelEvidence{Provider: "p", Name: "m"},
 		Transport: "rest", RequiredCases: []string{"missing"}, Recorder: recorder,
 		ClientFactory: func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
 			return nil, nil, errors.New("must not run")
@@ -201,7 +150,7 @@ func TestRunnerRejectsNonFiniteMinimumPassRate(t *testing.T) {
 					}},
 				}},
 			},
-			RunID: "run", Source: testSourceEvidence(), Platform: "test-process", Model: ModelEvidence{Provider: "p", Name: "m"},
+			RunID: "run", Source: testSourceEvidence(), Model: ModelEvidence{Provider: "p", Name: "m"},
 			Transport: "rest", MinimumPassRate: minimum, Recorder: recorder,
 			ClientFactory: func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
 				return nil, nil, errors.New("must not run")
@@ -217,7 +166,7 @@ func TestCompareRunsPinsEvalsetAndDetectsDeterministicRegression(t *testing.T) {
 	t.Parallel()
 	baseline := RunArtifact{
 		SchemaVersion: RunArtifactSchemaVersion,
-		RunID:         "baseline", Source: testSourceEvidence(), Platform: "test-process", Model: ModelEvidence{Provider: "p", Name: "m"},
+		RunID:         "baseline", Source: testSourceEvidence(), Model: ModelEvidence{Provider: "p", Name: "m"},
 		EvalSet: EvalSetEvidence{ID: "set", Digest: "digest"}, Transport: "rest",
 		Cases: []CaseResult{{
 			ID: "case", Sample: 1, Passed: true, Scores: map[string]float64{"trajectory": 1},
@@ -227,7 +176,7 @@ func TestCompareRunsPinsEvalsetAndDetectsDeterministicRegression(t *testing.T) {
 	}
 	candidate := baseline
 	candidate.RunID = "candidate"
-	candidate.Source.TreeDigest = "sha256:" + strings.Repeat("c", 64)
+	candidate.Source.Revision = strings.Repeat("c", 40)
 	candidate.Cases = []CaseResult{{
 		ID: "case", Sample: 1, Passed: false, Scores: map[string]float64{"trajectory": 0},
 		Usage: Usage{TotalTokens: 12, ModelCalls: 2},
@@ -246,40 +195,174 @@ func TestCompareRunsPinsEvalsetAndDetectsDeterministicRegression(t *testing.T) {
 	}
 }
 
-func TestComparePromptRunsRequiresDifferentSourceRevisions(t *testing.T) {
+func TestRunnerRefusesAnUnusableConfiguration(t *testing.T) {
 	t.Parallel()
-	baseline := RunArtifact{
-		SchemaVersion: RunArtifactSchemaVersion,
-		RunID:         "baseline", Source: testSourceEvidence(), Platform: "test-process", Model: ModelEvidence{Provider: "p", Name: "m"},
-		EvalSet: EvalSetEvidence{ID: "set", Digest: "digest"}, Transport: "rest",
-		Cases: []CaseResult{{
-			ID: "case", Sample: 1, Passed: true, Scores: map[string]float64{"trajectory": 1},
-			Usage: Usage{TotalTokens: 10, ModelCalls: 1},
-		}},
-		Summary: RunSummary{Passed: 1, PassRate: 1, MinimumPassRate: 1, RequiredCasesPassed: true},
-	}
-	candidate := baseline
-	candidate.RunID = "candidate"
 
-	if _, err := ComparePromptRuns(baseline, candidate); err == nil || !strings.Contains(err.Error(), "distinct clean exact revisions") {
-		t.Fatalf("same-revision comparison error = %v", err)
+	recorder, err := NewNoopRecorder()
+	if err != nil {
+		t.Fatal(err)
 	}
-	candidate.Source.Identity = strings.Repeat("c", 40)
-	candidate.Source.Revision = strings.Repeat("c", 40)
-	candidate.Source.TreeDigest = "sha256:" + strings.Repeat("c", 64)
-	if _, err := ComparePromptRuns(baseline, candidate); err != nil {
-		t.Fatalf("different-revision comparison: %v", err)
+	valid := RunnerConfig{
+		EvalSet: singleCaseEvalSet(), RunID: "run", Source: testSourceEvidence(),
+		Model: ModelEvidence{Provider: "provider", Name: "model"}, Transport: "rest",
+		Recorder: recorder, ClientFactory: func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
+			return nil, nil, errors.New("must not start a client for an invalid configuration")
+		},
 	}
-	candidate.Platform = "other-platform"
-	if _, err := ComparePromptRuns(baseline, candidate); err == nil || !strings.Contains(err.Error(), "platform identity") {
-		t.Fatalf("different-platform comparison error = %v", err)
-	}
-	candidate.Platform = baseline.Platform
-	candidate.Model.Name = "other"
-	if _, err := ComparePromptRuns(baseline, candidate); err == nil || !strings.Contains(err.Error(), "model identity") {
-		t.Fatalf("different-model comparison error = %v", err)
+	for name, test := range map[string]struct {
+		mutate func(*RunnerConfig)
+		want   string
+	}{
+		"evalset":        {mutate: func(c *RunnerConfig) { c.EvalSet.Name = "" }, want: "name is required"},
+		"digest":         {mutate: func(c *RunnerConfig) { c.EvalSet.Digest = "" }, want: "evalset digest is required"},
+		"run id":         {mutate: func(c *RunnerConfig) { c.RunID = "" }, want: "run id, model provider, and model name"},
+		"model":          {mutate: func(c *RunnerConfig) { c.Model.Name = "" }, want: "run id, model provider, and model name"},
+		"source":         {mutate: func(c *RunnerConfig) { c.Source = SourceEvidence{Revision: "abc"} }, want: "one full lowercase revision"},
+		"transport":      {mutate: func(c *RunnerConfig) { c.Transport = "grpc" }, want: `unsupported transport "grpc"`},
+		"repeat":         {mutate: func(c *RunnerConfig) { c.Repeat = -1 }, want: "repeat must not be negative"},
+		"client factory": {mutate: func(c *RunnerConfig) { c.ClientFactory = nil }, want: "client factory and evidence recorder"},
+		"recorder":       {mutate: func(c *RunnerConfig) { c.Recorder = nil }, want: "client factory and evidence recorder"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			config := valid
+			test.mutate(&config)
+			if _, err := Run(t.Context(), config); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Run() error = %v, want one mentioning %q", err, test.want)
+			}
+		})
 	}
 }
+
+func TestRunnerStopsAtTheFirstUnusableCase(t *testing.T) {
+	t.Parallel()
+
+	// Every one of these failures leaves the case ungraded. Continuing would
+	// publish an artifact whose pass rate silently excludes the cases that never
+	// ran, so the run fails and names the case instead.
+	for name, test := range map[string]struct {
+		factory ClientFactory
+		judge   VerdictJudge
+		want    string
+	}{
+		"client cannot start": {
+			factory: func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
+				return nil, nil, errors.New("port already bound")
+			},
+			want: "start isolated agent client",
+		},
+		"session refused": {
+			factory: fixedClientFactory(&failingClient{sessionErr: errors.New("session refused")}),
+			want:    "session refused",
+		},
+		"turn refused": {
+			factory: fixedClientFactory(&failingClient{sendErr: errors.New("turn refused")}),
+			want:    "turn refused",
+		},
+		"judge unavailable": {
+			factory: fixedClientFactory(&fixedClient{turn: Turn{Text: "answer"}}),
+			judge:   errorJudge{err: errors.New("gateway unavailable")},
+			want:    "judge:",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			recorder, err := NewNoopRecorder()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = Run(t.Context(), RunnerConfig{
+				EvalSet: singleCaseEvalSet(), RunID: "run", Source: testSourceEvidence(),
+				Model: ModelEvidence{Provider: "provider", Name: "model"}, Transport: "rest",
+				Recorder: recorder, ClientFactory: test.factory, Judge: test.judge,
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Run() error = %v, want one mentioning %q", err, test.want)
+			}
+			if !strings.Contains(err.Error(), "case-one") {
+				t.Fatalf("Run() error = %v, want it to name the case that failed", err)
+			}
+		})
+	}
+}
+
+func TestRunnerRequiresEverySampleOfARequiredCaseToPass(t *testing.T) {
+	t.Parallel()
+
+	recorder, err := NewNoopRecorder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	evalset := singleCaseEvalSet()
+	evalset.Cases[0].Conversation[0].IntermediateData.ToolUses = []ExpectedToolCall{{
+		Name: "get_incident", Args: map[string]any{"incident_id": "INC-002"},
+	}}
+	artifact, err := Run(t.Context(), RunnerConfig{
+		EvalSet: evalset, RunID: "run", Source: testSourceEvidence(),
+		Model: ModelEvidence{Provider: "provider", Name: "model"}, Transport: "rest",
+		Repeat: 2, MinimumPassRate: 0.5, RequiredCases: []string{"case-one"}, Recorder: recorder,
+		ClientFactory: func(_ context.Context, _ EvalCase, sample int) (AgentClient, func() error, error) {
+			// A flaky agent: the first sample skips the required tool call, the
+			// second makes it. Averaged over samples this still clears the floor.
+			turn := Turn{Text: "answer"}
+			if sample == 2 {
+				turn.ToolCalls = []ToolCall{{Name: "get_incident", Args: map[string]any{"incident_id": "INC-002"}}}
+			}
+			return &fixedClient{turn: turn}, func() error { return nil }, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if artifact.Summary.PassRate != 0.5 || artifact.Summary.Passed != 1 || artifact.Summary.Failed != 1 {
+		t.Fatalf("summary = %+v, want one passing and one failing sample", artifact.Summary)
+	}
+	// A safety case that only works half the time is not a safety case, so one
+	// failing sample disqualifies it however well the average reads.
+	if artifact.Summary.RequiredCasesPassed {
+		t.Fatal("a required case passed while one of its samples failed")
+	}
+	if artifact.Passed() {
+		t.Fatalf("run passed on a pass rate of %v despite a failed required case", artifact.Summary.PassRate)
+	}
+}
+
+func singleCaseEvalSet() EvalSet {
+	return EvalSet{
+		ID: "set", Name: "Set", Digest: strings.Repeat("a", 64),
+		Cases: []EvalCase{{
+			ID: "case-one", Conversation: []Invocation{{
+				UserContent:   EvalContent{Parts: []EvalPart{{Text: "question"}}},
+				FinalResponse: EvalContent{Parts: []EvalPart{{Text: "reference"}}},
+			}},
+		}},
+	}
+}
+
+func fixedClientFactory(client AgentClient) ClientFactory {
+	return func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
+		return client, func() error { return nil }, nil
+	}
+}
+
+type failingClient struct {
+	sessionErr error
+	sendErr    error
+}
+
+func (client *failingClient) CreateSession(context.Context) (string, error) {
+	return "session", client.sessionErr
+}
+
+func (client *failingClient) Send(context.Context, string, string) (Turn, error) {
+	return Turn{}, client.sendErr
+}
+
+func (client *failingClient) Confirm(context.Context, string, Turn, bool, string) (Turn, error) {
+	return Turn{}, errors.New("not used")
+}
+
+func (client *failingClient) Close() error { return nil }
 
 type fixedClient struct {
 	turn Turn

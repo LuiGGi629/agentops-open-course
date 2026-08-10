@@ -62,8 +62,10 @@ printf '\n[1/3] Offline eval-set validation (eval:validate)...\n'
 # 2. Optional model-backed behavior evidence. This is required before the script
 #    will emit a promotion command.
 if ((with_model)); then
-	printf '\n[2/3] Model-backed evals (eval, eval:ground, eval:cost)...\n'
-	(cd evals && mise run eval && mise run eval:ground && mise run eval:cost)
+	printf '\n[2/3] Model-backed evaluation (eval)...\n'
+	# One task, one artifact. Groundedness and cost used to be separate campaigns; they
+	# are flags and a drift warning on this run now, so there is nothing else to chain.
+	(cd evals && mise run eval)
 else
 	printf '\n[2/3] Skipping model-backed behavior gate (pass --with-model to run it).\n'
 fi

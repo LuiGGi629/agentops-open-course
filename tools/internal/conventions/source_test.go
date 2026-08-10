@@ -1,6 +1,7 @@
 package conventions
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -138,60 +139,22 @@ func TestCheckSourceVersionsRejectsCopiedPinInventoryDrift(t *testing.T) {
 	}
 }
 
-func TestCheckEvalReleaseOrchestrationRequiresOneSharedModelRun(t *testing.T) {
-	root := t.TempDir()
-	files := map[string]string{
-		"evals/mise.toml": `[tasks.eval]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --release-policy release-policy.json --judge --cost-output cost-observed.json"
+func TestCheckEvalContractPinsTheTaughtThreshold(t *testing.T) {
+	valid := map[string]string{
+		"evals/mise.toml": `[tasks."eval:validate"]
+run = "go run ./cmd/agentops-eval validate"
 
-[tasks."eval:policy-trial"]
+[tasks.eval]
 env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --repeat 3 --calibration-policy release-policy.json --judge"
-
-[tasks."eval:a2a"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --release-policy release-policy.json --judge"
-
-[tasks."eval:a2a:policy-trial"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --repeat 3 --calibration-policy release-policy.json --judge"
-
-[tasks."eval:dev"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --repeat 3 --min-pass-rate 0.33"
-
-[tasks."eval:workflow"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --repeat 3 --min-pass-rate 0.33"
-
-[tasks."eval:report"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run"
-
-[tasks."eval:cost"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run"
-
-[tasks."eval:cost:observe"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run"
-
-[tasks."eval:ground"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run"
+run = """
+go run ./cmd/agentops-eval run --repeat 3 --min-pass-rate 0.33 \
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \\
+  --judge --output results.json
+"""
 
 [tasks."eval:judge-calibration"]
 env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval calibrate --release-policy release-policy.json"
-
-[tasks."eval:judge-calibration:trial"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval calibrate --floor 0.75"
-
-[tasks."eval:retrieval"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval retrieval"
+run = "go run ./cmd/agentops-eval calibrate"
 
 [tasks."eval:ab"]
 usage = '''
@@ -205,7 +168,6 @@ go run ./cmd/agentops-eval compare \
   --require-distinct-source
 '''
 `,
-		"evals/release-policy.json": `{}`,
 		"mise.toml": `[tasks."eval:ab"]
 usage = '''
 flag "--baseline <path>"
@@ -218,149 +180,65 @@ mise run eval:ab -- \
   --candidate "$usage_candidate"
 '''
 `,
-		".github/workflows/eval.yml": `steps:
-  - name: Run canonical trajectory evaluation and capture cost evidence
-    run: mise run eval
-`,
 	}
-	for path, content := range files {
-		fullPath := filepath.Join(root, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
-			t.Fatal(err)
+	write := func(t *testing.T, files map[string]string) string {
+		t.Helper()
+		root := t.TempDir()
+		for path, content := range files {
+			fullPath := filepath.Join(root, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
+		return root
+	}
+
+	if problems := checkEvalContract(write(t, valid)); len(problems) != 0 {
+		t.Fatalf("valid eval contract problems = %#v", problems)
+	}
+
+	// Each mutation is a way the taught page and the running command could drift apart.
+	for name, mutation := range map[string]struct{ old, new, want string }{
+		"dropped floor":         {"--min-pass-rate 0.33", "--min-pass-rate 0.9", "--min-pass-rate 0.33"},
+		"dropped required case": {",restart-needs-approval", "", "restart-needs-approval"},
+		"dropped judge":         {"--judge ", "", "--judge"},
+		"renamed artifact":      {"--output results.json", "--output eval-results.json", "--output results.json"},
+		"dropped repeats":       {"--repeat 3 ", "", "--repeat 3"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			files := maps.Clone(valid)
+			manifest := files["evals/mise.toml"]
+			if !strings.Contains(manifest, mutation.old) {
+				t.Fatalf("fixture no longer contains %q", mutation.old)
+			}
+			files["evals/mise.toml"] = strings.Replace(manifest, mutation.old, mutation.new, 1)
+			messages := problemMessages(checkEvalContract(write(t, files)))
+			if !strings.Contains(messages, mutation.want) {
+				t.Fatalf("problems = %s", messages)
+			}
+		})
+	}
+
+	t.Run("a fifth task", func(t *testing.T) {
+		files := maps.Clone(valid)
+		files["evals/mise.toml"] += "\n[tasks.\"eval:cost\"]\nrun = \"go run ./cmd/agentops-eval run\"\n"
+		if messages := problemMessages(checkEvalContract(write(t, files))); !strings.Contains(messages, "want exactly") {
+			t.Fatalf("problems = %s", messages)
 		}
-	}
-	if problems := checkEvalReleaseOrchestration(root); len(problems) != 0 {
-		t.Fatalf("valid release orchestration problems = %#v", problems)
-	}
+	})
 
-	workflowPath := filepath.Join(root, ".github", "workflows", "eval.yml")
-	broken := `steps:
-  - name: Run canonical trajectory evaluation
-    run: mise run eval
-  - name: Capture cost evidence in a different run
-    run: mise run eval:cost:observe
-`
-	if err := os.WriteFile(workflowPath, []byte(broken), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages := problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "same model run") {
-		t.Fatalf("broken release orchestration problems = %s", messages)
-	}
-
-	validWorkflow := files[".github/workflows/eval.yml"]
-	if err := os.WriteFile(workflowPath, []byte(validWorkflow), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manifestPath := filepath.Join(root, "evals", "mise.toml")
-	missingPolicy := strings.Replace(files["evals/mise.toml"], " --release-policy release-policy.json", "", 1)
-	if err := os.WriteFile(manifestPath, []byte(missingPolicy), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "release-policy") {
-		t.Fatalf("missing release policy problems = %s", messages)
-	}
-
-	weakenedDevelopment := strings.Replace(files["evals/mise.toml"], "--repeat 3 --min-pass-rate 0.33", "--repeat 1 --min-pass-rate 0.33", 1)
-	if err := os.WriteFile(manifestPath, []byte(weakenedDevelopment), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "eval:dev") {
-		t.Fatalf("weakened development policy problems = %s", messages)
-	}
-
-	overwritingCostTask := strings.Replace(
-		files["evals/mise.toml"],
-		"[tasks.\"eval:cost\"]\nenv = { _.file = { path = \"../.env\", redact = true } }\nrun = \"go run ./cmd/agentops-eval run\"",
-		"[tasks.\"eval:cost\"]\nenv = { _.file = { path = \"../.env\", redact = true } }\nrun = \"go run ./cmd/agentops-eval run --output cost-results.json --cost-output cost-observed.json\"",
-		1,
-	)
-	if err := os.WriteFile(manifestPath, []byte(overwritingCostTask), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "must not overwrite") {
-		t.Fatalf("overwriting cost task problems = %s", messages)
-	}
-
-	if err := os.WriteFile(manifestPath, []byte(files["evals/mise.toml"]), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	missingDotenv := strings.Replace(files["evals/mise.toml"], "env = { _.file = { path = \"../.env\", redact = true } }\n", "", 1)
-	if err := os.WriteFile(manifestPath, []byte(missingDotenv), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "redacted root .env") {
-		t.Fatalf("missing dotenv problems = %s", messages)
-	}
-
-	brokenWorkflow := strings.Replace(
-		files["evals/mise.toml"],
-		`[tasks."eval:workflow"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run --repeat 3 --min-pass-rate 0.33"`,
-		`[tasks."eval:workflow"]
-env = { _.file = { path = "../.env", redact = true } }
-run = "go run ./cmd/agentops-eval run"`,
-		1,
-	)
-	if err := os.WriteFile(manifestPath, []byte(brokenWorkflow), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "three samples") {
-		t.Fatalf("workflow sampling problems = %s", messages)
-	}
-
-	fixedPromptArtifacts := strings.Replace(
-		files["evals/mise.toml"],
-		`--baseline "$usage_baseline"`,
-		"--baseline prompt-baseline-results.json",
-		1,
-	)
-	if err := os.WriteFile(manifestPath, []byte(fixedPromptArtifacts), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "explicit prompt artifacts") {
-		t.Fatalf("fixed prompt artifact problems = %s", messages)
-	}
-
-	if err := os.WriteFile(manifestPath, []byte(files["evals/mise.toml"]), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	rootManifestPath := filepath.Join(root, "mise.toml")
-	brokenForwarding := strings.Replace(files["mise.toml"], `flag "--candidate <path>"`, "", 1)
-	if err := os.WriteFile(rootManifestPath, []byte(brokenForwarding), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "forward explicit prompt artifacts") {
-		t.Fatalf("broken root prompt forwarding problems = %s", messages)
-	}
-	if err := os.WriteFile(rootManifestPath, []byte(files["mise.toml"]), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	fixedRetrievalArtifacts := strings.Replace(
-		files["evals/mise.toml"],
-		"agentops-eval retrieval",
-		"agentops-eval compare --baseline retrieval-keyword-results.json --candidate retrieval-semantic-results.json",
-		1,
-	)
-	if err := os.WriteFile(manifestPath, []byte(fixedRetrievalArtifacts), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages = problemMessages(checkEvalReleaseOrchestration(root))
-	if !strings.Contains(messages, "end-to-end retrieval") {
-		t.Fatalf("fixed retrieval artifact problems = %s", messages)
-	}
+	t.Run("offline task reading credentials", func(t *testing.T) {
+		files := maps.Clone(valid)
+		files["evals/mise.toml"] = strings.Replace(files["evals/mise.toml"],
+			`[tasks."eval:validate"]`,
+			"[tasks.\"eval:validate\"]\nenv = { _.file = { path = \"../.env\", redact = true } }", 1)
+		if messages := problemMessages(checkEvalContract(write(t, files))); !strings.Contains(messages, "must not load the root .env") {
+			t.Fatalf("problems = %s", messages)
+		}
+	})
 }
 
 func TestCheckOfflineModuleChecksRejectsNetworkedVulnerabilityDependencies(t *testing.T) {
@@ -398,7 +276,7 @@ run = "go mod download"
 		"tools/mise.toml": `[tasks.install]
 run = "GOFLAGS=-mod=readonly go mod download"
 `,
-		".github/workflows/docs.yml": `jobs:
+		".github/workflows/ci.yml": `jobs:
   docs:
     steps:
       - run: hugo mod get
@@ -444,7 +322,7 @@ hugo = "0.164.0"
 [tasks.install]
 run = "mise install hugo go"
 `,
-		".github/workflows/docs.yml": `jobs:
+		".github/workflows/ci.yml": `jobs:
   docs:
     steps:
       - run: mise install hugo go
@@ -598,21 +476,6 @@ func TestCheckWorkflowShellExpressionsRejectsDirectActionInputInterpolation(t *t
 	}
 }
 
-func TestCheckReleaseQualificationPrivacyRejectsPersistedWorkflowURL(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, ".github", "workflows", "release.yml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("workflows:\n  - url: $run.html_url\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	messages := problemMessages(checkReleaseQualificationPrivacy(root))
-	if !strings.Contains(messages, "persist workflow URLs") {
-		t.Fatalf("release qualification privacy problems = %s", messages)
-	}
-}
-
 func TestCheckSerializedModuleChecksRejectsParallelLinterDependencies(t *testing.T) {
 	root := t.TempDir()
 	manifest := filepath.Join(root, "mise.toml")
@@ -694,7 +557,7 @@ func TestCheckDocumentedGoPackagesUsesTheBlockWorkingDirectory(t *testing.T) {
 
 func TestCheckNoPagesDeploymentRejectsPagesActionsAndAuthority(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, ".github", "workflows", "docs.yml")
+	path := filepath.Join(root, ".github", "workflows", "ci.yml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}

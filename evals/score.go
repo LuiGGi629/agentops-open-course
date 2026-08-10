@@ -1,6 +1,9 @@
 package evals
 
-import "errors"
+import (
+	"errors"
+	"math"
+)
 
 type Score struct {
 	Name    string  `json:"name"`
@@ -22,4 +25,8 @@ func NewBinaryScore(name string, passed bool, details string) Score {
 		value = 1.0
 	}
 	return Score{Name: name, Value: value, Passed: passed, Details: details}
+}
+
+func finiteUnitInterval(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 1
 }

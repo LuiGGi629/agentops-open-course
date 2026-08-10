@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	RetrievalArtifactSchemaVersion = 2
+	RetrievalArtifactSchemaVersion = 3
 	retrievalLimit                 = 3
 )
 
@@ -66,7 +66,6 @@ type RetrievalRuntimeFactory func(context.Context, RetrievalMode) (RetrievalRunt
 type RetrievalRunConfig struct {
 	Factory              RetrievalRuntimeFactory
 	DataDir              string
-	Platform             string
 	EmbeddingModel       string
 	EmbeddingModelDigest string
 	Source               SourceEvidence
@@ -80,7 +79,6 @@ type RetrievalRates struct {
 // RetrievalArtifact is content-free evidence. It deliberately contains no
 // query, result slug, runbook body, endpoint, tool payload, or provider error.
 type RetrievalArtifact struct {
-	Platform             string         `json:"platform_identity"`
 	CorpusDigest         string         `json:"corpus_digest"`
 	EmbeddingModel       string         `json:"embedding_model"`
 	EmbeddingModelDigest string         `json:"embedding_model_digest,omitzero"`
@@ -175,7 +173,6 @@ func RunRetrievalEvaluation(ctx context.Context, config RetrievalRunConfig) (Ret
 	artifact := RetrievalArtifact{
 		SchemaVersion:        RetrievalArtifactSchemaVersion,
 		Source:               config.Source,
-		Platform:             config.Platform,
 		CorpusDigest:         digest,
 		EmbeddingModel:       config.EmbeddingModel,
 		EmbeddingModelDigest: config.EmbeddingModelDigest,
@@ -206,9 +203,6 @@ func ValidateRetrievalArtifact(artifact RetrievalArtifact) error {
 	if err := artifact.Source.Validate(); err != nil {
 		problems = append(problems, err)
 	}
-	if !validPlatformIdentity(artifact.Platform) {
-		problems = append(problems, errors.New("platform_identity must be non-empty, bounded, trimmed, and single-line"))
-	}
 	if !boundedIdentity(artifact.EmbeddingModel) {
 		problems = append(problems, errors.New("embedding_model must be non-empty, trimmed, and single-line"))
 	}
@@ -235,9 +229,6 @@ func validateRetrievalRunConfig(config RetrievalRunConfig) error {
 	}
 	if err := config.Source.Validate(); err != nil {
 		problems = append(problems, err)
-	}
-	if !validPlatformIdentity(config.Platform) {
-		problems = append(problems, errors.New("retrieval evaluation needs a platform identity"))
 	}
 	if !boundedIdentity(config.EmbeddingModel) {
 		problems = append(problems, errors.New("retrieval evaluation needs a non-empty, trimmed, single-line embedding model"))

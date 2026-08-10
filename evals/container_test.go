@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -58,7 +59,7 @@ func TestAgentContainerOwnsDockerLifecycleAndRuntimeIdentity(t *testing.T) {
 	}
 
 	container, err := startAgentContainer(context.Background(), AgentContainerConfig{
-		Engine: "docker", Image: "agentops-agent:eval", SourceIdentity: "unknown+dirty.0123456789ab",
+		Engine: "docker", Image: "agentops-agent:eval",
 		Transport: "rest", Entrypoint: "workflow", Port: 43123, Output: io.Discard,
 		Environment: map[string]string{
 			"OPENAI_API_KEY":     "should-not-appear-in-arguments",
@@ -78,7 +79,6 @@ func TestAgentContainerOwnsDockerLifecycleAndRuntimeIdentity(t *testing.T) {
 	})
 	for _, expected := range []string{
 		"--tmpfs", "/app/state:rw,nosuid,nodev,noexec,uid=10001,gid=10001,mode=0700",
-		"--label", "agentops.eval.source_identity=unknown+dirty.0123456789ab",
 		"agentops-agent:eval", "web", "-port", "43123", "api",
 	} {
 		if !slices.Contains(started.arguments, expected) {
@@ -144,7 +144,7 @@ func TestAgentContainerA2AUsesLoopbackAndHealthReadiness(t *testing.T) {
 		},
 	}
 	container, err := startAgentContainer(context.Background(), AgentContainerConfig{
-		Engine: "docker", Image: "agentops-agent:eval", SourceIdentity: "abcdef",
+		Engine: "docker", Image: "agentops-agent:eval",
 		Transport: "a2a", Entrypoint: "agent", Port: 43124,
 	}, dependencies)
 	if err != nil {
@@ -181,7 +181,7 @@ func TestAgentContainerStartFailureDoesNotLaunchAnythingElse(t *testing.T) {
 		},
 	}
 	_, err := startAgentContainer(context.Background(), AgentContainerConfig{
-		Engine: "docker", Image: "agentops-agent:eval", SourceIdentity: "abcdef",
+		Engine: "docker", Image: "agentops-agent:eval",
 		Transport: "rest", Entrypoint: "agent", Port: 43125,
 	}, dependencies)
 	if !errors.Is(err, want) {
@@ -211,7 +211,7 @@ func TestAgentContainerReadinessFailureStopsOwnedContainer(t *testing.T) {
 		waitReady: func(context.Context, <-chan error, string, string, time.Duration) error { return want },
 	}
 	_, err := startAgentContainer(context.Background(), AgentContainerConfig{
-		Image: "agentops-agent:eval", SourceIdentity: "abcdef",
+		Image:     "agentops-agent:eval",
 		Transport: "rest", Entrypoint: "agent", Port: 43126,
 	}, dependencies)
 	if !errors.Is(err, want) {
@@ -250,7 +250,7 @@ func TestAgentContainerForceRemoveUsesIndependentContextAfterStopFailure(t *test
 		waitReady: func(context.Context, <-chan error, string, string, time.Duration) error { return nil },
 	}
 	container, err := startAgentContainer(context.Background(), AgentContainerConfig{
-		Image: "agentops-agent:eval", SourceIdentity: "abcdef",
+		Image:     "agentops-agent:eval",
 		Transport: "rest", Entrypoint: "agent", Port: 43127,
 	}, dependencies)
 	if err != nil {
@@ -267,15 +267,16 @@ func TestAgentContainerForceRemoveUsesIndependentContextAfterStopFailure(t *test
 	}
 }
 
-func TestAgentContainerRequiresImageAndSourceIdentity(t *testing.T) {
+func TestAgentContainerRequiresImageEntrypointAndPort(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
 		name   string
 		config AgentContainerConfig
 	}{
-		{name: "image", config: AgentContainerConfig{SourceIdentity: "abc", Transport: "rest", Entrypoint: "agent", Port: 1}},
-		{name: "source", config: AgentContainerConfig{Image: "agent:dev", Transport: "rest", Entrypoint: "agent", Port: 1}},
+		{name: "image", config: AgentContainerConfig{Transport: "rest", Entrypoint: "agent", Port: 1}},
+		{name: "entrypoint", config: AgentContainerConfig{Image: "agent:dev", Transport: "rest", Port: 1}},
+		{name: "port", config: AgentContainerConfig{Image: "agent:dev", Transport: "rest", Entrypoint: "agent"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -285,6 +286,162 @@ func TestAgentContainerRequiresImageAndSourceIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestStartAgentContainerRefusesToRunAnythingWithoutAnImage(t *testing.T) {
+	t.Parallel()
+
+	// The exported entry point wires in the real engine commands, so an
+	// under-specified request has to be refused before any of them can run.
+	if _, err := StartAgentContainer(t.Context(), AgentContainerConfig{
+		Transport: "rest", Entrypoint: "agent", Port: 43128,
+	}); err == nil || !strings.Contains(err.Error(), "needs an image") {
+		t.Fatalf("StartAgentContainer() error = %v, want a missing-image refusal", err)
+	}
+}
+
+func TestContainerClientFactoryAttestsTheImageBeforeTrials(t *testing.T) {
+	t.Parallel()
+
+	source := testSourceEvidence()
+	// The fake engine accepts exactly two commands and fails the test on anything
+	// else, so a successful construction proves the factory defaulted to docker,
+	// resolved the mutable tag to an immutable image ID, and ran the identity
+	// check on that ID with no network and a read-only root.
+	if _, err := newContainerClientFactory(t.Context(), ContainerClientFactoryConfig{
+		Source: source, Image: "agent:candidate", Transport: "rest", Entrypoint: "agent",
+	}, fakeContainerIdentityRunner(t, source)); err != nil {
+		t.Fatalf("newContainerClientFactory() error = %v", err)
+	}
+
+	stale := source
+	stale.TreeDigest = "sha256:" + strings.Repeat("c", 64)
+	for name, test := range map[string]struct {
+		mutate func(*ContainerClientFactoryConfig)
+		runner runtimeCommand
+		want   string
+	}{
+		"no image": {
+			mutate: func(c *ContainerClientFactoryConfig) { c.Image = "" },
+			want:   "needs the agent image",
+		},
+		"unsupported transport": {
+			mutate: func(c *ContainerClientFactoryConfig) { c.Transport = "grpc" },
+			want:   `unsupported container client transport "grpc"`,
+		},
+		"a2a entrypoint": {
+			mutate: func(c *ContainerClientFactoryConfig) { c.Transport, c.Entrypoint = "a2a", "workflow" },
+			want:   "serves only the agent entrypoint",
+		},
+		"stale image": {
+			mutate: func(*ContainerClientFactoryConfig) {},
+			runner: fakeContainerIdentityRunner(t, stale),
+			want:   "tree_digest",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			config := ContainerClientFactoryConfig{
+				Source: source, Image: "agent:candidate", Transport: "rest", Entrypoint: "agent",
+			}
+			test.mutate(&config)
+			runner := test.runner
+			if runner == nil {
+				// The validation cases must be refused before the engine is consulted,
+				// so this runner would fail the test if it were ever invoked.
+				runner = fakeContainerIdentityRunner(t, source)
+			}
+			if _, err := newContainerClientFactory(t.Context(), config, runner); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("newContainerClientFactory() error = %v, want one mentioning %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDefaultContainerDependenciesReportChildOutcomes(t *testing.T) {
+	t.Parallel()
+
+	dependencies := defaultContainerDependencies()
+	var captured strings.Builder
+	command, err := dependencies.start(commandSpec{
+		name: "sh", arguments: []string{"-c", "printf engine-output"}, output: &captured,
+	})
+	if err != nil {
+		t.Fatalf("start() error = %v", err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+	if got := captured.String(); got != "engine-output" {
+		t.Fatalf("captured output = %q, want the child's stdout", got)
+	}
+	// Close only kills the engine client when it outlives the container. Killing a
+	// process that already exited must not be an error, or every clean shutdown
+	// would end with a spurious cleanup failure.
+	if err := command.Kill(); err != nil {
+		t.Fatalf("Kill(exited) error = %v, want an already-finished process to be tolerated", err)
+	}
+
+	if err := dependencies.run(t.Context(), commandSpec{
+		name: "sh", arguments: []string{"-c", "exit 0"}, output: io.Discard,
+	}); err != nil {
+		t.Fatalf("run(success) error = %v", err)
+	}
+	// A failed `docker stop` has to surface, because that is what sends Close down
+	// its force-removal path instead of leaving the container behind.
+	if err := dependencies.run(t.Context(), commandSpec{
+		name: "sh", arguments: []string{"-c", "exit 7"}, output: io.Discard,
+	}); err == nil {
+		t.Fatal("run(failure) error = nil, want the engine's exit status")
+	}
+}
+
+func TestAgentContainerKillsAnEngineClientThatOutlivesTheContainer(t *testing.T) {
+	t.Parallel()
+
+	command := &hangingContainerCommand{done: make(chan error, 1)}
+	dependencies := containerDependencies{
+		start: func(commandSpec) (runningCommand, error) { return command, nil },
+		// The stop command reports success while the engine client keeps running,
+		// which is exactly the state a hung `docker run` leaves behind.
+		run:       func(context.Context, commandSpec) error { return nil },
+		waitReady: func(context.Context, <-chan error, string, string, time.Duration) error { return nil },
+	}
+	container, err := startAgentContainer(t.Context(), AgentContainerConfig{
+		Image: "agentops-agent:eval", Transport: "rest", Entrypoint: "agent", Port: 43129,
+		ShutdownTimeout: 10 * time.Millisecond,
+	}, dependencies)
+	if err != nil {
+		t.Fatalf("startAgentContainer() error = %v", err)
+	}
+	if got, want := container.BaseURL(), "http://127.0.0.1:43129"; got != want {
+		t.Fatalf("BaseURL() = %q, want %q", got, want)
+	}
+	err = container.Close()
+	if err == nil || !strings.Contains(err.Error(), "did not exit after container shutdown") {
+		t.Fatalf("Close() error = %v, want the hung client to be reported", err)
+	}
+	if !command.wasKilled() {
+		t.Fatal("Close() left a hung engine client running")
+	}
+}
+
+// hangingContainerCommand never exits on its own; releasing it is what Kill does,
+// which is how a hung engine client behaves once the container is already gone.
+type hangingContainerCommand struct {
+	done   chan error
+	killed atomic.Bool
+}
+
+func (c *hangingContainerCommand) Wait() error { return <-c.done }
+
+func (c *hangingContainerCommand) Kill() error {
+	c.killed.Store(true)
+	close(c.done)
+	return nil
+}
+
+func (c *hangingContainerCommand) wasKilled() bool { return c.killed.Load() }
 
 func assertArgumentsContainInOrder(t *testing.T, arguments, expected []string) {
 	t.Helper()

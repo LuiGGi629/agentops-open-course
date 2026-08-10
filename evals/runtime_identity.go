@@ -9,108 +9,85 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-)
-
-const (
-	containerModeLabel           = "dev.fmind.agentops.build-mode"
-	containerSourceIdentityLabel = "dev.fmind.agentops.source-identity"
-	containerRevisionLabel       = "dev.fmind.agentops.source-revision"
-	containerTreeDigestLabel     = "dev.fmind.agentops.source-tree-digest"
-	containerDirtyLabel          = "dev.fmind.agentops.source-dirty"
 )
 
 type runtimeCommand func(context.Context, string, ...string) ([]byte, error)
 
+// runtimeVersion is the subset of the agent's `version` output the harness
+// compares. Pointers separate "absent" from "empty" so a truncated tuple is a
+// decode failure instead of a silently matching zero value.
 type runtimeVersion struct {
-	Mode           *SourceMode `json:"mode"`
-	SourceIdentity *string     `json:"source_identity"`
-	Revision       *string     `json:"revision"`
-	TreeDigest     *string     `json:"tree_digest"`
-	Dirty          *bool       `json:"dirty"`
+	Revision   *string `json:"revision"`
+	TreeDigest *string `json:"tree_digest"`
+	Dirty      *bool   `json:"dirty"`
 }
 
-type containerImageInspect struct {
-	Config struct {
-		Labels map[string]string `json:"Labels"`
-	} `json:"Config"`
-	ID string `json:"Id"`
-}
-
-func verifyProcessRuntimeIdentity(
+// verifyRuntimeIdentity refuses a stale agent. The agent embeds the revision,
+// content digest, and dirty flag of the checkout it was built from, so asking
+// it for its own version and comparing the tuple is the whole check: a binary
+// built before the last edit cannot pretend to be the code under test.
+func verifyRuntimeIdentity(
 	ctx context.Context, binary string, expected SourceEvidence, run runtimeCommand,
 ) error {
 	if strings.TrimSpace(binary) == "" {
-		return errors.New("process runtime identity needs an agent binary")
+		return errors.New("runtime identity needs an agent binary")
 	}
 	if err := expected.Validate(); err != nil {
-		return fmt.Errorf("validate expected process source: %w", err)
+		return fmt.Errorf("validate expected checkout: %w", err)
+	}
+	if !treeDigestPattern.MatchString(expected.TreeDigest) {
+		return errors.New("runtime identity needs the checkout tree digest")
 	}
 	if run == nil {
-		return errors.New("process runtime identity command is unavailable")
+		return errors.New("runtime identity command is unavailable")
 	}
 	output, err := run(ctx, binary, "version")
 	if err != nil {
-		return fmt.Errorf("query process runtime identity: %w", err)
+		return fmt.Errorf("query runtime identity: %w", err)
 	}
 	actual, err := decodeRuntimeVersion(output)
 	if err != nil {
-		return fmt.Errorf("decode process runtime identity: %w", err)
+		return fmt.Errorf("decode runtime identity: %w", err)
 	}
-	if err := compareRuntimeSource(expected, actual); err != nil {
-		return fmt.Errorf("process binary source does not match evaluated checkout: %w", err)
+	if actual != expected {
+		return fmt.Errorf(
+			"agent source does not match the evaluated checkout: revision=%q dirty=%t tree_digest=%q, want revision=%q dirty=%t tree_digest=%q",
+			actual.Revision, actual.Dirty, actual.TreeDigest,
+			expected.Revision, expected.Dirty, expected.TreeDigest,
+		)
 	}
 	return nil
 }
 
-func verifyContainerRuntimeIdentity(
-	ctx context.Context, engine, image string, expected SourceEvidence, run runtimeCommand,
-) error {
-	_, err := resolveContainerRuntimeIdentity(ctx, engine, image, expected, run)
-	return err
-}
-
+// resolveContainerRuntimeIdentity applies the same check to an image, and
+// returns the immutable image ID it verified. Resolving the mutable tag once
+// and running that ID keeps the verified image and the evaluated image equal.
 func resolveContainerRuntimeIdentity(
 	ctx context.Context, engine, image string, expected SourceEvidence, run runtimeCommand,
 ) (string, error) {
 	if strings.TrimSpace(engine) == "" || strings.TrimSpace(image) == "" {
 		return "", errors.New("container runtime identity needs an engine and image")
 	}
-	if err := expected.Validate(); err != nil {
-		return "", fmt.Errorf("validate expected container source: %w", err)
-	}
 	if run == nil {
 		return "", errors.New("container runtime identity command is unavailable")
 	}
-
-	inspectOutput, err := run(ctx, engine, "image", "inspect", image)
+	inspectOutput, err := run(ctx, engine, "image", "inspect", "--format", "{{.Id}}", image)
 	if err != nil {
 		return "", fmt.Errorf("inspect container image identity: %w", err)
 	}
-	inspected, err := decodeContainerImageInspect(inspectOutput)
-	if err != nil {
+	imageID := strings.TrimSpace(string(inspectOutput))
+	if imageID == "" {
+		return "", errors.New("container image inspection returned an empty image ID")
+	}
+	if err := verifyRuntimeIdentity(ctx, imageID, expected, func(
+		ctx context.Context, id string, arguments ...string,
+	) ([]byte, error) {
+		return run(ctx, engine, append([]string{"run", "--rm", "--network", "none", "--read-only", id}, arguments...)...)
+	}); err != nil {
 		return "", err
 	}
-	// Resolve a mutable tag once, then execute the immutable image ID whose
-	// labels were inspected so the two provenance surfaces cannot cross images.
-	versionOutput, versionErr := run(
-		ctx, engine, "run", "--rm", "--network", "none", "--read-only", inspected.ID, "version",
-	)
-	if versionErr != nil {
-		return "", fmt.Errorf("query container binary identity: %w", versionErr)
-	}
-	actual, decodeErr := decodeRuntimeVersion(versionOutput)
-	if decodeErr != nil {
-		return "", fmt.Errorf("decode container binary identity: %w", decodeErr)
-	}
-	if err := errors.Join(
-		compareContainerLabels(expected, inspected.Config.Labels),
-		compareRuntimeSource(expected, actual),
-	); err != nil {
-		return "", err
-	}
-	return inspected.ID, nil
+	return imageID, nil
 }
 
 func decodeRuntimeVersion(output []byte) (SourceEvidence, error) {
@@ -118,79 +95,18 @@ func decodeRuntimeVersion(output []byte) (SourceEvidence, error) {
 	if err := json.Unmarshal(output, &wire); err != nil {
 		return SourceEvidence{}, fmt.Errorf("version output is not JSON: %w", err)
 	}
-	if wire.Mode == nil || wire.SourceIdentity == nil || wire.TreeDigest == nil || wire.Dirty == nil {
+	if wire.TreeDigest == nil || wire.Dirty == nil {
 		return SourceEvidence{}, errors.New("version output has an incomplete source tuple")
 	}
 	revision := ""
 	if wire.Revision != nil {
 		revision = *wire.Revision
 	}
-	evidence := SourceEvidence{
-		Mode: *wire.Mode, Identity: *wire.SourceIdentity, Revision: revision,
-		TreeDigest: *wire.TreeDigest, Dirty: *wire.Dirty,
-	}
+	evidence := SourceEvidence{Revision: revision, TreeDigest: *wire.TreeDigest, Dirty: *wire.Dirty}
 	if err := evidence.Validate(); err != nil {
 		return SourceEvidence{}, fmt.Errorf("version output has an invalid source tuple: %w", err)
 	}
 	return evidence, nil
-}
-
-func decodeContainerImageInspect(output []byte) (containerImageInspect, error) {
-	var images []containerImageInspect
-	if err := json.Unmarshal(output, &images); err != nil {
-		return containerImageInspect{}, fmt.Errorf("decode container image identity: %w", err)
-	}
-	if len(images) != 1 || strings.TrimSpace(images[0].ID) == "" {
-		return containerImageInspect{}, fmt.Errorf(
-			"container image inspection returned %d images or an empty image ID", len(images),
-		)
-	}
-	return images[0], nil
-}
-
-func compareRuntimeSource(expected, actual SourceEvidence) error {
-	var problems []error
-	if actual.Mode != expected.Mode {
-		problems = append(problems, fmt.Errorf("mode=%q, want %q", actual.Mode, expected.Mode))
-	}
-	if actual.Identity != expected.Identity {
-		problems = append(problems, fmt.Errorf("source_identity=%q, want %q", actual.Identity, expected.Identity))
-	}
-	if actual.Revision != expected.Revision {
-		problems = append(problems, fmt.Errorf("revision=%q, want %q", actual.Revision, expected.Revision))
-	}
-	if actual.TreeDigest != expected.TreeDigest {
-		problems = append(problems, fmt.Errorf("tree_digest=%q, want %q", actual.TreeDigest, expected.TreeDigest))
-	}
-	if actual.Dirty != expected.Dirty {
-		problems = append(problems, fmt.Errorf("dirty=%t, want %t", actual.Dirty, expected.Dirty))
-	}
-	return errors.Join(problems...)
-}
-
-func compareContainerLabels(expected SourceEvidence, labels map[string]string) error {
-	want := map[string]string{
-		containerModeLabel:           string(expected.Mode),
-		containerSourceIdentityLabel: expected.Identity,
-		containerRevisionLabel:       expected.Revision,
-		containerTreeDigestLabel:     expected.TreeDigest,
-		containerDirtyLabel:          strconv.FormatBool(expected.Dirty),
-	}
-	var problems []error
-	for _, key := range []string{
-		containerModeLabel, containerSourceIdentityLabel, containerRevisionLabel,
-		containerTreeDigestLabel, containerDirtyLabel,
-	} {
-		value, found := labels[key]
-		if !found {
-			problems = append(problems, fmt.Errorf("container label %s is missing", key))
-			continue
-		}
-		if value != want[key] {
-			problems = append(problems, fmt.Errorf("container label %s=%q, want %q", key, value, want[key]))
-		}
-	}
-	return errors.Join(problems...)
 }
 
 func executeRuntimeCommand(ctx context.Context, name string, arguments ...string) ([]byte, error) {

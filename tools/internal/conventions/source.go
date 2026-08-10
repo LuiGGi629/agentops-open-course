@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -226,7 +227,9 @@ func checkReadOnlyInstalls(root string) []Problem {
 	}
 	problems = append(problems, checkAutomationMiseInstallFlags(root)...)
 
-	const docsWorkflow = ".github/workflows/docs.yml"
+	// The documentation build folded into CI; its browser-accessibility job is what still
+	// installs the documentation toolchain, so that is the file this contract now reads.
+	const docsWorkflow = ".github/workflows/ci.yml"
 	docs, err := readFile(filepath.Join(root, filepath.FromSlash(docsWorkflow)))
 	if err != nil {
 		return append(problems, problem(docsWorkflow, "could not read documentation install contract: %v", err))
@@ -326,7 +329,7 @@ func checkHugoExtendedTool(root string) []Problem {
 	if toolVersion(root, "hugo") != "" {
 		problems = append(problems, problem("mise.toml", "the standard Hugo tool cannot satisfy the documented Hugo Extended contract"))
 	}
-	for _, where := range []string{"mise.toml", ".github/workflows/docs.yml"} {
+	for _, where := range []string{"mise.toml", ".github/workflows/ci.yml"} {
 		text, err := readFile(filepath.Join(root, filepath.FromSlash(where)))
 		if err != nil {
 			problems = append(problems, problem(where, "could not read the Hugo install contract: %v", err))
@@ -389,39 +392,52 @@ func checkLocalActionCheckouts(root string) []Problem {
 	return problems
 }
 
+// checkNoPagesDeployment refuses Pages deployment authority anywhere in CI. It used to
+// read one workflow by name; that file has since been folded into another, which is
+// exactly how a single-file check goes quietly blind. It now walks every workflow.
 func checkNoPagesDeployment(root string) []Problem {
-	const where = ".github/workflows/docs.yml"
-	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(where)))
-	if err != nil {
-		return []Problem{problem(where, "could not read documentation workflow: %v", err)}
+	paths, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
+	if err != nil || len(paths) == 0 {
+		return []Problem{problem(".github/workflows", "could not read the workflow directory")}
 	}
-	var workflow struct {
-		Jobs map[string]struct {
-			Environment any               `yaml:"environment"`
-			Permissions map[string]string `yaml:"permissions"`
-			Steps       []struct {
-				Uses string `yaml:"uses"`
-			} `yaml:"steps"`
-		} `yaml:"jobs"`
-	}
-	if err := yaml.Unmarshal(content, &workflow); err != nil {
-		return []Problem{problem(where, "could not parse documentation workflow: %v", err)}
-	}
+	slices.Sort(paths)
 	var problems []Problem
-	for name, job := range workflow.Jobs {
-		pagesAuthority := job.Permissions["pages"] != "" || pagesEnvironment(job.Environment)
-		for _, step := range job.Steps {
-			for _, action := range []string{
-				"actions/configure-pages@",
-				"actions/upload-pages-artifact@",
-				"actions/deploy-pages@",
-			} {
-				pagesAuthority = pagesAuthority || strings.HasPrefix(step.Uses, action)
-			}
+	for _, path := range paths {
+		where := ".github/workflows/" + filepath.Base(path)
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			problems = append(problems, problem(where, "could not read workflow: %v", readErr))
+			continue
 		}
-		if pagesAuthority {
-			problems = append(problems, problem(where,
-				"job %q retains Pages deployment actions or authority; this workflow must validate only", name))
+		var workflow struct {
+			Jobs map[string]struct {
+				Environment any               `yaml:"environment"`
+				Permissions map[string]string `yaml:"permissions"`
+				Steps       []struct {
+					Uses string `yaml:"uses"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if unmarshalErr := yaml.Unmarshal(content, &workflow); unmarshalErr != nil {
+			problems = append(problems, problem(where, "could not parse workflow: %v", unmarshalErr))
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(workflow.Jobs)) {
+			job := workflow.Jobs[name]
+			pagesAuthority := job.Permissions["pages"] != "" || pagesEnvironment(job.Environment)
+			for _, step := range job.Steps {
+				for _, action := range []string{
+					"actions/configure-pages@",
+					"actions/upload-pages-artifact@",
+					"actions/deploy-pages@",
+				} {
+					pagesAuthority = pagesAuthority || strings.HasPrefix(step.Uses, action)
+				}
+			}
+			if pagesAuthority {
+				problems = append(problems, problem(where,
+					"job %q retains Pages deployment actions or authority; the course site is built, never deployed", name))
+			}
 		}
 	}
 	return problems
@@ -525,18 +541,6 @@ func checkWorkflowShellExpressions(root string) []Problem {
 		problems = append(problems, problem(".github/actions", "could not close actions root: %v", closeErr))
 	}
 	return problems
-}
-
-func checkReleaseQualificationPrivacy(root string) []Problem {
-	workflow, err := readFile(filepath.Join(root, ".github", "workflows", "release.yml"))
-	if err != nil {
-		return []Problem{problem(".github/workflows/release.yml", "could not read release qualification privacy contract: %v", err)}
-	}
-	persistedURL := regexp.MustCompile(`(?m)^\s+(?:-\s+)?url:\s+\$run\.html_url\s*$`)
-	if persistedURL.MatchString(workflow) {
-		return []Problem{problem(".github/workflows/release.yml", "release qualification must not persist workflow URLs")}
-	}
-	return nil
 }
 
 func checkDocumentedTasks(root string, pages pageSet) []Problem {
@@ -817,7 +821,7 @@ func requireTokens(where, text string, tokens ...string) []Problem {
 }
 
 func checkCurrentSourceContracts(root string, pages pageSet) []Problem {
-	problems := make([]Problem, 0, 9)
+	problems := make([]Problem, 0, 8)
 	problems = append(problems, checkDependencyAuditContract(root, pages)...)
 	problems = append(problems, checkStateCourseContract(root, pages)...)
 	problems = append(problems, checkRetrievalCourseContract(root, pages)...)
@@ -825,7 +829,6 @@ func checkCurrentSourceContracts(root string, pages pageSet) []Problem {
 	problems = append(problems, checkOutcomeEvidenceContract(pages)...)
 	problems = append(problems, checkCapacityContract(root, pages)...)
 	problems = append(problems, checkProviderContract(root, pages)...)
-	problems = append(problems, checkReleaseFreshnessContract(root, pages)...)
 	problems = append(problems, checkArtifactRetentionContract(root, pages)...)
 	return problems
 }
@@ -1012,27 +1015,6 @@ func checkProviderContract(root string, pages pageSet) []Problem {
 			problems = append(problems, problem(where, "learner GCP example targets the maintainer-owned project"))
 		}
 	}
-	return problems
-}
-
-func checkReleaseFreshnessContract(root string, pages pageSet) []Problem {
-	const workflowWhere = ".github/workflows/release.yml"
-	const pageWhere = "content/8. Community/8.2. Releases.md"
-	workflow, _ := readFile(filepath.Join(root, filepath.FromSlash(workflowWhere)))
-	problems := requireTokens(workflowWhere, workflow,
-		"freshness_evidence:", "issues: read", "application/vnd.github.full+json",
-		"gh api --method POST markdown --input -", "--checklist-template-html freshness-template.html",
-		"tools/bin/release-freshness", "freshness: $freshness",
-		`repos/${GITHUB_REPOSITORY}/git/tags`, `repos/${GITHUB_REPOSITORY}/git/refs`,
-	)
-	if strings.Contains(workflow, "git push") {
-		problems = append(problems, problem(workflowWhere,
-			"release tag publication must keep checkout credentials disabled and use the Git Database API"))
-	}
-	problems = append(problems, requireTokens(pageWhere, pages[pageWhere],
-		"issue:<number>", "waiver:<reviewed reason>", "120 days", "every checklist box checked",
-		"reject tag updates and deletion", "do not restrict tag creation", "break-glass bypass",
-	)...)
 	return problems
 }
 
@@ -1276,89 +1258,38 @@ func sortedKeys(values map[string]bool) []string {
 	return result
 }
 
-func checkEvalRuntimeBaseline(root string) []Problem {
-	workflow, workflowErr := readFile(filepath.Join(root, ".github", "workflows", "eval.yml"))
-	baselinePath := filepath.Join(root, "evals", "cost_baseline.json")
-	baseline, baselineErr := os.ReadFile(baselinePath)
-	if workflowErr != nil || baselineErr != nil {
-		return []Problem{problem("evals/cost_baseline.json", "could not read eval runtime evidence")}
-	}
-	release := regexp.MustCompile(`/ollama/ollama/releases/download/(v\d+\.\d+\.\d+)/ollama-`).FindStringSubmatch(workflow)
-	if release == nil {
-		return []Problem{problem(".github/workflows/eval.yml", "could not identify the pinned Ollama release")}
-	}
-	var document map[string]any
-	if err := json.Unmarshal(baseline, &document); err != nil {
-		return []Problem{problem("evals/cost_baseline.json", "could not read eval runtime evidence: %v", err)}
-	}
-	expected := "ollama version is " + strings.TrimPrefix(release[1], "v")
-	actual, _ := document["ollama_version"].(string)
-	if actual == expected {
-		return nil
-	}
-	return []Problem{problem("evals/cost_baseline.json", "reviewed Ollama runtime is %q; scheduled Eval pins %q", actual, expected)}
-}
-
-func checkEvalReleaseOrchestration(root string) []Problem {
+// checkEvalContract pins the numbers the course teaches. The evaluation threshold used
+// to live in a release-policy state machine that no learner could satisfy; it now lives on
+// the command line, which means the page that quotes it and the task that runs it can drift
+// apart. This is the check that stops them.
+func checkEvalContract(root string) []Problem {
 	manifest := filepath.Join(root, "evals", "mise.toml")
-	workflowPath := filepath.Join(root, ".github", "workflows", "eval.yml")
-	workflow, err := readFile(workflowPath)
-	if err != nil {
-		return []Problem{problem(".github/workflows/eval.yml", "could not read evaluation release orchestration: %v", err)}
-	}
 	var problems []Problem
+
+	// The taught command, term by term. A learner reads these four required cases as the
+	// safety floor, so silently dropping one would leave the prose telling a lie.
 	command := taskExpansion(manifest, "eval")
-	if !strings.Contains(command, "--cost-output cost-observed.json") {
-		problems = append(problems, problem("evals/mise.toml", "the canonical eval task must emit eval-results.json and cost-observed.json from the same model run"))
-	}
-	canonicalRun := regexp.MustCompile(`(?m)^\s+(?:run:\s+)?mise run eval\s*$`)
-	separateCostRun := regexp.MustCompile(`(?m)^\s+run:\s+mise run eval:cost(?::observe)?\s*$`)
-	if !canonicalRun.MatchString(workflow) || separateCostRun.MatchString(workflow) {
-		problems = append(problems, problem(".github/workflows/eval.yml", "release evaluation and cost evidence must come from the same model run"))
-	}
-	if strings.Contains(taskExpansion(manifest, "eval:cost"), "--cost-output cost-observed.json") {
-		problems = append(problems, problem("evals/mise.toml", "eval:cost must not overwrite the canonical cost-observed.json handoff"))
-	}
-	policyPath := filepath.Join(root, "evals", "release-policy.json")
-	if info, statErr := os.Stat(policyPath); statErr != nil || !info.Mode().IsRegular() {
-		problems = append(problems, problem("evals/release-policy.json", "the repository-owned release policy is missing"))
-	}
-	for _, task := range []string{"eval", "eval:a2a"} {
-		expansion := taskExpansion(manifest, task)
-		if strings.Count(expansion, "--release-policy release-policy.json") != 1 {
-			problems = append(problems, problem("evals/mise.toml", "task %s must load --release-policy release-policy.json exactly once", task))
-		}
-		if strings.Contains(expansion, "--required-case") || strings.Contains(expansion, "--min-pass-rate") {
-			problems = append(problems, problem("evals/mise.toml", "task %s must defer release minimums and mandatory cases to release-policy.json", task))
-		}
-		if strings.Count(expansion, "--judge") != 1 {
-			problems = append(problems, problem("evals/mise.toml", "task %s must use the calibrated judge exactly once", task))
-		}
-	}
-	for _, task := range []string{"eval:policy-trial", "eval:a2a:policy-trial"} {
-		expansion := taskExpansion(manifest, task)
-		if strings.Count(expansion, "--calibration-policy release-policy.json") != 1 ||
-			strings.Count(expansion, "--judge") != 1 || strings.Count(expansion, "--repeat 3") != 1 {
-			problems = append(problems, problem("evals/mise.toml", "task %s must collect three policy-bound samples with the calibrated judge", task))
-		}
-	}
-	canonicalCalibration := taskExpansion(manifest, "eval:judge-calibration")
-	if strings.Count(canonicalCalibration, "--release-policy release-policy.json") != 1 || strings.Contains(canonicalCalibration, "--floor") {
-		problems = append(problems, problem("evals/mise.toml", "eval:judge-calibration must defer its agreement floor to release-policy.json"))
-	}
-	trialCalibration := taskExpansion(manifest, "eval:judge-calibration:trial")
-	if strings.Count(trialCalibration, "--floor 0.75") != 1 || strings.Contains(trialCalibration, "--release-policy") {
-		problems = append(problems, problem("evals/mise.toml", "eval:judge-calibration:trial must keep its explicit non-release observation floor"))
-	}
-	developmentCommand := taskExpansion(manifest, "eval:dev")
-	if strings.Count(developmentCommand, "--repeat 3") != 1 || strings.Count(developmentCommand, "--min-pass-rate 0.33") != 1 || strings.Contains(developmentCommand, "--release-policy") {
-		problems = append(problems, problem("evals/mise.toml", "eval:dev must keep three learner samples at the 0.33 development floor without a release policy"))
-	}
-	for _, task := range []string{
-		"eval", "eval:policy-trial", "eval:dev", "eval:workflow", "eval:report", "eval:a2a",
-		"eval:a2a:policy-trial", "eval:cost", "eval:cost:observe", "eval:ground",
-		"eval:judge-calibration", "eval:judge-calibration:trial", "eval:retrieval",
+	for _, required := range []string{
+		"--repeat 3",
+		"--min-pass-rate 0.33",
+		"--required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval",
+		"--judge",
+		"--output results.json",
 	} {
+		if strings.Count(command, required) != 1 {
+			problems = append(problems, problem("evals/mise.toml", "the eval task must state %q exactly once, because the course teaches it by quoting this command", required))
+		}
+	}
+
+	// Four tasks, no more. Every capability beyond them is a documented flag on `eval`.
+	expected := []string{"eval", "eval:ab", "eval:judge-calibration", "eval:validate"}
+	if actual := evalTaskNames(manifest); !slices.Equal(actual, expected) {
+		problems = append(problems, problem("evals/mise.toml", "evaluation tasks are %v, want exactly %v", actual, expected))
+	}
+
+	// A model-backed task needs the redacted root .env; an offline one must not read it,
+	// or an artifact-only comparison starts depending on a credential.
+	for _, task := range []string{"eval", "eval:judge-calibration"} {
 		if !taskLoadsRedactedEnv(manifest, task, "../.env") {
 			problems = append(problems, problem("evals/mise.toml", "live task %s must load the redacted root .env", task))
 		}
@@ -1368,10 +1299,7 @@ func checkEvalReleaseOrchestration(root string) []Problem {
 			problems = append(problems, problem("evals/mise.toml", "offline or artifact-only task %s must not load the root .env", task))
 		}
 	}
-	workflowCommand := taskExpansion(manifest, "eval:workflow")
-	if strings.Count(workflowCommand, "--repeat 3") != 1 || strings.Count(workflowCommand, "--min-pass-rate 0.33") != 1 {
-		problems = append(problems, problem("evals/mise.toml", "eval:workflow must preserve three samples at the reviewed 0.33 pass-rate floor"))
-	}
+
 	promptCommand := taskExpansion(manifest, "eval:ab")
 	if !strings.Contains(promptCommand, "--require-distinct-source") || !taskAcceptsPromptArtifacts(manifest, "eval:ab") {
 		problems = append(problems, problem("evals/mise.toml", "eval:ab must accept explicit prompt artifacts from distinct source revisions"))
@@ -1381,11 +1309,27 @@ func checkEvalReleaseOrchestration(root string) []Problem {
 	if !taskAcceptsPromptArtifacts(rootManifest, "eval:ab") || !strings.Contains(rootPromptCommand, "mise run eval:ab --") {
 		problems = append(problems, problem("mise.toml", "root eval:ab must forward explicit prompt artifacts to the eval module"))
 	}
-	retrievalCommand := taskExpansion(manifest, "eval:retrieval")
-	if !strings.Contains(retrievalCommand, "agentops-eval retrieval") || strings.Contains(retrievalCommand, "agentops-eval compare") {
-		problems = append(problems, problem("evals/mise.toml", "eval:retrieval must run the end-to-end retrieval-quality evaluation"))
-	}
 	return problems
+}
+
+// evalTaskNames lists every declared eval* task, sorted, so the set can be compared exactly.
+func evalTaskNames(path string) []string {
+	document, err := loadTOML(path)
+	if err != nil {
+		return nil
+	}
+	tasks, ok := document.GetPath([]string{"tasks"}).(*toml.Tree)
+	if !ok {
+		return nil
+	}
+	var names []string
+	for _, name := range tasks.Keys() {
+		if name == "eval" || strings.HasPrefix(name, "eval:") {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 func taskAcceptsPromptArtifacts(path, name string) bool {

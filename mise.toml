@@ -500,44 +500,12 @@ description = "Validate all committed evaluation assets without a model"
 run = "cd evals && mise run eval:validate"
 
 [tasks.eval]
-description = "Run the canonical model-backed evaluation against the Go agent"
+description = "Run the model-backed evaluation against the Go agent"
 run = "cd evals && mise run eval"
-
-[tasks."eval:dev"]
-description = "Run the core model-backed evaluation with a non-release development identity"
-run = "cd evals && mise run eval:dev"
-
-[tasks."eval:workflow"]
-description = "Run the bounded workflow evaluation"
-run = "cd evals && mise run eval:workflow"
-
-[tasks."eval:report"]
-description = "Run the structured-report evaluation"
-run = "cd evals && mise run eval:report"
-
-[tasks."eval:a2a"]
-description = "Run the canonical evaluation over the deployed A2A transport"
-run = "cd evals && mise run eval:a2a"
-
-[tasks."eval:cost"]
-description = "Enforce the reviewed token and model-call baseline"
-run = "cd evals && mise run eval:cost"
-
-[tasks."eval:cost:observe"]
-description = "Capture fresh Go-agent token and model-call observations"
-run = "cd evals && mise run eval:cost:observe"
-
-[tasks."eval:ground"]
-description = "Run groundedness evaluation against per-turn tool evidence"
-run = "cd evals && mise run eval:ground"
 
 [tasks."eval:judge-calibration"]
 description = "Measure gateway-judge agreement against reviewed labels"
 run = "cd evals && mise run eval:judge-calibration"
-
-[tasks."eval:retrieval"]
-description = "Compare reviewed keyword and semantic retrieval artifacts"
-run = "cd evals && mise run eval:retrieval"
 
 [tasks."eval:ab"]
 description = "Compare two git-pinned prompt evaluation artifacts"

@@ -55,7 +55,7 @@ func TestRunRetrievalEvaluationUsesDistinctModesAndWritesOnlyAggregateEvidence(t
 	factory := &fakeRetrievalFactory{answers: answers}
 
 	artifact, err := RunRetrievalEvaluation(t.Context(), RetrievalRunConfig{
-		DataDir: dataDir, Source: testSourceEvidence(), Platform: "test-retrieval", EmbeddingModel: "embed-fixture",
+		DataDir: dataDir, Source: testSourceEvidence(), EmbeddingModel: "embed-fixture",
 		EmbeddingModelDigest: "sha256:model-fixture",
 		Factory:              factory.New,
 	})
@@ -155,7 +155,7 @@ func TestRunRetrievalEvaluationRejectsSemanticFallback(t *testing.T) {
 	}
 
 	_, err := RunRetrievalEvaluation(t.Context(), RetrievalRunConfig{
-		DataDir: dataDir, Source: testSourceEvidence(), Platform: "test-retrieval", EmbeddingModel: "embed", Factory: factory.New,
+		DataDir: dataDir, Source: testSourceEvidence(), EmbeddingModel: "embed", Factory: factory.New,
 	})
 	if err == nil || !strings.Contains(err.Error(), "semantic runtime reported keyword retrieval") {
 		t.Fatalf("RunRetrievalEvaluation() error = %v, want semantic fallback rejection", err)
@@ -172,7 +172,7 @@ func TestRunRetrievalEvaluationRejectsReusedRuntime(t *testing.T) {
 	factory := &fakeRetrievalFactory{answers: answersForEveryCase(cases), sharedID: "same-runtime"}
 
 	_, err := RunRetrievalEvaluation(t.Context(), RetrievalRunConfig{
-		DataDir: dataDir, Source: testSourceEvidence(), Platform: "test-retrieval", EmbeddingModel: "embed", Factory: factory.New,
+		DataDir: dataDir, Source: testSourceEvidence(), EmbeddingModel: "embed", Factory: factory.New,
 	})
 	if err == nil || !strings.Contains(err.Error(), "must use a distinct isolated runtime") {
 		t.Fatalf("RunRetrievalEvaluation() error = %v, want runtime isolation rejection", err)
@@ -194,7 +194,7 @@ func TestRunRetrievalEvaluationJoinsCleanupFailure(t *testing.T) {
 	}
 
 	_, err := RunRetrievalEvaluation(t.Context(), RetrievalRunConfig{
-		DataDir: dataDir, Source: testSourceEvidence(), Platform: "test-retrieval", EmbeddingModel: "embed", Factory: factory.New,
+		DataDir: dataDir, Source: testSourceEvidence(), EmbeddingModel: "embed", Factory: factory.New,
 	})
 	if err == nil || !strings.Contains(err.Error(), "cleanup failed") {
 		t.Fatalf("RunRetrievalEvaluation() error = %v, want cleanup failure", err)
@@ -204,11 +204,213 @@ func TestRunRetrievalEvaluationJoinsCleanupFailure(t *testing.T) {
 	}
 }
 
+func TestLoadRetrievalCasesRefusesASeedItCannotTrust(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		build func(*testing.T) string
+		want  string
+	}{
+		"no data directory": {
+			build: func(*testing.T) string { return "  " },
+			want:  "immutable data directory",
+		},
+		"missing seed": {
+			build: func(t *testing.T) string { t.Helper(); return t.TempDir() },
+			want:  "read retrieval seed",
+		},
+		"no incidents insert": {
+			build: func(t *testing.T) string {
+				t.Helper()
+				return rewriteRetrievalSeed(t, "INSERT INTO incidents", "INSERT INTO services")
+			},
+			want: "no incidents insert",
+		},
+		"unparseable rows": {
+			build: func(t *testing.T) string {
+				t.Helper()
+				directory, _ := writeRetrievalFixture(t)
+				writeFixtureFile(t, filepath.Join(directory, "sql", "seed.sql"),
+					"INSERT INTO incidents (id) VALUES\n    (1);\n")
+				return directory
+			},
+			want: "no parseable incident rows",
+		},
+		"duplicate incident": {
+			build: func(t *testing.T) string { t.Helper(); return rewriteRetrievalSeed(t, "'INC-002'", "'INC-001'") },
+			want:  `repeats incident "INC-001"`,
+		},
+		"blank summary": {
+			build: func(t *testing.T) string { t.Helper(); return rewriteRetrievalSeed(t, "'Latency summary.'", "'   '") },
+			want:  `incident "INC-001" needs a title and summary`,
+		},
+		"unknown runbook": {
+			build: func(t *testing.T) string { t.Helper(); return rewriteRetrievalSeed(t, "'latency'", "'absent-runbook'") },
+			want:  `names unknown runbook "absent-runbook"`,
+		},
+		"missing runbooks": {
+			build: func(t *testing.T) string {
+				t.Helper()
+				directory, _ := writeRetrievalFixture(t)
+				removeFixturePath(t, filepath.Join(directory, "runbooks"))
+				return directory
+			},
+			want: "read domain directory",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := LoadRetrievalCases(test.build(t)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("LoadRetrievalCases() error = %v, want one mentioning %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRunRetrievalEvaluationRefusesAnUnidentifiedConfiguration(t *testing.T) {
+	t.Parallel()
+
+	dataDir, cases := writeRetrievalFixture(t)
+	valid := RetrievalRunConfig{
+		DataDir: dataDir, Source: testSourceEvidence(), EmbeddingModel: "embed",
+		Factory: (&fakeRetrievalFactory{answers: answersForEveryCase(cases)}).New,
+	}
+	for name, test := range map[string]struct {
+		mutate func(*RetrievalRunConfig)
+		want   string
+	}{
+		"data directory": {
+			mutate: func(c *RetrievalRunConfig) { c.DataDir = "" },
+			want:   "needs an immutable data directory",
+		},
+		"source": {
+			mutate: func(c *RetrievalRunConfig) { c.Source = SourceEvidence{Revision: "abc"} },
+			want:   "one full lowercase revision",
+		},
+		"embedding model": {
+			mutate: func(c *RetrievalRunConfig) { c.EmbeddingModel = " embed " },
+			want:   "trimmed, single-line embedding model",
+		},
+		"embedding digest": {
+			mutate: func(c *RetrievalRunConfig) { c.EmbeddingModelDigest = "sha256:one\nsha256:two" },
+			want:   "digest must be trimmed and single-line",
+		},
+		"factory": {
+			mutate: func(c *RetrievalRunConfig) { c.Factory = nil },
+			want:   "needs a runtime factory",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			config := valid
+			test.mutate(&config)
+			if _, err := RunRetrievalEvaluation(t.Context(), config); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("RunRetrievalEvaluation() error = %v, want one mentioning %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRunRetrievalEvaluationRefusesAnUnrankableSearchResult(t *testing.T) {
+	t.Parallel()
+
+	dataDir, cases := writeRetrievalFixture(t)
+	// The hit rates only mean something if the runtime answered with a bounded,
+	// de-duplicated ranking of real runbook slugs. Anything else is not a ranking,
+	// so it fails the run instead of quietly scoring as a miss.
+	for name, test := range map[string]struct {
+		want  string
+		slugs []string
+	}{
+		"over the limit": {
+			slugs: []string{"latency", "down", "errors", "disk"},
+			want:  "returned 4 results, limit is 3",
+		},
+		"invalid slug":   {slugs: []string{"Service Down"}, want: "invalid runbook slug"},
+		"repeated slug":  {slugs: []string{"latency", "latency"}, want: "repeated runbook slug"},
+		"empty top slug": {slugs: []string{""}, want: "invalid runbook slug"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			answers := answersForEveryCase(cases)
+			answers[RetrievalKeyword][cases[0].Query] = test.slugs
+			_, err := RunRetrievalEvaluation(t.Context(), RetrievalRunConfig{
+				DataDir: dataDir, Source: testSourceEvidence(), EmbeddingModel: "embed",
+				Factory: (&fakeRetrievalFactory{answers: answers}).New,
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("RunRetrievalEvaluation() error = %v, want one mentioning %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), cases[0].Query) {
+				t.Fatalf("RunRetrievalEvaluation() error leaked the query: %v", err)
+			}
+		})
+	}
+}
+
+func TestWriteRetrievalArtifactPublishesOnlyValidatedEvidence(t *testing.T) {
+	t.Parallel()
+
+	valid := RetrievalArtifact{
+		Source: testSourceEvidence(), CorpusDigest: strings.Repeat("a", 64), EmbeddingModel: "embed",
+		Keyword: RetrievalRates{HitRateAt1: 0.5, HitRateAt3: 1}, Semantic: RetrievalRates{HitRateAt1: 0.75, HitRateAt3: 1},
+		SchemaVersion: RetrievalArtifactSchemaVersion, CaseCount: 4,
+	}
+	directory := t.TempDir()
+	path := filepath.Join(directory, "retrieval.json")
+	if err := WriteRetrievalArtifact(path, valid); err != nil {
+		t.Fatalf("WriteRetrievalArtifact() error = %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(artifact) error = %v", err)
+	}
+	var published RetrievalArtifact
+	if err := json.Unmarshal(raw, &published); err != nil {
+		t.Fatalf("json.Unmarshal(artifact) error = %v", err)
+	}
+	// TreeDigest is not part of the artifact schema, so the round trip drops it.
+	want := valid
+	want.Source.TreeDigest = ""
+	if published != want {
+		t.Fatalf("published artifact = %+v, want %+v", published, want)
+	}
+
+	// An artifact that cannot pass its own validation is never written at all:
+	// a file on disk is read later as evidence that a measurement happened.
+	invalid := valid
+	invalid.CaseCount = 0
+	rejected := filepath.Join(directory, "rejected.json")
+	if err := WriteRetrievalArtifact(rejected, invalid); err == nil ||
+		!strings.Contains(err.Error(), "case_count") {
+		t.Fatalf("WriteRetrievalArtifact(invalid) error = %v, want a validation refusal", err)
+	}
+	if _, err := os.Stat(rejected); !os.IsNotExist(err) {
+		t.Fatalf("Stat(rejected artifact) = %v, want the file never to have been created", err)
+	}
+}
+
+func rewriteRetrievalSeed(t *testing.T, old, replacement string) string {
+	t.Helper()
+	directory, _ := writeRetrievalFixture(t)
+	path := filepath.Join(directory, "sql", "seed.sql")
+	seed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(seed) error = %v", err)
+	}
+	if !strings.Contains(string(seed), old) {
+		t.Fatalf("seed fixture no longer contains %q", old)
+	}
+	writeFixtureFile(t, path, strings.Replace(string(seed), old, replacement, 1))
+	return directory
+}
+
 func TestValidateRetrievalArtifactRejectsIncompleteIdentityAndInvalidRates(t *testing.T) {
 	t.Parallel()
 
 	valid := RetrievalArtifact{
-		Source: testSourceEvidence(), Platform: "test-retrieval", CorpusDigest: strings.Repeat("a", 64), EmbeddingModel: "embed",
+		Source: testSourceEvidence(), CorpusDigest: strings.Repeat("a", 64), EmbeddingModel: "embed",
 		EmbeddingModelDigest: "sha256:model",
 		Keyword:              RetrievalRates{HitRateAt1: 0.5, HitRateAt3: 1},
 		Semantic:             RetrievalRates{HitRateAt1: 0.75, HitRateAt3: 1},
@@ -219,12 +421,12 @@ func TestValidateRetrievalArtifactRejectsIncompleteIdentityAndInvalidRates(t *te
 	}
 
 	tests := map[string]RetrievalArtifact{
-		"source newline": func() RetrievalArtifact { value := valid; value.Source.Identity = "commit\nother"; return value }(),
-		"digest":         func() RetrievalArtifact { value := valid; value.CorpusDigest = "short"; return value }(),
-		"embedding":      func() RetrievalArtifact { value := valid; value.EmbeddingModel = ""; return value }(),
-		"model digest":   func() RetrievalArtifact { value := valid; value.EmbeddingModelDigest = "bad\ndigest"; return value }(),
-		"case count":     func() RetrievalArtifact { value := valid; value.CaseCount = 0; return value }(),
-		"rate range":     func() RetrievalArtifact { value := valid; value.Semantic.HitRateAt3 = 1.1; return value }(),
+		"source":       func() RetrievalArtifact { value := valid; value.Source.Revision = "abc"; return value }(),
+		"digest":       func() RetrievalArtifact { value := valid; value.CorpusDigest = "short"; return value }(),
+		"embedding":    func() RetrievalArtifact { value := valid; value.EmbeddingModel = ""; return value }(),
+		"model digest": func() RetrievalArtifact { value := valid; value.EmbeddingModelDigest = "bad\ndigest"; return value }(),
+		"case count":   func() RetrievalArtifact { value := valid; value.CaseCount = 0; return value }(),
+		"rate range":   func() RetrievalArtifact { value := valid; value.Semantic.HitRateAt3 = 1.1; return value }(),
 		"monotonic": func() RetrievalArtifact {
 			value := valid
 			value.Keyword.HitRateAt1 = 0.75

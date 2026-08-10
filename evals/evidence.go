@@ -47,7 +47,6 @@ var (
 
 type RunEvidence struct {
 	RunID     string
-	Platform  string
 	Model     string
 	EvalSet   string
 	Transport string
@@ -250,8 +249,8 @@ func NewNoopRecorder() (*Recorder, error) {
 }
 
 func (r *Recorder) StartRun(ctx context.Context, run RunEvidence) (context.Context, EndRun, error) {
-	if run.RunID == "" || run.Model == "" || run.EvalSet == "" || run.Transport == "" || !validPlatformIdentity(run.Platform) {
-		return nil, nil, errors.New("run evidence needs run id, source, platform, model, evalset, and transport")
+	if run.RunID == "" || run.Model == "" || run.EvalSet == "" || run.Transport == "" {
+		return nil, nil, errors.New("run evidence needs run id, source, model, evalset, and transport")
 	}
 	if err := run.Source.Validate(); err != nil {
 		return nil, nil, err
@@ -333,12 +332,8 @@ func (r *Recorder) Shutdown(ctx context.Context) error {
 func runAttributes(run RunEvidence) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("eval.run.id", run.RunID),
-		attribute.String("agentops.source.identity", run.Source.Identity),
 		attribute.String("agentops.source.revision", run.Source.Revision),
-		attribute.String("agentops.source.tree_digest", run.Source.TreeDigest),
-		attribute.String("agentops.source.mode", string(run.Source.Mode)),
 		attribute.Bool("agentops.source.dirty", run.Source.Dirty),
-		attribute.String("agentops.eval.platform", run.Platform),
 		attribute.String("gen_ai.request.model", run.Model),
 		attribute.String("agentops.eval.evalset", run.EvalSet),
 		attribute.String("agentops.eval.transport", run.Transport),

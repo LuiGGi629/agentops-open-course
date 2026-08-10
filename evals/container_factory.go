@@ -51,7 +51,7 @@ func newContainerClientFactory(
 			return nil, nil, err
 		}
 		container, err := StartAgentContainer(ctx, AgentContainerConfig{
-			Engine: config.Engine, Image: config.Image, SourceIdentity: config.Source.Identity,
+			Engine: config.Engine, Image: config.Image,
 			Transport: config.Transport, Entrypoint: config.Entrypoint, Port: port,
 			Environment: config.Environment, Output: config.Output,
 		})

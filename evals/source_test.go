@@ -5,30 +5,30 @@ import (
 	"testing"
 )
 
-func TestSourceEvidenceSeparatesReleaseAndDirtyDevelopmentIdentity(t *testing.T) {
+func TestSourceEvidenceRefusesDirtyTreesClaimingARevision(t *testing.T) {
 	t.Parallel()
-	release := testSourceEvidence()
-	if err := release.Validate(); err != nil {
+	clean := testSourceEvidence()
+	if err := clean.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	dirty := release
-	dirty.Mode = SourceDevelopment
-	dirty.Identity = "unknown+dirty." + strings.Repeat("b", 12)
-	dirty.Revision = ""
-	dirty.Dirty = true
+	dirty := SourceEvidence{TreeDigest: clean.TreeDigest, Dirty: true}
 	if err := dirty.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	dirty.Revision = release.Revision
+	dirty.Revision = clean.Revision
 	if err := dirty.Validate(); err == nil {
-		t.Fatal("dirty development source impersonated HEAD")
+		t.Fatal("dirty checkout impersonated HEAD")
+	}
+	short := clean
+	short.Revision = "abc"
+	if err := short.Validate(); err == nil {
+		t.Fatal("clean checkout accepted a partial revision")
 	}
 }
 
 func testSourceEvidence() SourceEvidence {
-	revision := strings.Repeat("a", 40)
 	return SourceEvidence{
-		Mode: SourceRelease, Identity: revision, Revision: revision,
+		Revision:   strings.Repeat("a", 40),
 		TreeDigest: "sha256:" + strings.Repeat("b", 64),
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const RunArtifactSchemaVersion = 3
+const RunArtifactSchemaVersion = 4
 
 type ModelEvidence struct {
 	Provider string `json:"provider"`
@@ -20,11 +20,6 @@ type ModelEvidence struct {
 type EvalSetEvidence struct {
 	ID     string `json:"id"`
 	Digest string `json:"digest"`
-}
-
-type PolicyEvidence struct {
-	Version string `json:"version"`
-	Digest  string `json:"digest"`
 }
 
 type CaseResult struct {
@@ -43,17 +38,16 @@ type RunSummary struct {
 	RequiredCasesPassed bool    `json:"required_cases_passed"`
 }
 
-// RunArtifact is deliberately content-free. It is safe to attach to a release:
-// prompts, answers, tool arguments, tool results, rationales, URLs, and errors
-// never cross this boundary.
+// RunArtifact is deliberately content-free: prompts, answers, tool arguments,
+// tool results, rationales, URLs, and errors never cross this boundary. What
+// remains is what a reader needs to reproduce the run — the checkout, the
+// model, the evalset, the per-case scores, and the per-case usage.
 type RunArtifact struct {
 	StartedAt     time.Time       `json:"started_at"`
 	CompletedAt   time.Time       `json:"completed_at"`
 	Model         ModelEvidence   `json:"model"`
 	EvalSet       EvalSetEvidence `json:"evalset"`
-	Policy        *PolicyEvidence `json:"policy,omitempty"`
 	RunID         string          `json:"run_id"`
-	Platform      string          `json:"platform_identity"`
 	Source        SourceEvidence  `json:"source"`
 	Transport     string          `json:"transport"`
 	Cases         []CaseResult    `json:"cases"`
@@ -67,18 +61,14 @@ type RunnerConfig struct {
 	Domain          Domain
 	Recorder        EvidenceRecorder
 	Judge           VerdictJudge
-	CostBaseline    *CostBaseline
 	Clock           func() time.Time
 	ClientFactory   ClientFactory
-	ReleasePolicy   *ReleasePolicy
 	Model           ModelEvidence
 	RunID           string
-	Platform        string
 	Transport       string
 	EvalSet         EvalSet
 	Source          SourceEvidence
 	RequiredCases   []string
-	CostTolerance   float64
 	MinimumPassRate float64
 	Repeat          int
 	RequireSchema   bool
@@ -105,7 +95,6 @@ func Run(ctx context.Context, config RunnerConfig) (RunArtifact, error) {
 	artifact := RunArtifact{
 		SchemaVersion: RunArtifactSchemaVersion,
 		RunID:         config.RunID,
-		Platform:      config.Platform,
 		Source:        config.Source,
 		Model:         config.Model,
 		EvalSet:       EvalSetEvidence{ID: config.EvalSet.ID, Digest: config.EvalSet.Digest},
@@ -113,14 +102,8 @@ func Run(ctx context.Context, config RunnerConfig) (RunArtifact, error) {
 		StartedAt:     clock().UTC(),
 		Cases:         make([]CaseResult, 0, len(config.EvalSet.Cases)*repeat),
 	}
-	if config.ReleasePolicy != nil {
-		artifact.Policy = &PolicyEvidence{
-			Version: config.ReleasePolicy.PolicyVersion,
-			Digest:  config.ReleasePolicy.Digest,
-		}
-	}
 	runCtx, endRun, err := config.Recorder.StartRun(ctx, RunEvidence{
-		RunID: config.RunID, Source: config.Source, Platform: config.Platform,
+		RunID: config.RunID, Source: config.Source,
 		Model: config.Model.Name, EvalSet: config.EvalSet.ID, Transport: config.Transport,
 	})
 	if err != nil {
@@ -199,9 +182,6 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 		answers = append(answers, turn.Text)
 		references = append(references, invocation.FinalResponse.Text())
 	}
-	if config.CostBaseline != nil {
-		evaluated.merge(CostScore(evalCase.ID, evaluated.usage, *config.CostBaseline, config.CostTolerance))
-	}
 	if config.Judge != nil {
 		verdict, err := config.Judge.Judge(caseCtx, JudgeInput{
 			Questions: questions, Answers: answers, ReferenceAnswers: references,
@@ -238,9 +218,6 @@ func validateRunnerConfig(config RunnerConfig) error {
 	if err := config.Source.Validate(); err != nil {
 		problems = append(problems, err)
 	}
-	if !validPlatformIdentity(config.Platform) {
-		problems = append(problems, errors.New("platform identity must be non-empty, bounded, trimmed, and single-line"))
-	}
 	if config.Transport != "rest" && config.Transport != "a2a" {
 		problems = append(problems, fmt.Errorf("unsupported transport %q", config.Transport))
 	}
@@ -261,19 +238,6 @@ func validateRunnerConfig(config RunnerConfig) error {
 	for _, caseID := range config.RequiredCases {
 		if _, found := caseIDs[caseID]; !found {
 			problems = append(problems, fmt.Errorf("required case %q is not in evalset", caseID))
-		}
-	}
-	if config.ReleasePolicy != nil {
-		minimum, repeat, required, err := config.ReleasePolicy.RunnerSettings(config.EvalSet)
-		if err != nil {
-			problems = append(problems, err)
-		} else {
-			actualRequired := slices.Clone(config.RequiredCases)
-			slices.Sort(actualRequired)
-			if !validSHA256Digest(config.ReleasePolicy.Digest) ||
-				config.MinimumPassRate != minimum || config.Repeat != repeat || !slices.Equal(actualRequired, required) {
-				problems = append(problems, errors.New("runner settings do not match the approved release policy"))
-			}
 		}
 	}
 	return errors.Join(problems...)

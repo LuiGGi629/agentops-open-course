@@ -3,11 +3,14 @@ package evals
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestProcessRuntimeIdentityRejectsStaleBinary(t *testing.T) {
+func TestRuntimeIdentityRejectsStaleBinary(t *testing.T) {
 	t.Parallel()
 
 	source := testSourceEvidence()
@@ -20,59 +23,63 @@ func TestProcessRuntimeIdentityRejectsStaleBinary(t *testing.T) {
 		return runtimeVersionJSON(t, stale), nil
 	}
 
-	err := verifyProcessRuntimeIdentity(t.Context(), "/tmp/agent", source, runner)
+	err := verifyRuntimeIdentity(t.Context(), "/tmp/agent", source, runner)
 	if err == nil || !strings.Contains(err.Error(), "tree_digest") {
 		t.Fatalf("error = %v, want stale tree digest rejection", err)
 	}
 }
 
-func TestProcessRuntimeIdentityAcceptsMatchingBinary(t *testing.T) {
+func TestRuntimeIdentityRejectsBinaryFromAnotherRevision(t *testing.T) {
 	t.Parallel()
 
 	source := testSourceEvidence()
-	runner := func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	other := source
+	other.Revision = strings.Repeat("c", 40)
+	runner := func(context.Context, string, ...string) ([]byte, error) {
+		return runtimeVersionJSON(t, other), nil
+	}
+
+	err := verifyRuntimeIdentity(t.Context(), "/tmp/agent", source, runner)
+	if err == nil || !strings.Contains(err.Error(), "revision") {
+		t.Fatalf("error = %v, want stale revision rejection", err)
+	}
+}
+
+func TestRuntimeIdentityAcceptsMatchingBinary(t *testing.T) {
+	t.Parallel()
+
+	source := testSourceEvidence()
+	runner := func(context.Context, string, ...string) ([]byte, error) {
 		return runtimeVersionJSON(t, source), nil
 	}
-	if err := verifyProcessRuntimeIdentity(t.Context(), "/tmp/agent", source, runner); err != nil {
+	if err := verifyRuntimeIdentity(t.Context(), "/tmp/agent", source, runner); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestProcessRuntimeIdentityRejectsMalformedVersion(t *testing.T) {
+func TestRuntimeIdentityRejectsMalformedVersion(t *testing.T) {
 	t.Parallel()
 
-	runner := func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-		return []byte(`{"mode":"release","dirty":false}`), nil
+	runner := func(context.Context, string, ...string) ([]byte, error) {
+		return []byte(`{"dirty":false}`), nil
 	}
-	err := verifyProcessRuntimeIdentity(t.Context(), "/tmp/agent", testSourceEvidence(), runner)
+	err := verifyRuntimeIdentity(t.Context(), "/tmp/agent", testSourceEvidence(), runner)
 	if err == nil || !strings.Contains(err.Error(), "incomplete") {
 		t.Fatalf("error = %v, want malformed version rejection", err)
 	}
 }
 
-func TestContainerRuntimeIdentityRejectsStaleImageLabels(t *testing.T) {
+func TestRuntimeIdentityRequiresTheCheckoutTreeDigest(t *testing.T) {
 	t.Parallel()
 
-	source := testSourceEvidence()
-	labels := runtimeSourceLabels(source)
-	labels[containerTreeDigestLabel] = "sha256:" + strings.Repeat("c", 64)
-	runner := fakeContainerIdentityRunner(t, source, labels)
-
-	err := verifyContainerRuntimeIdentity(t.Context(), "docker", "agent:candidate", source, runner)
-	if err == nil || !strings.Contains(err.Error(), containerTreeDigestLabel) {
-		t.Fatalf("error = %v, want stale image-label rejection", err)
+	// Two empty digests must never compare equal by accident.
+	source := SourceEvidence{Revision: strings.Repeat("a", 40)}
+	runner := func(context.Context, string, ...string) ([]byte, error) {
+		return runtimeVersionJSON(t, source), nil
 	}
-}
-
-func TestContainerRuntimeIdentityAcceptsMatchingBinaryAndLabels(t *testing.T) {
-	t.Parallel()
-
-	source := testSourceEvidence()
-	if err := verifyContainerRuntimeIdentity(
-		t.Context(), "docker", "agent:candidate", source,
-		fakeContainerIdentityRunner(t, source, runtimeSourceLabels(source)),
-	); err != nil {
-		t.Fatal(err)
+	err := verifyRuntimeIdentity(t.Context(), "/tmp/agent", source, runner)
+	if err == nil || !strings.Contains(err.Error(), "tree digest") {
+		t.Fatalf("error = %v, want missing checkout digest rejection", err)
 	}
 }
 
@@ -81,8 +88,7 @@ func TestContainerRuntimeIdentityPinsMutableTagToInspectedImage(t *testing.T) {
 
 	source := testSourceEvidence()
 	imageID, err := resolveContainerRuntimeIdentity(
-		t.Context(), "docker", "agent:candidate", source,
-		fakeContainerIdentityRunner(t, source, runtimeSourceLabels(source)),
+		t.Context(), "docker", "agent:candidate", source, fakeContainerIdentityRunner(t, source),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -92,22 +98,202 @@ func TestContainerRuntimeIdentityPinsMutableTagToInspectedImage(t *testing.T) {
 	}
 }
 
-func TestRuntimeVersionAllowsEmptyDirtyDevelopmentRevision(t *testing.T) {
+func TestContainerRuntimeIdentityRejectsStaleImage(t *testing.T) {
 	t.Parallel()
-	source := SourceEvidence{
-		Mode: SourceDevelopment, Identity: "unknown+dirty." + strings.Repeat("b", 12),
-		TreeDigest: "sha256:" + strings.Repeat("b", 64), Dirty: true,
+
+	source := testSourceEvidence()
+	stale := source
+	stale.TreeDigest = "sha256:" + strings.Repeat("c", 64)
+	_, err := resolveContainerRuntimeIdentity(
+		t.Context(), "docker", "agent:candidate", source, fakeContainerIdentityRunner(t, stale),
+	)
+	if err == nil || !strings.Contains(err.Error(), "tree_digest") {
+		t.Fatalf("error = %v, want stale image rejection", err)
 	}
-	encoded, err := json.Marshal(map[string]any{
-		"mode": source.Mode, "source_identity": source.Identity,
-		"tree_digest": source.TreeDigest, "dirty": true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := decodeRuntimeVersion(encoded)
+}
+
+func TestRuntimeVersionAllowsEmptyDirtyRevision(t *testing.T) {
+	t.Parallel()
+	source := SourceEvidence{TreeDigest: "sha256:" + strings.Repeat("b", 64), Dirty: true}
+	decoded, err := decodeRuntimeVersion(runtimeVersionJSON(t, source))
 	if err != nil || decoded != source {
 		t.Fatalf("decoded/error = %#v/%v", decoded, err)
+	}
+}
+
+func TestRuntimeIdentityRefusesAnUnanswerableRequest(t *testing.T) {
+	t.Parallel()
+
+	source := testSourceEvidence()
+	answering := func(context.Context, string, ...string) ([]byte, error) {
+		return runtimeVersionJSON(t, source), nil
+	}
+	for name, test := range map[string]struct {
+		binary   string
+		want     string
+		run      runtimeCommand
+		expected SourceEvidence
+	}{
+		"no binary": {binary: "  ", expected: source, run: answering, want: "needs an agent binary"},
+		"unusable expectation": {
+			binary:   "/tmp/agent",
+			expected: SourceEvidence{Revision: strings.Repeat("a", 40), Dirty: true},
+			run:      answering,
+			want:     "validate expected checkout",
+		},
+		"no command": {binary: "/tmp/agent", expected: source, want: "command is unavailable"},
+		"command failed": {
+			binary: "/tmp/agent", expected: source,
+			run:  func(context.Context, string, ...string) ([]byte, error) { return nil, errors.New("exec failed") },
+			want: "query runtime identity",
+		},
+		"not json": {
+			binary: "/tmp/agent", expected: source,
+			run:  func(context.Context, string, ...string) ([]byte, error) { return []byte("agent v1"), nil },
+			want: "version output is not JSON",
+		},
+		"impossible tuple": {
+			// A build that claims both a revision and a dirty tree is describing two
+			// different checkouts, so it can never be the one under evaluation.
+			binary: "/tmp/agent", expected: source,
+			run: func(context.Context, string, ...string) ([]byte, error) {
+				return []byte(`{"revision":"` + strings.Repeat("a", 40) +
+					`","tree_digest":"sha256:` + strings.Repeat("b", 64) + `","dirty":true}`), nil
+			},
+			want: "invalid source tuple",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := verifyRuntimeIdentity(t.Context(), test.binary, test.expected, test.run)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("verifyRuntimeIdentity() error = %v, want one mentioning %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestContainerRuntimeIdentityRefusesAnUnresolvableImage(t *testing.T) {
+	t.Parallel()
+
+	source := testSourceEvidence()
+	for name, test := range map[string]struct {
+		engine string
+		image  string
+		run    runtimeCommand
+		want   string
+	}{
+		"no engine": {image: "agent:candidate", run: fakeContainerIdentityRunner(t, source), want: "needs an engine and image"},
+		"no image":  {engine: "docker", run: fakeContainerIdentityRunner(t, source), want: "needs an engine and image"},
+		"no command": {
+			engine: "docker", image: "agent:candidate", want: "command is unavailable",
+		},
+		"inspect failed": {
+			engine: "docker", image: "agent:candidate",
+			run:  func(context.Context, string, ...string) ([]byte, error) { return nil, errors.New("no such image") },
+			want: "inspect container image identity",
+		},
+		"no image id": {
+			// Without an immutable image ID the harness would have to run the mutable
+			// tag, which can point somewhere else by the time the trials start.
+			engine: "docker", image: "agent:candidate",
+			run:  func(context.Context, string, ...string) ([]byte, error) { return []byte("  \n"), nil },
+			want: "empty image ID",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := resolveContainerRuntimeIdentity(t.Context(), test.engine, test.image, source, test.run)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("resolveContainerRuntimeIdentity() error = %v, want one mentioning %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestExecuteRuntimeCommandKeepsTheChildDiagnosis(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	answering := filepath.Join(directory, "answering")
+	writeExecutableScript(t, answering, "#!/bin/sh\nprintf 'agent-output'\n")
+	output, err := executeRuntimeCommand(t.Context(), answering)
+	if err != nil || string(output) != "agent-output" {
+		t.Fatalf("executeRuntimeCommand() = %q, %v, want the child's stdout", output, err)
+	}
+
+	// A candidate that refuses to report its identity is the failure a learner has
+	// to debug, so its own stderr is the one provider text worth keeping: it comes
+	// from the binary under evaluation, not from a remote provider.
+	failing := filepath.Join(directory, "failing")
+	writeExecutableScript(t, failing, "#!/bin/sh\necho 'unknown command: version' >&2\nexit 3\n")
+	if _, err := executeRuntimeCommand(t.Context(), failing, "version"); err == nil ||
+		!strings.Contains(err.Error(), "unknown command: version") {
+		t.Fatalf("executeRuntimeCommand(failing) error = %v, want the child's stderr", err)
+	}
+
+	silent := filepath.Join(directory, "silent")
+	writeExecutableScript(t, silent, "#!/bin/sh\nexit 4\n")
+	if _, err := executeRuntimeCommand(t.Context(), silent); err == nil ||
+		!strings.Contains(err.Error(), "exit status 4") {
+		t.Fatalf("executeRuntimeCommand(silent) error = %v, want the exit status", err)
+	}
+	if _, err := executeRuntimeCommand(t.Context(), filepath.Join(directory, "absent")); err == nil {
+		t.Fatal("executeRuntimeCommand(absent) error = nil, want a start failure")
+	}
+}
+
+func TestSnapshotRuntimeBinaryCopiesTheExactCandidate(t *testing.T) {
+	t.Parallel()
+
+	source := filepath.Join(t.TempDir(), "agent")
+	const body = "#!/bin/sh\nexit 0\n"
+	writeExecutableScript(t, source, body)
+
+	// The snapshot is what the trials actually execute, so it lives in the run's
+	// own isolated state and is named independently of whatever the caller passed.
+	state := t.TempDir()
+	snapshot, err := snapshotRuntimeBinary(source, state)
+	if err != nil {
+		t.Fatalf("snapshotRuntimeBinary() error = %v", err)
+	}
+	if snapshot != filepath.Join(state, "agent-evaluated") {
+		t.Fatalf("snapshot = %q, want the isolated agent-evaluated path", snapshot)
+	}
+	copied, err := os.ReadFile(snapshot)
+	if err != nil {
+		t.Fatalf("ReadFile(snapshot) error = %v", err)
+	}
+	if string(copied) != body {
+		t.Fatalf("snapshot body = %q, want the exact candidate %q", copied, body)
+	}
+	info, err := os.Stat(snapshot)
+	if err != nil {
+		t.Fatalf("Stat(snapshot) error = %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("snapshot mode = %v, want 0700", got)
+	}
+	// Re-snapshotting into the same state would silently evaluate a stale copy.
+	if _, err := snapshotRuntimeBinary(source, state); err == nil ||
+		!strings.Contains(err.Error(), "create runtime binary snapshot") {
+		t.Fatalf("snapshotRuntimeBinary(existing) error = %v, want an exclusive-create failure", err)
+	}
+
+	if _, err := snapshotRuntimeBinary(filepath.Join(state, "absent"), t.TempDir()); err == nil ||
+		!strings.Contains(err.Error(), "open runtime binary") {
+		t.Fatalf("snapshotRuntimeBinary(absent) error = %v, want an open failure", err)
+	}
+	if _, err := snapshotRuntimeBinary(state, t.TempDir()); err == nil ||
+		!strings.Contains(err.Error(), "must be a regular file") {
+		t.Fatalf("snapshotRuntimeBinary(directory) error = %v, want a regular-file refusal", err)
+	}
+}
+
+func writeExecutableScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
 	}
 }
 
@@ -115,9 +301,8 @@ func runtimeVersionJSON(t *testing.T, source SourceEvidence) []byte {
 	t.Helper()
 	encoded, err := json.Marshal(map[string]any{
 		"build_timestamp": "2026-08-09T08:00:00Z",
-		"mode":            source.Mode,
-		"version":         "v1.2.3",
-		"source_identity": source.Identity,
+		"mode":            "development",
+		"version":         "development",
 		"revision":        source.Revision,
 		"tree_digest":     source.TreeDigest,
 		"dirty":           source.Dirty,
@@ -128,31 +313,16 @@ func runtimeVersionJSON(t *testing.T, source SourceEvidence) []byte {
 	return encoded
 }
 
-func runtimeSourceLabels(source SourceEvidence) map[string]string {
-	return map[string]string{
-		containerModeLabel:           string(source.Mode),
-		containerSourceIdentityLabel: source.Identity,
-		containerRevisionLabel:       source.Revision,
-		containerTreeDigestLabel:     source.TreeDigest,
-		containerDirtyLabel:          "false",
-	}
-}
-
-func fakeContainerIdentityRunner(
-	t *testing.T, source SourceEvidence, labels map[string]string,
-) runtimeCommand {
+func fakeContainerIdentityRunner(t *testing.T, source SourceEvidence) runtimeCommand {
 	t.Helper()
 	return func(_ context.Context, name string, arguments ...string) ([]byte, error) {
 		if name != "docker" {
 			t.Fatalf("engine = %q, want docker", name)
 		}
 		switch {
-		case len(arguments) == 3 && arguments[0] == "image" && arguments[1] == "inspect" && arguments[2] == "agent:candidate":
-			encoded, err := json.Marshal([]map[string]any{{"Id": "sha256:image-id", "Config": map[string]any{"Labels": labels}}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			return encoded, nil
+		case len(arguments) == 5 && arguments[0] == "image" && arguments[1] == "inspect" &&
+			arguments[2] == "--format" && arguments[3] == "{{.Id}}" && arguments[4] == "agent:candidate":
+			return []byte("sha256:image-id\n"), nil
 		case len(arguments) == 7 && arguments[0] == "run" && arguments[1] == "--rm" &&
 			arguments[2] == "--network" && arguments[3] == "none" && arguments[4] == "--read-only" &&
 			arguments[5] == "sha256:image-id" && arguments[6] == "version":

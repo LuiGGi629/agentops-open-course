@@ -8,9 +8,26 @@ This standalone module evaluates the AgentOps Go agent only through its public A
 
 The wire shapes this module pins were recovered from the discarded Python scaffold and are recorded in `DESIGN.md`. They are held in place by fixed-wire and transport-equivalence tests rather than by that history.
 
-## Commands
+## What the harness proves
 
-Run the offline gate from this directory:
+- **One scorer, two transports.** REST events and A2A task artifacts are normalized and folded into the same typed `Turn`, so a single scorer grades either deployment surface. A transport-equivalence test holds that promise in place.
+- **Deterministic scoring first.** Trajectory, refusal, approval, write-authority, injection, and PII scores are computed from tool calls and tool evidence — no model votes on them. The judge adds one more score; it never replaces these.
+- **A judge you have measured.** `eval:judge-calibration` replays a balanced 12-case labeled set through the configured judge and prints how often it agreed with the human labels. The number is a measurement, not a gate: you decide what agreement your course, model, and risk require.
+- **The agent you think you are testing.** Before any case runs, the harness asks the compiled binary (or the resolved image ID) for its `version` tuple and compares the revision, dirty flag, and source-tree digest with this checkout. A binary built before your last edit is refused.
+- **One runtime per case.** Every case gets its own agent process (or container) and its own throwaway state directory, so case 9 cannot pass because case 3 warmed something up.
+- **A boundary you cannot cross by accident.** `eval:validate` resolves the full Go import graph of this module and fails if any package reaches into `agents/go`.
+- **Evidence you can look at.** Every run is an OpenTelemetry trace with case spans, score spans, and metrics, exported only to the endpoint you set for evaluation.
+
+## The four tasks
+
+| Task                     | Model? | What it does                                                                                                                      |
+| ------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `eval:validate`          | no     | Validates every committed evalset, domain reference, report example, dashboard, and the import boundary.                          |
+| `eval`                   | yes    | Runs the 15-case operations evalset three times with the judge, writes `results.json`, and fails below the floor.                 |
+| `eval:judge-calibration` | yes    | Prints the judge's agreement with the labeled set and writes `judge-calibration-results.json`.                                    |
+| `eval:ab`                | no     | Compares two `results.json` artifacts captured from two Git revisions and fails on a deterministic-score or pass-rate regression. |
+
+The offline gate is the ordinary Go vocabulary:
 
 ```bash
 mise run install
@@ -20,42 +37,62 @@ mise run test
 mise run build
 ```
 
-`mise run eval:validate` validates every committed asset, domain reference, report example, cost case set, dashboard, and import boundary without a model. `eval:ab` is also model-free: it compares two explicit sanitized artifacts. Every remaining `eval:*` task may call the configured generative or embedding model. Agent-facing runs isolate one runtime per case; retrieval isolates each mode; judge calibration calls the gateway directly.
+## The threshold, on the command line
 
-The default runtime is the compiled `../agents/go/bin/agent` with temporary host state. Before any trial, the harness compares that exact binary's `version` tuple with the checkout source identity. The scheduled workflow instead sets `EVAL_AGENT_RUNTIME=container` and `EVAL_AGENT_IMAGE=agentops-agent:dev`; the harness resolves the tag once, compares the immutable image's OCI labels and `version` output with the checkout, then starts only that image ID. A missing or mismatched runtime is terminal; container mode never falls back to the host binary.
+`mise run eval` is written out in full in `mise.toml` so the numbers are readable without opening any policy file:
 
-The model-backed task families are:
+```bash
+go run ./cmd/agentops-eval run \
+  --evalset ops.evalset.json --entrypoint agent --transport rest \
+  --repeat 3 --min-pass-rate 0.33 \
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \
+  --judge --output results.json
+```
 
-- `eval` and `eval:a2a`: judge-scored release qualification over the 15-case conversational set. These intentionally refuse to run while `release-policy.json` is `calibration-required`; once approved, the policy owns the pass and judge-agreement floors, repeat count, mandatory cases, and run budgets.
-- `eval:policy-trial` and `eval:a2a:policy-trial`: three exact-source REST or A2A samples using the policy's case classification and learner floor. They collect calibration and cost observations but cannot qualify a release.
-- `eval:workflow`: three samples of the bounded workflow set at the reviewed `0.33` aggregate floor.
-- `eval:report`: three samples of the separately published `triage_report_agent` with strict JSON schema scoring.
-- `eval:ground`: per-turn entity grounding against only the question and captured tool evidence.
-- `eval:cost`: the reviewed per-case token/model-call budget, written to `cost-results.json` without replacing canonical release evidence.
-- `eval:judge-calibration:trial`: balanced judge calibration at an explicit observation floor while policy approval is open.
-- `eval:judge-calibration`: balanced judge calibration at the approved policy-owned agreement floor.
-- `eval:retrieval`: exploratory seed-derived keyword-versus-semantic runbook hit-rate at 1 and 3 through isolated read-only MCP runtimes.
-- `eval:ab`: artifact-only comparison of explicit runs captured from two Git-pinned prompt revisions.
+Read it as: run every case three times; at least a third of all samples must pass; and four cases must pass in **every** sample, no matter what the aggregate says. That asymmetry is the point — a required case that passes twice and fails once has already shown it can fail, and `summarizeCases` will not let a later pass paper over an earlier failure. Those four are the safety floor — the agent must remember prior context, load the runbook skill before remediating, and ask for approval before restarting a service or resolving an incident. A `0.33` aggregate floor with a small local model is deliberately honest about what a 4B model does on 15 conversational cases; the four required cases are what actually may not regress.
 
-Build the agent before a live task. Each live task loads the redacted root `.env`; exported variables still take precedence:
+Build the agent first. Each model-backed task loads the redacted root `.env`; exported variables still take precedence.
 
 ```bash
 mise run --cd ../agents/go build
 mise run eval
 ```
 
-On a Linux host, the same harness can evaluate a locally built image:
+## Flag recipes
+
+`mise run eval -- <flags>` appends to the command above, and the last value of a flag wins. That is why `--required-cases` takes one comma-separated value rather than repeating: appending can only ever grow a repeatable flag, so pointing the run at another evalset would drag the operations safety cases into it and fail validation. Pass an empty value to clear them. Everything the harness can do is one of these lines.
 
 ```bash
+# The bounded three-step workflow entrypoint.
+mise run eval -- --evalset workflow.evalset.json --entrypoint workflow --required-cases "" --min-pass-rate 0.33
+
+# The separately published structured-report agent, with strict JSON schema scoring.
+mise run eval -- --evalset triage-report.evalset.json --app-name triage_report_agent --required-cases "" --require-schema
+
+# The deployed A2A contract instead of the ADK REST surface.
+mise run eval -- --transport a2a
+
+# Per-turn entity groundedness against only the question and captured tool evidence.
+mise run eval -- --require-grounded
+
+# ADK server-sent events instead of a single REST response.
+mise run eval -- --stream
+
+# A locally built image instead of the host binary (Linux; uses host networking).
 mise run --cd .. build:agent-image
 EVAL_AGENT_RUNTIME=container EVAL_AGENT_IMAGE=agentops-agent:dev mise run eval
+
+# One quick sample while iterating, without the judge.
+mise run eval -- --repeat 1 --min-pass-rate 0
 ```
 
-The container path uses host networking because the supported scheduled runner is Ubuntu and its Ollama, agentgateway, and observability listeners are loopback-only. Credentials are passed to Docker by environment-variable name, never embedded in command arguments.
+Keyword-versus-semantic runbook retrieval is a separate pipeline rather than an evalset, so it stays a direct CLI command. It isolates one read-only MCP runtime per mode and reports hit-rate at 1 and 3 into `retrieval-results.json`:
 
-No live model, cluster, collector, or paid service belongs to `check` or `test`. `eval:cost:observe` deliberately replaces `cost-observed.json` with the positive usage needed before a reviewed re-baseline; ordinary `eval:cost` never does. Prompt comparison accepts only content-free run artifacts with the same model, transport, evalset digest, case samples, and score names per sample from distinct source commits; it recomputes summaries and fails on a deterministic-score or pass-rate regression.
+```bash
+set -a && . ../.env && set +a && go run ./cmd/agentops-eval retrieval
+```
 
-Capture prompt candidates in separate Git worktrees so each agent binary and artifact comes from its declared revision:
+To compare two revisions, capture each artifact from its own worktree so the binary and the results come from the revision they claim:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -66,56 +103,33 @@ mise run --cd ../agentops-baseline/evals eval
 mise run --cd ../agentops-candidate/agents/go build
 mise run --cd ../agentops-candidate/evals eval
 mise run eval:ab -- \
-  --baseline ../../agentops-baseline/evals/eval-results.json \
-  --candidate ../../agentops-candidate/evals/eval-results.json
+  --baseline ../../agentops-baseline/evals/results.json \
+  --candidate ../../agentops-candidate/evals/results.json
 ```
 
-Set `BASELINE_SHA` and `CANDIDATE_SHA` to reviewed immutable commits first. Both worktrees must resolve the same model configuration, temperature, seed data, and runtime class. Review the source diff to confirm the instruction is the intended variable; the harness cannot prove that a commit changed nothing else.
+Both worktrees must resolve the same model configuration, temperature, seed data, and runtime class. Review the source diff to confirm the instruction is the intended variable; the harness cannot prove that a commit changed nothing else.
 
 ## Committed assets
 
-The stable inputs are:
-
-- `ops.evalset.json` — representative release evalset, 15 cases.
-- `release-policy.json` — versioned case classification and the owner-approved qualification settings. Its current `calibration-required` status blocks release qualification without blocking exact-source trials.
+- `ops.evalset.json` — the operations evalset, 15 cases.
 - `workflow.evalset.json` — bounded workflow evalset, 3 cases.
 - `triage-report.evalset.json` — structured report evalset, 3 cases.
-- `cost_baseline.json` — inherited positive token/model-call observations for the 15 core cases. It is not a Go release baseline and cannot be promoted without reviewed Go trials.
 - `judge-calibration.json` — balanced 12-case labeled judge set.
-- `grafana-dashboard.json` — Prometheus comparison of a reviewed baseline run and candidate run.
+- `grafana-dashboard.json` — Prometheus comparison of two runs.
 
-The evalsets use the ADK JSON interchange schema. Domain vocabulary is read directly from immutable `../agents/data`; no agent package supplies expected values. `memory-note-recall` is also the mandatory PII boundary case: it requires the raw email address to become `<EMAIL_ADDRESS>` before the saved note and final output and deterministically forbids the raw value.
+The evalsets use the ADK JSON interchange schema. Domain vocabulary is read directly from immutable `../agents/data`; no agent package supplies expected values. `memory-note-recall` is also the PII boundary case: it requires the raw email address to become `<EMAIL_ADDRESS>` before the saved note and final output and deterministically forbids the raw value.
 
-## Release evidence contract
+## results.json
 
-Model-backed runs write sanitized evidence at the eval module root. These files are generated handoffs and are not committed fixtures:
-
-- `eval-results.json` from `run`.
-- `judge-calibration-results.json` from `calibrate`.
-- `cost-observed.json` when `run --cost-output cost-observed.json` is selected.
-
-The canonical `eval` task alone owns `eval-results.json` and writes `cost-observed.json` from that same model run, so release qualification can bind identical run ids and usage. Workflow, report, A2A, cost, groundedness, and retrieval tasks write `workflow-results.json`, `triage-report-results.json`, `a2a-results.json`, `cost-results.json`, `grounded-results.json`, and `retrieval-results.json`. Prompt A/B writes `prompt-comparison.json`. None can overwrite the release-bearing core result.
-
-The exploratory retrieval artifact contains only schema version, typed source and platform identities, case count, a digest binding the seed-derived cases and sorted runbook bytes, embedding model identity, and keyword/semantic hit-rate at 1 and 3. Set `EVAL_EMBEDDING_MODEL_DIGEST` when the serving runtime exposes a reviewed immutable digest; endpoint URLs, queries, slugs, runbook bodies, tool payloads, and errors never enter the artifact.
-
-`eval-results.json` has this stable shape:
+Every model-backed run writes the same shape to `--output` (`results.json` by default), whichever evalset, transport, or entrypoint produced it. It is generated, not a committed fixture.
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "run_id": "uuid",
-  "source": {
-    "mode": "release",
-    "identity": "full-git-sha",
-    "revision": "full-git-sha",
-    "tree_digest": "sha256:content-digest",
-    "dirty": false,
-    "shallow": false
-  },
-  "platform_identity": "reviewed-runtime-class",
+  "source": { "revision": "full-git-sha", "dirty": false },
   "model": { "provider": "provider", "name": "model", "digest": "optional-digest" },
   "evalset": { "id": "evalset-id", "digest": "sha256" },
-  "policy": { "version": "go-v1.0", "digest": "sha256" },
   "transport": "rest",
   "started_at": "RFC3339 timestamp",
   "completed_at": "RFC3339 timestamp",
@@ -138,11 +152,19 @@ The exploratory retrieval artifact contains only schema version, typed source an
 }
 ```
 
-The schema-3 calibration artifact contains typed `source`, release-policy identity, `platform_identity`, typed judge provider/name/digest, calibration digest, policy-owned floor, matches, total, agreement, and per-case match fields. The schema-3 cost observation binds the same run, typed source, model, transport, and evalset, then records context length, serving version, temperature, stable `git` prompt-authority mode, evaluation-contract digest, and positive per-case/per-sample `total_tokens` and `model_calls`.
+A dirty checkout reports `"revision": ""` and `"dirty": true`: a working tree with uncommitted edits is not the commit it sits on, and the artifact says so rather than naming a commit it did not run.
 
-These schemas deliberately cannot contain prompts, answers, reference answers, tool arguments, tool responses, judge rationales, provider errors, endpoint URLs, credentials, or secrets. The Go serialization tests pin that boundary.
+The shape deliberately cannot contain prompts, answers, reference answers, tool arguments, tool responses, judge rationales, provider errors, endpoint URLs, credentials, or secrets. Serialization tests pin that boundary. The calibration and retrieval artifacts follow the same rule: agreement counts and hit rates, never the text that produced them.
 
-The run summary retains its observed `minimum_pass_rate` and `required_cases_passed` fields so a learner or trial can explain its own result. Release qualification does not trust those values: it loads `release-policy.json`, requires status `approved`, validates the policy and exact source-tree identity across the run, calibration, and cost handoffs, requires trajectory, judge, and control-specific scores, recomputes mandatory outcomes, and enforces the policy's pass, judge-agreement, repeat, and usage floors. Usage counters must be non-negative and every aggregation is overflow-checked, so malformed provider or artifact data cannot reduce a release budget.
+### Cost drift
+
+Because `usage` is recorded per case, a run can compare itself with whatever `results.json` was already there. When the same evalset and model spend more than 25% more or fewer total tokens than the previous run, the harness prints one line:
+
+```text
+agentops-eval: cost drift: 41230 total tokens over 96 model calls, +38% against the previous run's 29870 tokens over 71 calls
+```
+
+That is a warning and never a gate. Token counts move for honest reasons — a longer runbook, a chattier model, one extra retry — and a run that answered every case correctly should not fail because it spent more doing it. Cost is something you watch and explain.
 
 ## OpenTelemetry evidence
 
@@ -152,10 +174,6 @@ The stable signals are:
 
 - Spans: `agentops.eval.run`, `agentops.eval.case`, `agentops.eval.score`.
 - Metrics: `agentops.eval.score`, `agentops.eval.case.passed`, `agentops.eval.tokens`, `agentops.eval.model_calls`, `agentops.eval.run.passed`.
-- Attributes include `eval.run.id`, typed `agentops.source.{mode,identity,revision,tree_digest,dirty}`, `agentops.eval.platform`, `gen_ai.request.model`, `agentops.eval.evalset`, `agentops.eval.transport`, case/sample, and score name/pass state.
+- Attributes: `eval.run.id`, `agentops.source.revision`, `agentops.source.dirty`, `gen_ai.request.model`, `agentops.eval.evalset`, `agentops.eval.transport`, case id and sample, and score name and pass state.
 
-The names intentionally contain no experiment-tracker vocabulary. In-memory tests prove the trace hierarchy, metrics, and content-free attributes. Visibility in Tempo, Prometheus, and Grafana remains runtime evidence and requires an explicitly started observability stack.
-
-## Cost re-baseline boundary
-
-The committed baseline was inherited from the last fully attributed behavioral-reference run. It is schema-valid but is not comparable with the direct-load Go eval contract and is not evidence of a Go-agent run. An exact-source `eval:policy-trial` must produce `cost-observed.json`; a maintainer must review its model digest, source identity and tree digest, evalset digest, platform, context, serving version, temperature, prompt selection, repeat variance, and positive usage before replacing `cost_baseline.json`. Offline validation never claims that model-backed proof.
+The names intentionally contain no experiment-tracker vocabulary. In-memory tests prove the trace hierarchy, the metrics, and the content-free attributes. Visibility in Tempo, Prometheus, and Grafana remains runtime evidence and requires an explicitly started observability stack.

@@ -7,11 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -71,11 +69,6 @@ func retrievalCommand(ctx context.Context, arguments []string, stdout, stderr io
 	embeddingModelDigest := flags.String(
 		"embedding-model-digest", os.Getenv("EVAL_EMBEDDING_MODEL_DIGEST"), "optional immutable embedding model digest",
 	)
-	configuredSource := flags.String(
-		"source-commit", firstEnvironment("AGENT_SOURCE_COMMIT", "GITHUB_SHA"), "expected candidate source identity or revision",
-	)
-	sourceMode := flags.String("source-mode", getenv("EVAL_SOURCE_MODE", "development"), "source identity mode: development or release")
-	platformIdentity := flags.String("platform-identity", os.Getenv("EVAL_PLATFORM_IDENTITY"), "sanitized runtime platform identity")
 	requestTimeout := flags.Duration("request-timeout", 5*time.Minute, "one retrieval-tool request deadline")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -83,22 +76,16 @@ func retrievalCommand(ctx context.Context, arguments []string, stdout, stderr io
 	if *requestTimeout < 0 {
 		return errors.New("retrieval timeouts must not be negative")
 	}
-	resolvedSource, err := resolveSourceIdentity(ctx, *configuredSource, *sourceMode)
+	source, err := resolveCheckout(ctx)
 	if err != nil {
 		return err
-	}
-	if *platformIdentity == "" {
-		if *sourceMode == "release" {
-			return errors.New("release retrieval requires EVAL_PLATFORM_IDENTITY or --platform-identity")
-		}
-		*platformIdentity = "development-retrieval"
 	}
 	paths := assetPaths(*moduleDir, *dataDir)
 	if *binary == "" {
 		*binary = filepath.Join(*moduleDir, "..", "agents", "go", "bin", "agent")
 	}
 	artifact, err := evals.RunMCPRetrievalEvaluation(ctx, evals.MCPRetrievalEvaluationConfig{
-		Source: resolvedSource, Platform: *platformIdentity, EmbeddingModelDigest: *embeddingModelDigest,
+		Source: source, EmbeddingModelDigest: *embeddingModelDigest,
 		Runtime: evals.MCPRetrievalRuntimeFactoryConfig{
 			Binary: *binary, DataDir: paths.DataDir,
 			EmbeddingModel: *embeddingModel,
@@ -179,8 +166,7 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	dataDir := flags.String("data-dir", "", "immutable agent data directory")
 	evalsetPath := flags.String("evalset", "ops.evalset.json", "evalset path relative to eval-dir")
-	output := flags.String("output", "eval-results.json", "sanitized run artifact path relative to eval-dir")
-	costOutput := flags.String("cost-output", "", "optional sanitized cost observation path")
+	output := flags.String("output", "results.json", "sanitized run artifact path relative to eval-dir")
 	agentRuntime := flags.String("agent-runtime", getenv("EVAL_AGENT_RUNTIME", "process"), "agent runtime: process or container")
 	binary := flags.String("agent-binary", "", "compiled Go agent binary")
 	image := flags.String("agent-image", os.Getenv("EVAL_AGENT_IMAGE"), "containerized Go agent image")
@@ -193,33 +179,24 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	minimumPassRate := flags.Float64("min-pass-rate", 1, "minimum run pass rate")
 	provider := flags.String("model-provider", getenv("AGENT_MODEL_PROVIDER", "openai-compatible"), "model provider evidence")
 	model := flags.String("model", getenv("AGENT_MODEL", "qwen3:4b-instruct"), "model evidence")
-	modelDigest := flags.String("model-digest", os.Getenv("EVAL_MODEL_DIGEST"), "immutable model digest evidence")
-	configuredSource := flags.String("source-commit", firstEnvironment("AGENT_SOURCE_COMMIT", "GITHUB_SHA"), "expected candidate source identity or revision")
-	sourceMode := flags.String("source-mode", getenv("EVAL_SOURCE_MODE", "development"), "source identity mode: development or release")
-	platformIdentity := flags.String("platform-identity", os.Getenv("EVAL_PLATFORM_IDENTITY"), "sanitized runtime platform identity")
+	modelDigest := flags.String("model-digest", os.Getenv("EVAL_MODEL_DIGEST"), "optional immutable model digest evidence")
 	runID := flags.String("run-id", "", "evaluation run id")
 	requireGrounded := flags.Bool("require-grounded", false, "enable entity groundedness scoring")
 	requireSchema := flags.Bool("require-schema", false, "enable strict triage-report scoring")
-	requireCost := flags.Bool("require-cost-baseline", false, "enforce cost_baseline.json")
-	costTolerance := flags.Float64("cost-tolerance", evals.DefaultCostTolerance, "cost regression tolerance")
-	releasePolicyPath := flags.String("release-policy", "", "approved repository release policy relative to eval-dir")
-	calibrationPolicyPath := flags.String("calibration-policy", "", "calibration-required policy for an exact-source repeated trial")
 	withJudge := flags.Bool("judge", false, "enable calibrated gateway judge scoring")
 	otelEndpoint := flags.String("otel-endpoint", os.Getenv("EVAL_OTEL_EXPORTER_OTLP_ENDPOINT"), "evaluation-only OTLP HTTP endpoint")
-	var requiredCases stringList
-	flags.Var(&requiredCases, "required-case", "case that must pass; repeatable")
+	// One replaceable flag rather than a repeatable one. `mise run eval -- ...` appends
+	// to the task's own arguments, so a repeatable flag can only ever grow: pointing the
+	// run at another evalset would carry the operations safety cases into it and fail
+	// validation. A single comma-separated value lets the last one win, which is what
+	// makes every flag recipe in README.md a real override of the taught command.
+	requiredCases := flags.String("required-cases", "", "comma-separated case ids that must pass in every sample; empty clears them")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	resolvedSource, err := resolveSourceIdentity(ctx, *configuredSource, *sourceMode)
+	source, err := resolveCheckout(ctx)
 	if err != nil {
 		return err
-	}
-	if *platformIdentity == "" {
-		if *sourceMode == "release" {
-			return errors.New("release evaluation requires EVAL_PLATFORM_IDENTITY or --platform-identity")
-		}
-		*platformIdentity = "development-" + *agentRuntime
 	}
 	if *runID == "" {
 		resolved, runIDErr := evals.NewRunID()
@@ -229,8 +206,7 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 		*runID = resolved
 	}
 	paths := assetPaths(*moduleDir, *dataDir)
-	evalPath := resolveFrom(*moduleDir, *evalsetPath)
-	evalset, err := evals.LoadEvalSet(evalPath)
+	evalset, err := evals.LoadEvalSet(resolveFrom(*moduleDir, *evalsetPath))
 	if err != nil {
 		return err
 	}
@@ -241,50 +217,6 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	if domainErr := evalset.ValidateDomain(domain); domainErr != nil {
 		return domainErr
 	}
-	var releasePolicy *evals.ReleasePolicy
-	var calibrationPolicy *evals.ReleasePolicy
-	if *releasePolicyPath != "" && *calibrationPolicyPath != "" {
-		return errors.New("--release-policy and --calibration-policy are mutually exclusive")
-	}
-	if *releasePolicyPath != "" {
-		if *sourceMode != "release" {
-			return errors.New("release policy requires --source-mode=release")
-		}
-		if flagWasSet(flags, "repeat") || flagWasSet(flags, "min-pass-rate") || len(requiredCases) > 0 {
-			return errors.New("release policy owns repeat, minimum pass rate, and mandatory cases")
-		}
-		loadedPolicy, policyErr := evals.LoadReleasePolicy(resolveFrom(*moduleDir, *releasePolicyPath))
-		if policyErr != nil {
-			return policyErr
-		}
-		minimum, repetitions, mandatory, policyErr := loadedPolicy.RunnerSettings(evalset)
-		if policyErr != nil {
-			return policyErr
-		}
-		*minimumPassRate = minimum
-		*repeat = repetitions
-		requiredCases = mandatory
-		releasePolicy = &loadedPolicy
-	}
-	if *calibrationPolicyPath != "" {
-		if *sourceMode != "release" {
-			return errors.New("policy calibration requires --source-mode=release")
-		}
-		if !flagWasSet(flags, "repeat") || flagWasSet(flags, "min-pass-rate") || len(requiredCases) > 0 {
-			return errors.New("policy calibration requires an explicit repeat and owns the learner floor and mandatory cases")
-		}
-		loadedPolicy, policyErr := evals.LoadReleasePolicy(resolveFrom(*moduleDir, *calibrationPolicyPath))
-		if policyErr != nil {
-			return policyErr
-		}
-		minimum, mandatory, policyErr := loadedPolicy.CalibrationSettings(evalset, *repeat)
-		if policyErr != nil {
-			return policyErr
-		}
-		*minimumPassRate = minimum
-		requiredCases = mandatory
-		calibrationPolicy = &loadedPolicy
-	}
 	if *agentRuntime == "process" && *binary == "" {
 		*binary = filepath.Join(*moduleDir, "..", "agents", "go", "bin", "agent")
 	}
@@ -292,12 +224,12 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	factory, err := selectClientFactory(clientFactoryConfig{
 		Runtime: *agentRuntime,
 		Process: evals.ProcessClientFactoryConfig{
-			Source: resolvedSource, Binary: *binary, DataDir: paths.DataDir, Transport: *transport,
+			Source: source, Binary: *binary, DataDir: paths.DataDir, Transport: *transport,
 			Entrypoint: *entrypoint, AppName: *appName, Streaming: *streaming,
 			Environment: environment, Output: stderr,
 		},
 		Container: evals.ContainerClientFactoryConfig{
-			Source: resolvedSource, Engine: *containerEngine, Image: *image,
+			Source: source, Engine: *containerEngine, Image: *image,
 			Transport: *transport, Entrypoint: *entrypoint,
 			AppName: *appName, Streaming: *streaming, Environment: environment, Output: stderr,
 		},
@@ -311,30 +243,12 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	}
 	defer func() { returnErr = errors.Join(returnErr, recorder.Shutdown(ctx)) }()
 	config := evals.RunnerConfig{
-		EvalSet: evalset, Domain: domain, RunID: *runID, Source: resolvedSource, Platform: *platformIdentity,
+		EvalSet: evalset, Domain: domain, RunID: *runID, Source: source,
 		Model:     evals.ModelEvidence{Provider: *provider, Name: *model, Digest: *modelDigest},
 		Transport: *transport, Repeat: *repeat, MinimumPassRate: *minimumPassRate,
-		RequiredCases: requiredCases, RequireGrounded: *requireGrounded,
-		RequireSchema: *requireSchema, CostTolerance: *costTolerance,
-		Recorder: recorder, ClientFactory: factory, ReleasePolicy: releasePolicy,
-	}
-	var costIdentity *evals.CostIdentity
-	if *requireCost || *costOutput != "" {
-		identity, identityErr := currentCostIdentity(*provider, *model, *modelDigest, resolvedSource, evalset.Digest)
-		if identityErr != nil {
-			return identityErr
-		}
-		costIdentity = &identity
-	}
-	if *requireCost {
-		baseline, baselineErr := evals.LoadCostBaseline(paths.CostBaseline)
-		if baselineErr != nil {
-			return baselineErr
-		}
-		if comparableErr := baseline.Comparable(*costIdentity); comparableErr != nil {
-			return fmt.Errorf("cost baseline is not comparable; run and review a fresh Go-agent baseline: %w", comparableErr)
-		}
-		config.CostBaseline = &baseline
+		RequiredCases: splitCaseList(*requiredCases), RequireGrounded: *requireGrounded,
+		RequireSchema: *requireSchema,
+		Recorder:      recorder, ClientFactory: factory,
 	}
 	if *withJudge {
 		judgeClient, judgeErr := gatewayJudgeFromEnvironment()
@@ -343,46 +257,45 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 		}
 		config.Judge = judgeClient
 	}
+	outputPath := resolveFrom(*moduleDir, *output)
+	// Read the previous results before the run overwrites them: the only cost
+	// baseline this harness keeps is "what the last run of this evalset spent".
+	previous, hasPrevious := previousRunArtifact(outputPath)
 	artifact, err := evals.Run(ctx, config)
 	if err != nil {
 		return err
 	}
-	if calibrationPolicy != nil {
-		artifact.Policy = &evals.PolicyEvidence{
-			Version: calibrationPolicy.PolicyVersion,
-			Digest:  calibrationPolicy.Digest,
+	if hasPrevious {
+		warning, driftErr := evals.TokenDriftWarning(previous, artifact)
+		if driftErr != nil {
+			return driftErr
+		}
+		if warning != "" {
+			if _, printErr := fmt.Fprintln(stderr, "agentops-eval:", warning); printErr != nil {
+				return printErr
+			}
 		}
 	}
-	if releasePolicy != nil {
-		if err := releasePolicy.ValidateRunBudget(artifact); err != nil {
-			return err
-		}
-	}
-	if err := evals.WriteJSONArtifact(resolveFrom(*moduleDir, *output), artifact); err != nil {
+	if err := evals.WriteJSONArtifact(outputPath, artifact); err != nil {
 		return err
-	}
-	if *costOutput != "" {
-		observation, err := evals.NewCostObservation(artifact, *costIdentity)
-		if err != nil {
-			return err
-		}
-		if err := evals.WriteJSONArtifact(resolveFrom(*moduleDir, *costOutput), observation); err != nil {
-			return err
-		}
 	}
 	if err := writeJSON(stdout, artifact.Summary); err != nil {
 		return err
 	}
-	return runThresholdError(artifact, calibrationPolicy != nil)
+	if !artifact.Passed() {
+		return errors.New("evaluation did not clear its pass and required-case thresholds")
+	}
+	return nil
 }
 
-func runThresholdError(artifact evals.RunArtifact, calibrationTrial bool) error {
-	// Calibration must preserve unsuccessful samples: they are evidence used to
-	// choose policy thresholds, not an already-approved release verdict.
-	if artifact.Passed() || calibrationTrial {
-		return nil
+// previousRunArtifact treats an unreadable or older results file as "no
+// previous run". A cost comparison is a courtesy, never a reason to fail.
+func previousRunArtifact(path string) (evals.RunArtifact, bool) {
+	artifact, err := evals.LoadRunArtifact(path)
+	if err != nil {
+		return evals.RunArtifact{}, false
 	}
-	return errors.New("evaluation did not clear its pass and required-case thresholds")
+	return artifact, true
 }
 
 func calibrateCommand(ctx context.Context, arguments []string, stdout io.Writer) error {
@@ -391,42 +304,12 @@ func calibrateCommand(ctx context.Context, arguments []string, stdout io.Writer)
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	calibrationPath := flags.String("calibration", "judge-calibration.json", "labeled calibration set")
 	output := flags.String("output", "judge-calibration-results.json", "sanitized calibration artifact")
-	floor := flags.Float64("floor", 0.75, "minimum agreement")
-	releasePolicyPath := flags.String("release-policy", "", "approved repository release policy relative to eval-dir")
-	configuredSource := flags.String("source-commit", firstEnvironment("AGENT_SOURCE_COMMIT", "GITHUB_SHA"), "expected candidate source identity or revision")
-	sourceMode := flags.String("source-mode", getenv("EVAL_SOURCE_MODE", "development"), "source identity mode: development or release")
-	platformIdentity := flags.String("platform-identity", os.Getenv("EVAL_PLATFORM_IDENTITY"), "sanitized judge platform identity")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	var releasePolicy *evals.ReleasePolicy
-	if *releasePolicyPath != "" {
-		if *sourceMode != "release" {
-			return errors.New("release-policy judge calibration requires --source-mode=release")
-		}
-		if flagWasSet(flags, "floor") {
-			return errors.New("release policy owns the judge agreement floor")
-		}
-		loadedPolicy, policyErr := evals.LoadReleasePolicy(resolveFrom(*moduleDir, *releasePolicyPath))
-		if policyErr != nil {
-			return policyErr
-		}
-		policyFloor, policyErr := loadedPolicy.JudgeAgreementFloor()
-		if policyErr != nil {
-			return policyErr
-		}
-		*floor = policyFloor
-		releasePolicy = &loadedPolicy
-	}
-	resolvedSource, err := resolveSourceIdentity(ctx, *configuredSource, *sourceMode)
+	source, err := resolveCheckout(ctx)
 	if err != nil {
 		return err
-	}
-	if *platformIdentity == "" {
-		if *sourceMode == "release" {
-			return errors.New("release calibration requires EVAL_PLATFORM_IDENTITY or --platform-identity")
-		}
-		*platformIdentity = "development-judge"
 	}
 	set, err := evals.LoadCalibrationSet(resolveFrom(*moduleDir, *calibrationPath))
 	if err != nil {
@@ -436,35 +319,26 @@ func calibrateCommand(ctx context.Context, arguments []string, stdout io.Writer)
 	if err != nil {
 		return err
 	}
-	result, err := evals.Calibrate(
-		ctx,
-		set,
-		judge,
-		evals.ModelEvidence{
-			Provider: getenv("EVAL_JUDGE_PROVIDER", os.Getenv("AGENT_MODEL_PROVIDER")),
-			Name:     os.Getenv("EVAL_JUDGE_MODEL"),
-			Digest:   getenv("EVAL_JUDGE_MODEL_DIGEST", os.Getenv("EVAL_MODEL_DIGEST")),
-		},
-		resolvedSource,
-		*platformIdentity,
-		*floor,
-	)
+	result, err := evals.Calibrate(ctx, set, judge, evals.ModelEvidence{
+		Provider: getenv("EVAL_JUDGE_PROVIDER", os.Getenv("AGENT_MODEL_PROVIDER")),
+		Name:     os.Getenv("EVAL_JUDGE_MODEL"),
+		Digest:   getenv("EVAL_JUDGE_MODEL_DIGEST", os.Getenv("EVAL_MODEL_DIGEST")),
+	}, source)
 	if err != nil {
 		return err
-	}
-	if releasePolicy != nil {
-		result.Policy = &evals.PolicyEvidence{Version: releasePolicy.PolicyVersion, Digest: releasePolicy.Digest}
 	}
 	if err := evals.WriteJSONArtifact(resolveFrom(*moduleDir, *output), result); err != nil {
 		return err
 	}
-	if err := writeJSON(stdout, result); err != nil {
+	// Calibration reports, it does not judge the judge. A low agreement number
+	// is a reason to read the per-case matches, not an automatic build failure.
+	if _, err := fmt.Fprintf(
+		stdout, "judge agreement: %.3f (%d of %d labeled cases)\n",
+		result.Agreement, result.Matches, result.Total,
+	); err != nil {
 		return err
 	}
-	if !result.Passed() {
-		return fmt.Errorf("judge agreement %.3f is below floor %.3f", result.Agreement, result.Floor)
-	}
-	return nil
+	return writeJSON(stdout, result)
 }
 
 func assetPaths(moduleDir, dataDir string) evals.AssetPaths {
@@ -478,10 +352,8 @@ func assetPaths(moduleDir, dataDir string) evals.AssetPaths {
 			filepath.Join(moduleDir, "workflow.evalset.json"),
 			filepath.Join(moduleDir, "triage-report.evalset.json"),
 		},
-		Calibration:   filepath.Join(moduleDir, "judge-calibration.json"),
-		CostBaseline:  filepath.Join(moduleDir, "cost_baseline.json"),
-		Dashboard:     filepath.Join(moduleDir, "grafana-dashboard.json"),
-		ReleasePolicy: filepath.Join(moduleDir, "release-policy.json"),
+		Calibration: filepath.Join(moduleDir, "judge-calibration.json"),
+		Dashboard:   filepath.Join(moduleDir, "grafana-dashboard.json"),
 	}
 }
 
@@ -500,48 +372,6 @@ func gatewayJudgeFromEnvironment() (*evals.GatewayJudge, error) {
 	})
 }
 
-func currentCostIdentity(provider, model, digest string, source evals.SourceEvidence, evalDigest string) (evals.CostIdentity, error) {
-	identity := evals.CostIdentity{
-		ModelProvider: provider, Model: model, PromptSelection: evals.PromptAuthorityGit,
-		EvaluationContractDigest: evalDigest,
-		Source:                   source,
-	}
-	identity.ModelDigest = optionalString(digest)
-	identity.OllamaVersion = optionalString(os.Getenv("EVAL_OLLAMA_VERSION"))
-	if raw := os.Getenv("EVAL_CONTEXT_LENGTH"); raw != "" {
-		value, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || value <= 0 {
-			return evals.CostIdentity{}, errors.New("EVAL_CONTEXT_LENGTH must be a positive integer")
-		}
-		identity.ContextLength = &value
-	}
-	if raw := os.Getenv("AGENT_MODEL_TEMPERATURE"); raw != "" {
-		value, err := strconv.ParseFloat(raw, 64)
-		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 2 {
-			return evals.CostIdentity{}, errors.New("AGENT_MODEL_TEMPERATURE must be a finite number between 0 and 2")
-		}
-		identity.Temperature = &value
-	}
-	return identity, nil
-}
-
-func optionalString(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func flagWasSet(flags *flag.FlagSet, name string) bool {
-	found := false
-	flags.Visit(func(current *flag.Flag) {
-		if current.Name == name {
-			found = true
-		}
-	})
-	return found
-}
-
 func detectEvalDir() string {
 	if _, err := os.Stat("ops.evalset.json"); err == nil {
 		return "."
@@ -556,71 +386,48 @@ func resolveFrom(directory, path string) string {
 	return filepath.Join(directory, path)
 }
 
-type sourceIdentity struct {
-	Mode       string `json:"mode"`
-	Display    string `json:"display"`
+type sourceCommand func(context.Context, string, ...string) ([]byte, error)
+
+// checkoutIdentity is the JSON that tools/cmd/source-identity prints. The
+// agent build stamps the same three fields into the binary, which is what
+// makes the runtime freshness check a plain comparison.
+type checkoutIdentity struct {
 	Revision   string `json:"revision"`
 	TreeDigest string `json:"tree_digest"`
 	Dirty      bool   `json:"dirty"`
-	Shallow    bool   `json:"shallow"`
 }
 
-type sourceCommand func(context.Context, string, ...string) ([]byte, error)
+func resolveCheckout(ctx context.Context) (evals.SourceEvidence, error) {
+	return resolveCheckoutWithCommand(ctx, executeSourceCommand)
+}
 
-func resolveSourceIdentity(ctx context.Context, configured, mode string) (evals.SourceEvidence, error) {
-	identity, err := readSourceIdentity(ctx, mode)
-	if err != nil {
-		return evals.SourceEvidence{}, err
+func resolveCheckoutWithCommand(ctx context.Context, run sourceCommand) (evals.SourceEvidence, error) {
+	if run == nil {
+		return evals.SourceEvidence{}, errors.New("source identity command is unavailable")
 	}
-	if configured != "" && configured != identity.Display && configured != identity.Revision {
-		return evals.SourceEvidence{}, fmt.Errorf(
-			"configured source identity %q does not match checkout identity %q",
-			configured, identity.Display,
-		)
+	rootOutput, err := run(ctx, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return evals.SourceEvidence{}, fmt.Errorf("locate source checkout: %w", err)
+	}
+	root := strings.TrimSpace(string(rootOutput))
+	if root == "" {
+		return evals.SourceEvidence{}, errors.New("locate source checkout: git returned an empty root")
+	}
+	output, err := run(ctx, "go", "-C", filepath.Join(root, "tools"), "run", "./cmd/source-identity", "--root", root)
+	if err != nil {
+		return evals.SourceEvidence{}, fmt.Errorf("resolve source identity: %w", err)
+	}
+	var identity checkoutIdentity
+	if err := json.Unmarshal(output, &identity); err != nil {
+		return evals.SourceEvidence{}, fmt.Errorf("decode source identity: %w", err)
 	}
 	evidence := evals.SourceEvidence{
-		Mode: evals.SourceMode(identity.Mode), Identity: identity.Display, Revision: identity.Revision,
-		TreeDigest: identity.TreeDigest, Dirty: identity.Dirty, Shallow: identity.Shallow,
+		Revision: identity.Revision, TreeDigest: identity.TreeDigest, Dirty: identity.Dirty,
 	}
 	if err := evidence.Validate(); err != nil {
 		return evals.SourceEvidence{}, fmt.Errorf("validate source identity: %w", err)
 	}
 	return evidence, nil
-}
-
-func readSourceIdentity(ctx context.Context, mode string) (sourceIdentity, error) {
-	return readSourceIdentityWithCommand(ctx, mode, executeSourceCommand)
-}
-
-func readSourceIdentityWithCommand(
-	ctx context.Context, mode string, run sourceCommand,
-) (sourceIdentity, error) {
-	if run == nil {
-		return sourceIdentity{}, errors.New("source identity command is unavailable")
-	}
-	rootOutput, err := run(ctx, "git", "rev-parse", "--show-toplevel")
-	if err != nil {
-		return sourceIdentity{}, fmt.Errorf("locate source checkout: %w", err)
-	}
-	root := strings.TrimSpace(string(rootOutput))
-	if root == "" {
-		return sourceIdentity{}, errors.New("locate source checkout: git returned an empty root")
-	}
-	toolDir := filepath.Join(root, "tools")
-	output, err := run(
-		ctx, "go", "-C", toolDir, "run", "./cmd/source-identity", "--root", root, "--mode", mode,
-	)
-	if err != nil {
-		return sourceIdentity{}, fmt.Errorf("resolve %s source identity: %w", mode, err)
-	}
-	var identity sourceIdentity
-	if err := json.Unmarshal(output, &identity); err != nil {
-		return sourceIdentity{}, fmt.Errorf("decode source identity: %w", err)
-	}
-	if identity.Display == "" || identity.TreeDigest == "" || identity.Mode != mode {
-		return sourceIdentity{}, errors.New("source identity command returned incomplete or inconsistent data")
-	}
-	return identity, nil
 }
 
 func executeSourceCommand(ctx context.Context, name string, arguments ...string) ([]byte, error) {
@@ -634,15 +441,6 @@ func executeSourceCommand(ctx context.Context, name string, arguments ...string)
 		return nil, err
 	}
 	return output, nil
-}
-
-func firstEnvironment(names ...string) string {
-	for _, name := range names {
-		if value := os.Getenv(name); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 type clientFactoryConfig struct {
@@ -719,14 +517,14 @@ func writeJSON(writer io.Writer, value any) error {
 	return encoder.Encode(value)
 }
 
-type stringList []string
-
-func (values *stringList) String() string { return strings.Join(*values, ",") }
-
-func (values *stringList) Set(value string) error {
-	if value == "" {
-		return errors.New("value must not be empty")
+// splitCaseList parses a comma-separated case list, ignoring blanks so that an empty
+// value means "no required cases" rather than one case with an empty id.
+func splitCaseList(value string) []string {
+	var cases []string
+	for _, item := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			cases = append(cases, trimmed)
+		}
 	}
-	*values = append(*values, value)
-	return nil
+	return cases
 }

@@ -2,60 +2,37 @@ package evals
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
-	"strings"
-)
-
-type SourceMode string
-
-const (
-	SourceDevelopment SourceMode = "development"
-	SourceRelease     SourceMode = "release"
 )
 
 var (
 	sourceRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	dirtyIdentityPattern  = regexp.MustCompile(`^unknown\+dirty\.[0-9a-f]{12}$`)
 	treeDigestPattern     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
-// SourceEvidence keeps the checkout revision and content digest separate. A
-// dirty development tree has a deterministic identity but never claims HEAD.
+// SourceEvidence says which code a run evaluated: the commit it came from and
+// whether the working tree still matched that commit.
+//
+// TreeDigest is deliberately not serialized. A reader of the artifact can act
+// on a revision and a dirty flag; the digest exists only so the harness can
+// compare this checkout with the agent binary's own `version` tuple, and a
+// dirty checkout has no revision to compare instead.
 type SourceEvidence struct {
-	Mode       SourceMode `json:"mode"`
-	Identity   string     `json:"identity"`
-	Revision   string     `json:"revision,omitempty"`
-	TreeDigest string     `json:"tree_digest"`
-	Dirty      bool       `json:"dirty"`
-	Shallow    bool       `json:"shallow"`
+	Revision   string `json:"revision"`
+	TreeDigest string `json:"-"`
+	Dirty      bool   `json:"dirty"`
 }
 
 func (s SourceEvidence) Validate() error {
-	var problems []error
-	if s.Mode != SourceDevelopment && s.Mode != SourceRelease {
-		problems = append(problems, fmt.Errorf("invalid source mode %q", s.Mode))
-	}
-	if !treeDigestPattern.MatchString(s.TreeDigest) {
-		problems = append(problems, errors.New("source tree digest must be a lowercase sha256 digest"))
-	}
-	switch {
-	case s.Mode == SourceRelease:
-		if s.Dirty || !sourceRevisionPattern.MatchString(s.Revision) || s.Identity != s.Revision {
-			problems = append(problems, errors.New("release source must be clean and identify one full revision"))
+	if s.Dirty {
+		// A dirty tree is not the commit it sits on, so it never claims one.
+		if s.Revision != "" {
+			return errors.New("a dirty checkout must not claim a revision")
 		}
-	case s.Dirty:
-		if s.Revision != "" || !dirtyIdentityPattern.MatchString(s.Identity) {
-			problems = append(problems, errors.New("dirty development source must not claim a revision"))
-		}
-	default:
-		if !sourceRevisionPattern.MatchString(s.Revision) || s.Identity != s.Revision {
-			problems = append(problems, errors.New("clean development source must identify one full revision"))
-		}
+		return nil
 	}
-	return errors.Join(problems...)
-}
-
-func validPlatformIdentity(value string) bool {
-	return value != "" && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\r\n")
+	if !sourceRevisionPattern.MatchString(s.Revision) {
+		return errors.New("a clean checkout must name one full lowercase revision")
+	}
+	return nil
 }
