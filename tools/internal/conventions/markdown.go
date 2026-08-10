@@ -35,10 +35,17 @@ var (
 
 var (
 	glanceFields = []string{"**You will:**", "**You need:**", "**Time:**"}
+	// Both spellings are accepted while the pages migrate. The question forms are the
+	// original FAQ frame; the declarative forms belong to the teaching-style contract,
+	// where a page closes by naming what the learner can now do rather than by asking
+	// itself whether it worked.
 	closingHeads = []string{
 		"## What proves this page worked?",
 		"## What proves this chapter worked?",
 		"## How should you use this page later?",
+		"## What you can do now",
+		"## What this chapter proved",
+		"## How to use this page later",
 	}
 	pageKinds          = []string{"concept", "hands-on", "reference", "orientation", "lookup"}
 	allowedAdmonitions = map[string]bool{
@@ -197,22 +204,21 @@ func checkPageURL(root, where, path, text string) []Problem {
 	return problems
 }
 
+// checkHeadings requires a page to be sectioned, and nothing more for now.
+//
+// It used to require every H2 to end with a question mark, which turned all 76 pages
+// into one flat FAQ where no heading could carry more weight than its neighbors. The
+// teaching-style contract inverts that: a heading states what the section does, and one
+// question per page is reserved for the tension the page actually resolves. The cap that
+// enforces the new rule lands once every page has been rewritten to meet it; until then
+// this stays permissive, so a rewritten page and an untouched one both pass.
 func checkHeadings(where, text string) []Problem {
-	var problems []Problem
-	found := false
 	for _, line := range linesOutsideFences(text) {
-		if !strings.HasPrefix(line.text, "## ") {
-			continue
-		}
-		found = true
-		if !strings.HasSuffix(line.text, "?") {
-			problems = append(problems, problem(where, "FAQ heading must end with ?: %s", line.text))
+		if strings.HasPrefix(line.text, "## ") {
+			return nil
 		}
 	}
-	if !found {
-		problems = append(problems, problem(where, "expected at least one FAQ question heading"))
-	}
-	return problems
+	return []Problem{problem(where, "expected at least one H2 section heading")}
 }
 
 func checkGlance(where, text string) []Problem {
