@@ -23,7 +23,7 @@ run = [
 
 [tasks."format:dprint"]
 description = "Format evaluation documentation, configuration, and dashboard"
-run = "dprint fmt README.md DESIGN.md STATUS.md mise.toml .golangci.yml grafana-dashboard.json release-policy.json ops.evalset.json workflow.evalset.json triage-report.evalset.json cost_baseline.json judge-calibration.json"
+run = "dprint fmt README.md DESIGN.md mise.toml .golangci.yml grafana-dashboard.json release-policy.json ops.evalset.json workflow.evalset.json triage-report.evalset.json cost_baseline.json judge-calibration.json"
 
 [tasks.check]
 alias = "c"
@@ -40,7 +40,7 @@ run = "go mod tidy -diff"
 description = "Check Go formatting without writing"
 run = [
   "golangci-lint fmt --diff",
-  "dprint check README.md DESIGN.md STATUS.md mise.toml .golangci.yml grafana-dashboard.json release-policy.json ops.evalset.json workflow.evalset.json triage-report.evalset.json cost_baseline.json judge-calibration.json",
+  "dprint check README.md DESIGN.md mise.toml .golangci.yml grafana-dashboard.json release-policy.json ops.evalset.json workflow.evalset.json triage-report.evalset.json cost_baseline.json judge-calibration.json",
 ]
 
 [tasks."check:lint"]

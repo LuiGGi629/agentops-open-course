@@ -41,9 +41,14 @@ path = "github.com/imfing/hextra"
 [[module.mounts]]
 source = "assets"
 target = "assets"
+# Narrowed to the two directories the course quotes. A mount of `agents` would also
+# publish anything else that ever lands beside them into the built site's asset tree.
 [[module.mounts]]
-source = "agents"
-target = "assets/source/agents"
+source = "agents/go"
+target = "assets/source/agents/go"
+[[module.mounts]]
+source = "agents/data"
+target = "assets/source/agents/data"
 [[module.mounts]]
 source = "evals"
 target = "assets/source/evals"

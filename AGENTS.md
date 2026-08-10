@@ -8,7 +8,6 @@ The course teaches the complete lifecycle of one Go AgentOps Agent with Google A
 
 - `agents/go/` is the Go reference agent, offline tests, state commands, protocol servers, and distroless image.
 - `agents/data/` is immutable seed input: SQLite, logs, runbooks, and runtime Agent Skills.
-- `agents/python/` is a frozen behavioral reference only. It is outside the learner tasks and documentation; do not edit or delete it until the model-backed Phase A evidence recorded in `evals/STATUS.md` is green.
 - `evals/` is a standalone black-box Go evaluation module. It must not require or import the agent module.
 - `tools/` is a standalone Go module for repository conventions, accessibility, release evidence, and local support commands.
 - `content/` contains 76 FAQ-based Hugo pages.

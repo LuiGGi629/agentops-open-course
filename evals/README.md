@@ -2,6 +2,12 @@
 
 This standalone module evaluates the AgentOps Go agent only through its public ADK REST or A2A wire contract. It does not require or import `agents/go`; the offline gate checks the resolved Go import graph to keep that boundary mechanical.
 
+## What the offline gate can and cannot prove
+
+`mise run check` and `mise run test` prove parsing, scoring, transport normalization, asset consistency, import separation, process isolation, evidence serialization, and in-memory telemetry. They call no model and start no observability stack, so a green offline run is never evidence that the agent answered well, that a judge agreed, or that a span reached Tempo. Only a model-backed `mise run eval` produces that, and only against the runtime it actually ran.
+
+The wire shapes this module pins were recovered from the discarded Python scaffold and are recorded in `DESIGN.md`. They are held in place by fixed-wire and transport-equivalence tests rather than by that history.
+
 ## Commands
 
 Run the offline gate from this directory:
