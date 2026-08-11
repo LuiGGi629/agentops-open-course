@@ -45,6 +45,9 @@ tmp/
 # ADK runtime and generated evaluation evidence
 **/.adk/
 **/.state/
+# Chapter 6.9's two-replica exercise runs each agent from its own state directory;
+# a learner who stops halfway should not be left with untracked files to explain.
+**/.state-[a-z]/
 evals/results.json
 evals/*-results.json
 evals/*-comparison.json
