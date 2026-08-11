@@ -85,7 +85,11 @@ assert_eq "Skaffold rendered development tag" \
 prometheus_rules_link="$(readlink infra/observability/prometheus-rules.yml)"
 assert_eq "Prometheus rules symlink" "${prometheus_rules_link}" "../k8s/overlays/local/prometheus-rules.yaml"
 promtool check rules infra/observability/prometheus-rules.yml
-promtool test rules infra/observability/tests/observability-collector-down.yml
+# Every rule test in the directory, not a hand-maintained list: docs 7.2b sends
+# learners here to add one, and a test nobody runs proves nothing.
+for rule_test in infra/observability/tests/*.yml; do
+	promtool test rules "${rule_test}"
+done
 collector_health_endpoint="$(yq -r '.extensions.health_check.endpoint' infra/k8s/base/otel-collector-config.yaml)"
 collector_service_extensions="$(yq -r '.service.extensions | join(",")' infra/k8s/base/otel-collector-config.yaml)"
 assert_eq "collector health extension endpoint" "${collector_health_endpoint}" "0.0.0.0:13133"
@@ -774,17 +778,27 @@ for gateway_config in infra/agentgateway/host/config.yaml infra/agentgateway/k3d
 	gateway_failure_mode="$(yq -r '.routes[] | select(.name == "mcp") | .backends[].mcp.failureMode' "${gateway_config}" | sort -u)"
 	[[ "${gateway_failure_mode}" == "failClosed" ]]
 
-	# Exactly one token bucket per route, with the same numbers everywhere:
-	# 120/60s MCP, 60/60s A2A, 30/60s model. A second bucket on a route would
-	# make these lists comma-joined and fail.
-	for gateway_bucket in mcp:120 a2a:60 llm:30; do
-		rate_limit=".routes[] | select(.name == \"${gateway_bucket%%:*}\") | .policies.localRateLimit"
+	# Fixed bucket registry per route, identical in every profile: one request
+	# bucket of 120/60s on MCP and 60/60s on A2A, and two buckets on the model
+	# route — 30 requests/60s plus 100000 LLM tokens/60s, the spend ceiling
+	# docs 7.3b teaches. Each field is comma-joined across the route's buckets,
+	# so an added, removed, reordered, or retyped bucket fails here instead of
+	# silently contradicting the prose. `null` is the absent `type` key, which
+	# agentgateway reads as the default `requests`.
+	for gateway_bucket in \
+		"mcp|120|60s|null" \
+		"a2a|60|60s|null" \
+		"llm|30,100000|60s,60s|null,tokens"; do
+		IFS='|' read -r bucket_route bucket_sizes bucket_intervals bucket_types <<<"${gateway_bucket}"
+		rate_limit=".routes[] | select(.name == \"${bucket_route}\") | .policies.localRateLimit"
 		bucket_max_tokens="$(yq -r "${rate_limit}[].maxTokens" "${gateway_config}" | paste -sd, -)"
 		bucket_tokens_per_fill="$(yq -r "${rate_limit}[].tokensPerFill" "${gateway_config}" | paste -sd, -)"
 		bucket_fill_interval="$(yq -r "${rate_limit}[].fillInterval" "${gateway_config}" | paste -sd, -)"
-		[[ "${bucket_max_tokens}" == "${gateway_bucket##*:}" ]]
-		[[ "${bucket_tokens_per_fill}" == "${gateway_bucket##*:}" ]]
-		[[ "${bucket_fill_interval}" == "60s" ]]
+		bucket_type="$(yq -r "${rate_limit}[].type" "${gateway_config}" | paste -sd, -)"
+		[[ "${bucket_max_tokens}" == "${bucket_sizes}" ]]
+		[[ "${bucket_tokens_per_fill}" == "${bucket_sizes}" ]]
+		[[ "${bucket_fill_interval}" == "${bucket_intervals}" ]]
+		[[ "${bucket_type}" == "${bucket_types}" ]]
 	done
 
 	# The OpenAI-compatible profiles share one policy shape while their webhook

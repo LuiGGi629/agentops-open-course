@@ -129,6 +129,9 @@ func (c Config) fieldProblems() []Problem {
 	if !c.ModelProvider.Valid() {
 		found.add(EnvModelProvider, "must be one of %s; got %q", joinValues(ModelProviders()), c.ModelProvider)
 	}
+	if !c.SessionBackend.Valid() {
+		found.add(EnvSessionBackend, "must be one of %s; got %q", joinValues(SessionBackends()), c.SessionBackend)
+	}
 
 	notEmpty(&found, EnvModel, c.Model)
 	// Python resolves an empty path to the working directory; Go rejects it.
@@ -145,6 +148,7 @@ func (c Config) fieldProblems() []Problem {
 	closedRange(&found, EnvA2APort, c.A2APort, 1, 65535)
 	closedRange(&found, EnvA2AMaxLLMCalls, c.A2AMaxLLMCalls, 1, 100)
 	closedRange(&found, EnvMaxRetries, c.MaxRetries, 0, 10)
+	closedRange(&found, EnvSessionMaxConns, c.SessionMaxConns, 1, 100)
 	closedRange(&found, EnvCircuitFailureThreshold, c.CircuitFailureThreshold, 1, 100)
 
 	positiveAtMost(&found, EnvDrainTimeout, c.DrainTimeout, 300)
@@ -263,7 +267,10 @@ func (c Config) providerProblems() []Problem {
 
 // crossFieldProblems rejects combinations that parse but cannot work.
 func (c Config) crossFieldProblems() []Problem {
-	var found problems
+	// The session store comes first: a replica that cannot open the database its
+	// conversations live in never reaches the question of which model endpoint
+	// it would have called.
+	found := problems(c.sessionStoreProblems())
 
 	endpoints := []struct {
 		variable string
@@ -297,6 +304,71 @@ func (c Config) crossFieldProblems() []Problem {
 		)
 	}
 	return found
+}
+
+// sessionStoreProblems rejects session-store settings that parse but cannot open
+// a store.
+//
+// Both directions are errors, not warnings. A postgres backend with no DSN has
+// nowhere to connect, and a DSN set beside the sqlite backend is a setting the
+// operator believes is in effect while every session still lands on local disk —
+// the kind of quiet no-op that only surfaces when a second replica loses a
+// conversation.
+func (c Config) sessionStoreProblems() []Problem {
+	var found problems
+	dsn := strings.TrimSpace(c.SessionDSN.Reveal())
+	switch {
+	case c.SessionBackend == SessionBackendPostgres && dsn == "":
+		found.addCrossField(
+			"AGENT_SESSION_BACKEND=postgres requires AGENT_SESSION_DSN, in the form " +
+				"postgres://user:password@host:5432/database?sslmode=disable. Keep the value in a " +
+				"secret store; the shipped example line stays empty on purpose.",
+		)
+	case c.SessionBackend == SessionBackendSQLite && dsn != "":
+		found.addCrossField(
+			"AGENT_SESSION_DSN is only read when AGENT_SESSION_BACKEND=postgres. Select that " +
+				"backend or unset the DSN; the sqlite store always lives in AGENT_STATE_DIR.",
+		)
+	case c.SessionBackend == SessionBackendPostgres:
+		if reason := postgresDSNProblem(dsn); reason != "" {
+			found.addCrossField(
+				"AGENT_SESSION_DSN %s; the rejected value is omitted from diagnostics "+
+					"because it carries a password.", reason,
+			)
+		}
+	}
+	return found
+}
+
+// postgresDSNProblem validates the session DSN without returning it.
+//
+// The same omission rule as httpURLProblem, for a stronger reason: a provider
+// endpoint may carry a credential by accident, while this URL is expected to
+// carry one. Everything below judges shape only.
+func postgresDSNProblem(value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
+		return "must be a postgres:// or postgresql:// URL"
+	}
+	if parsed.Hostname() == "" {
+		return "must name a host"
+	}
+	if strings.HasSuffix(parsed.Host, ":") {
+		return "must use a port between 1 and 65535 when a port is present"
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return "must use a port between 1 and 65535 when a port is present"
+		}
+	}
+	// A libpq URL without a path connects to a database named after the user,
+	// which is never what a deployment means to say. Naming it is one character
+	// of typing and removes a whole class of "why is this table empty".
+	if strings.Trim(parsed.Path, "/") == "" {
+		return "must name a database as the URL path, such as /sessions"
+	}
+	return ""
 }
 
 // httpURLProblem validates a provider endpoint without returning the rejected

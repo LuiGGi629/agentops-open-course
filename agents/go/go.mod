@@ -16,6 +16,14 @@ require (
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/jsonschema-go v0.4.3
+	// The second session backend, and the only non-SQLite database in the binary.
+	// gorm.io/driver/postgres is the GORM dialector ADK's session store needs;
+	// github.com/jackc/pgx/v5 is the pure-Go driver under it, imported for its
+	// database/sql registration so cmd/agent can own and bound the pool itself.
+	// Both stay cgo-free, so CGO_ENABLED=0 still holds. Sessions are the only
+	// state that moves here — the incident, task, memory, and vector databases
+	// remain SQLite files owned by one writer (Ch. 6.9).
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	// ADK Go v2.2.0 owns this generated-client pair and requires openai-go v3.49.0.
 	// Bump it only with ADK, so the adapter and the generated client stay in step.
@@ -32,6 +40,7 @@ require (
 	golang.org/x/text v0.40.0
 	google.golang.org/adk/v2 v2.2.0
 	google.golang.org/genai v1.66.0 // compatibility hold: owner=google.golang.org/adk/v2@v2.2.0 constraint=v1.66.0 validator=agents/go mise run check and test
+	gorm.io/driver/postgres v1.6.2
 )
 
 // --8<-- [end:runtime-dependencies]
@@ -110,7 +119,12 @@ require (
 	rsc.io/ordered v1.1.1 // indirect
 )
 
-require golang.org/x/time v0.15.0 // indirect
+require (
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	golang.org/x/time v0.15.0 // indirect
+)
 
 tool (
 	golang.org/x/tools/cmd/goimports

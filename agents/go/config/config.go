@@ -42,6 +42,9 @@ const (
 	EnvMCPToken                 = "AGENT_MCP_TOKEN"
 	EnvDataDir                  = "AGENT_DATA_DIR"
 	EnvStateDir                 = "AGENT_STATE_DIR"
+	EnvSessionBackend           = "AGENT_SESSION_BACKEND"
+	EnvSessionDSN               = "AGENT_SESSION_DSN"
+	EnvSessionMaxConns          = "AGENT_SESSION_MAX_CONNS"
 	EnvA2ABindHost              = "AGENT_A2A_BIND_HOST"
 	EnvA2AHost                  = "AGENT_A2A_HOST"
 	EnvA2APort                  = "AGENT_A2A_PORT"
@@ -158,6 +161,17 @@ type Config struct {
 	DataDir  string `env:"AGENT_DATA_DIR"  envDefault:"../data"`
 	StateDir string `env:"AGENT_STATE_DIR" envDefault:".state"`
 
+	// Which engine holds ADK's sessions (Ch. 6.9). The default keeps them in
+	// AGENT_STATE_DIR as one SQLite file with one writer, which is why the
+	// account-free path needs nothing installed. "postgres" moves them to a
+	// shared server so more than one replica can serve the same conversation.
+	SessionBackend SessionBackend `env:"AGENT_SESSION_BACKEND" envDefault:"sqlite"`
+
+	// Connection URL for the postgres backend, unset for sqlite. A Secret rather
+	// than a string because this URL normally carries a password: it is masked in
+	// config:check, in logs, and in every error this module raises.
+	SessionDSN Secret `env:"AGENT_SESSION_DSN"`
+
 	// Bind and advertised A2A addresses are deliberately separate. The host
 	// runtime stays loopback-only; Kubernetes explicitly opts into 0.0.0.0.
 	// Never advertise 0.0.0.0: it is a listener, not a callable endpoint.
@@ -178,6 +192,13 @@ type Config struct {
 
 	A2APort        int `env:"AGENT_A2A_PORT"          envDefault:"8080"`
 	A2AMaxLLMCalls int `env:"AGENT_A2A_MAX_LLM_CALLS" envDefault:"12"`
+
+	// Connections one replica may hold open against the postgres session store.
+	// The ceiling that matters is shared, not local: replicas multiplied by this
+	// value must stay under the server's own max_connections, or a routine scale-up
+	// turns into "too many clients already" for every replica at once. Ignored by
+	// the sqlite backend, which holds exactly one connection by construction.
+	SessionMaxConns int `env:"AGENT_SESSION_MAX_CONNS" envDefault:"10"`
 
 	// Graceful-shutdown drain: how long in-flight A2A requests may finish after
 	// SIGTERM. Kubernetes' terminationGracePeriodSeconds must exceed this.

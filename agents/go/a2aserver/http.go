@@ -117,7 +117,7 @@ func (s *Server) handleReadiness(writer http.ResponseWriter, request *http.Reque
 	// unready rather than holding the probe open until kubelet's own timeout.
 	probeCtx, cancel := context.WithTimeout(ctx, storeProbeTimeout)
 	defer cancel()
-	if err := probeStateStores(probeCtx, s.options.StateDir); err != nil {
+	if err := probeStateStores(probeCtx, s.options.StateDir, s.probeSessions); err != nil {
 		s.logger.WarnContext(ctx, "readiness: the session or task store is invalid", "error", err)
 		problems = append(problems, fmt.Sprintf("session/task store invalid: %T", err))
 	}

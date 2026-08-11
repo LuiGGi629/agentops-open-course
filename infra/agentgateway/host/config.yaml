@@ -85,10 +85,26 @@ routes:
   - name: llm
     gateways: [llm]
     policies:
+      # --8<-- [start:model-token-budget]
+      # Two buckets on one route, both enforced on every call.
       localRateLimit:
+        # Requests. This one prices every call alike, so it cannot tell a
+        # six-word question from a caller that pastes 200k tokens of runbook
+        # into each prompt.
         - maxTokens: 30
           tokensPerFill: 30
           fillInterval: 60s
+        # Tokens. agentgateway charges this bucket after the call completes,
+        # so an oversized call is admitted and drains it; the *next* call is
+        # the one refused with 429. 100000/min restates the request cap in
+        # tokens — 30 calls at the ~2,700 tokens a course turn's first model
+        # call actually spends is ~81,000 — so it binds on context growth
+        # rather than on ordinary use.
+        - maxTokens: 100000
+          tokensPerFill: 100000
+          fillInterval: 60s
+          type: tokens
+      # --8<-- [end:model-token-budget]
       ai:
         # The client route type is what agentgateway parses the body with. Without this
         # override it assumes chat-completions and rejects a Responses request as

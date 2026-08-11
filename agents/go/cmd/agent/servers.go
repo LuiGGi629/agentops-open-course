@@ -135,6 +135,9 @@ func newA2AServer(
 			_, probeErr := assembled.store.ProbeRuntimeDatabase(ctx)
 			return probeErr
 		},
+		// Nil under the file backend, where a2aserver probes runtime.db itself;
+		// the shared server is reachable only through the pool this process owns.
+		ProbeSessions: sessions.readinessProbe(),
 		// The same single plugin the launcher attaches, so an A2A turn is
 		// governed by exactly the policy a console turn is.
 		Plugins: []*plugin.Plugin{governancePlugin},

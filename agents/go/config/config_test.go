@@ -135,6 +135,97 @@ func TestDefaultConfigurationIsValid(t *testing.T) {
 	if cfg.DataDir != "../data" || cfg.StateDir != ".state" {
 		t.Errorf("DataDir/StateDir = %q/%q", cfg.DataDir, cfg.StateDir)
 	}
+	if cfg.SessionBackend != SessionBackendSQLite {
+		t.Errorf("SessionBackend = %q, want the account-free %q default", cfg.SessionBackend, SessionBackendSQLite)
+	}
+	if cfg.SessionDSN != "" {
+		t.Errorf("SessionDSN = %q, want unset when sessions are a local file", cfg.SessionDSN.Reveal())
+	}
+	if cfg.SessionMaxConns != 10 {
+		t.Errorf("SessionMaxConns = %d, want 10", cfg.SessionMaxConns)
+	}
+}
+
+func TestSessionBackendIsAValidatedChoice(t *testing.T) {
+	// The sqlite member must load on its own; postgres carries a DSN, so it is
+	// exercised with one below rather than here.
+	cfg := mustLoad(t, withEnv(map[string]string{EnvSessionBackend: string(SessionBackendSQLite)}))
+	if cfg.SessionBackend != SessionBackendSQLite {
+		t.Errorf("SessionBackend = %q, want %q", cfg.SessionBackend, SessionBackendSQLite)
+	}
+
+	message := loadError(t, withEnv(map[string]string{EnvSessionBackend: "mysql"}))
+	assertContains(t, message, EnvSessionBackend, "sqlite, postgres", `"mysql"`)
+}
+
+func TestPostgresSessionBackendLoadsWithADSN(t *testing.T) {
+	cfg := mustLoad(t, withEnv(map[string]string{
+		EnvSessionBackend:  string(SessionBackendPostgres),
+		EnvSessionDSN:      "postgres://agentops:secret@agentops-sessions:5432/sessions?sslmode=disable",
+		EnvSessionMaxConns: "4",
+	}))
+	if cfg.SessionBackend != SessionBackendPostgres {
+		t.Errorf("SessionBackend = %q, want %q", cfg.SessionBackend, SessionBackendPostgres)
+	}
+	if cfg.SessionMaxConns != 4 {
+		t.Errorf("SessionMaxConns = %d, want 4", cfg.SessionMaxConns)
+	}
+	// The DSN is readable through the deliberate Reveal call and nowhere else.
+	if cfg.SessionDSN.String() != SecretMask {
+		t.Errorf("SessionDSN renders as %q, want the mask", cfg.SessionDSN.String())
+	}
+	if !strings.HasPrefix(cfg.SessionDSN.Reveal(), "postgres://agentops:secret@") {
+		t.Errorf("SessionDSN.Reveal() = %q, want the configured URL", cfg.SessionDSN.Reveal())
+	}
+}
+
+func TestPostgresSessionBackendRequiresADSN(t *testing.T) {
+	message := loadError(t, withEnv(map[string]string{EnvSessionBackend: string(SessionBackendPostgres)}))
+	assertContains(t, message, EnvSessionBackend+"=postgres requires "+EnvSessionDSN, "sslmode=disable")
+}
+
+func TestSQLiteSessionBackendRejectsAnIgnoredDSN(t *testing.T) {
+	// A DSN beside the sqlite backend is a setting the operator believes is in
+	// effect while every session still lands on local disk.
+	message := loadError(t, withEnv(map[string]string{
+		EnvSessionDSN: "postgres://agentops@127.0.0.1:5432/sessions",
+	}))
+	assertContains(t, message, EnvSessionDSN+" is only read when "+EnvSessionBackend+"=postgres", EnvStateDir)
+}
+
+func TestSessionDSNProblemsNeverEchoTheCredential(t *testing.T) {
+	for name, dsn := range map[string]string{
+		"wrong scheme":  "mysql://agentops:hunter2@db:3306/sessions",
+		"no host":       "postgres:///sessions",
+		"empty port":    "postgres://agentops:hunter2@db:/sessions",
+		"port zero":     "postgres://agentops:hunter2@db:0/sessions",
+		"port too high": "postgres://agentops:hunter2@db:65536/sessions",
+		"no database":   "postgres://agentops:hunter2@db:5432/",
+		"unparseable":   "postgres://agentops:hunter2@db host:5432/sessions",
+	} {
+		t.Run(name, func(t *testing.T) {
+			message := loadError(t, withEnv(map[string]string{
+				EnvSessionBackend: string(SessionBackendPostgres),
+				EnvSessionDSN:     dsn,
+			}))
+			assertContains(t, message, EnvSessionDSN)
+			if strings.Contains(message, "hunter2") || strings.Contains(message, dsn) {
+				t.Errorf("rejection echoed the credential-bearing DSN:\n%s", message)
+			}
+		})
+	}
+}
+
+func TestSessionDSNAcceptsBothLibpqSchemes(t *testing.T) {
+	for _, dsn := range []string{
+		"postgres://agentops@db:5432/sessions",
+		"postgresql://agentops:secret@db/sessions?sslmode=require",
+	} {
+		mustLoad(t, withEnv(map[string]string{
+			EnvSessionBackend: string(SessionBackendPostgres),
+			EnvSessionDSN:     dsn,
+		}))
+	}
 }
 
 func TestEntrypointIsAValidatedChoice(t *testing.T) {
@@ -503,6 +594,7 @@ func TestFieldBoundsMatrix(t *testing.T) {
 		"pii model timeout":      {EnvPIIModelTimeout, []string{"0.1", "8", "9"}, []string{"0", "9.1"}},
 		"tool timeout":           {EnvToolTimeout, []string{"30", "600"}, []string{"0", "601"}},
 		"max retries":            {EnvMaxRetries, []string{"0", "2", "10"}, []string{"-1", "11"}},
+		"session max conns":      {EnvSessionMaxConns, []string{"1", "10", "100"}, []string{"0", "101", "-1", "many"}},
 		"retry backoff":          {EnvRetryBackoff, []string{"0.5", "30"}, []string{"0", "30.1"}},
 		"circuit threshold":      {EnvCircuitFailureThreshold, []string{"1", "5", "100"}, []string{"0", "101"}},
 		"circuit reset":          {EnvCircuitResetTimeout, []string{"30", "600"}, []string{"0", "601"}},
@@ -702,6 +794,7 @@ func TestVariableConstantsMatchStructTags(t *testing.T) {
 		EnvEntrypoint, EnvModelProvider, EnvModel, EnvOpenAIBaseURL, EnvOpenAIAPIKey,
 		EnvGoogleAPIKey, EnvGoogleGenAIUseEnterprise, EnvGoogleCloudProject, EnvGoogleCloudLocation,
 		EnvGatewayEnabled, EnvMCPURL, EnvMCPToken, EnvDataDir, EnvStateDir,
+		EnvSessionBackend, EnvSessionDSN, EnvSessionMaxConns,
 		EnvA2ABindHost, EnvA2AHost, EnvA2APort, EnvA2AProtocol, EnvA2AMaxLLMCalls,
 		EnvA2AStreaming, EnvDrainTimeout, EnvTrustedIdentityHeader, EnvModelTemperature,
 		EnvModelTimeout, EnvToolTimeout, EnvMaxRetries, EnvRetryBackoff,

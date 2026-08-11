@@ -11,12 +11,17 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
 )
 
 // SessionDatabaseName is ADK's session store inside AGENT_STATE_DIR. It shares
 // its name with the Python track's file so a learner comparing the two tracks
 // finds the same artifact in the same place.
+//
+// It names a file only under config.SessionBackendSQLite. With the Postgres
+// backend the sessions live on a shared server and nothing in AGENT_STATE_DIR
+// holds them — see [ProbePostgresSessionStore].
 const SessionDatabaseName = "runtime.db"
 
 // sessionStoreColumns is the shape ADK Go's session service actually creates.
@@ -37,6 +42,11 @@ const SessionDatabaseName = "runtime.db"
 // the ordering timestamps. TestRequiredSessionColumnsMatchADK pins it against a
 // freshly migrated database, so an upstream rename is a failing test rather
 // than a server that refuses to start.
+//
+// One list serves both backends. The names are gorm's, and gorm derives them
+// from the same struct tags and the same naming strategy whichever dialector it
+// was given, so a SQLite file and a PostgreSQL database migrated by this
+// application declare the same tables and the same columns.
 var sessionStoreColumns = map[string][]string{
 	"sessions":    {"app_name", "user_id", "id", "state", "create_time", "update_time"},
 	"events":      {"id", "app_name", "user_id", "session_id", "invocation_id", "author", "timestamp", "content"},
@@ -50,7 +60,50 @@ const (
 	upgradeGuidance  = "Upgrade the application or select a compatible snapshot."
 	selectSnapshot   = "Select a compatible snapshot before startup."
 	incompleteSchema = "has an incomplete current schema"
+	// migrateSharedStore is the shared backend's equivalent of selectSnapshot.
+	// A PostgreSQL session store is not part of this replica's state generation,
+	// so no snapshot can repair it; what an operator can act on is which database
+	// the DSN names and which application version migrated it.
+	migrateSharedStore = "Point " + config.EnvSessionDSN +
+		" at a database migrated by a compatible application version."
 )
+
+// sessionStoreTarget is what one session-store check reports about: the name an
+// operator would look the store up by, and the instruction that resolves an
+// incompatibility.
+//
+// The two travel together because they are halves of the same sentence, and the
+// two backends answer both differently — a file inside AGENT_STATE_DIR that a
+// snapshot can replace, or a shared server that only a migration or a corrected
+// DSN can.
+type sessionStoreTarget struct {
+	name     string
+	guidance string
+}
+
+var (
+	// fileSessionStore is the database ADK opens inside AGENT_STATE_DIR.
+	fileSessionStore = sessionStoreTarget{name: SessionDatabaseName, guidance: selectSnapshot}
+	// sharedSessionStore is the PostgreSQL server every replica writes to. It is
+	// named by its variable and never by its DSN, which is a credential.
+	sharedSessionStore = sessionStoreTarget{
+		name:     "the PostgreSQL session store named by " + config.EnvSessionDSN,
+		guidance: migrateSharedStore,
+	}
+)
+
+// sessionSchema reads the shape of one session store in its engine's own
+// dialect: SQLite from sqlite_schema and pragma_table_info, PostgreSQL from
+// information_schema.
+//
+// The interface exists so [checkSessionSchema] — which owns the judgement, the
+// ordering of the report and the operator guidance — is written once for both
+// backends. Only the two catalog queries differ, and they are the only part of
+// this package that is allowed to know which engine it is talking to.
+type sessionSchema interface {
+	tables(ctx context.Context) (map[string]struct{}, error)
+	columns(ctx context.Context, table string) (map[string]struct{}, error)
+}
 
 // preflightStateStores rejects incompatible runtime state before startup writes
 // anything.
@@ -67,9 +120,23 @@ const (
 //
 // An absent file is not a problem: a fresh deployment has no state yet, and the
 // stores create their own schemas during startup.
-func preflightStateStores(ctx context.Context, stateDir string) error {
-	if err := preflightSessionStore(ctx, filepath.Join(stateDir, SessionDatabaseName)); err != nil {
-		return err
+//
+// # Why the session half is skipped on the shared backend
+//
+// This gate judges one state generation: the directory a snapshot restores.
+// With sessions on PostgreSQL, AGENT_STATE_DIR holds no session database at
+// all, and any runtime.db still sitting there is a leftover from a SQLite
+// generation that no process in this deployment will open. Refusing to start
+// over a file nothing reads would block the very migration the shared backend
+// exists for. The shared store's own compatibility is settled one step later,
+// by the migration that runs against the server itself and fails startup when
+// it cannot bring the schema up to date — and afterwards, on every readiness
+// poll, by [ProbePostgresSessionStore].
+func preflightStateStores(ctx context.Context, stateDir string, backend config.SessionBackend) error {
+	if backend != config.SessionBackendPostgres {
+		if err := preflightSessionStore(ctx, filepath.Join(stateDir, SessionDatabaseName)); err != nil {
+			return err
+		}
 	}
 	return preflightTaskStore(ctx, filepath.Join(stateDir, TaskDatabaseName))
 }
@@ -89,7 +156,7 @@ func preflightSessionStore(ctx context.Context, path string) error {
 			// empty-file placeholder leaves behind. ADK's migration will fill it.
 			return nil
 		}
-		return checkSessionSchema(ctx, pool, tables, selectSnapshot)
+		return checkSessionSchema(ctx, sqliteSessionSchema{queryer: pool}, tables, fileSessionStore)
 	})
 }
 
@@ -116,7 +183,14 @@ func preflightTaskStore(ctx context.Context, path string) error {
 
 // checkSessionSchema reports the tables and columns ADK's session store is
 // missing, in the order an operator can act on.
-func checkSessionSchema(ctx context.Context, queryer rowQueryer, tables map[string]struct{}, guidance string) error {
+//
+// The store it is judging arrives as a [sessionSchema] and describes itself
+// through a [sessionStoreTarget], so the same report covers a file in
+// AGENT_STATE_DIR and a shared PostgreSQL database without either engine's
+// catalog dialect reaching this far.
+func checkSessionSchema(
+	ctx context.Context, schema sessionSchema, tables map[string]struct{}, target sessionStoreTarget,
+) error {
 	var missingTables []string
 	for table := range sessionStoreColumns {
 		if _, ok := tables[table]; !ok {
@@ -126,10 +200,10 @@ func checkSessionSchema(ctx context.Context, queryer rowQueryer, tables map[stri
 	if len(missingTables) > 0 {
 		sort.Strings(missingTables)
 		return fmt.Errorf("%s %s and is missing tables: %s. %s",
-			SessionDatabaseName, incompleteSchema, strings.Join(missingTables, ", "), guidance)
+			target.name, incompleteSchema, strings.Join(missingTables, ", "), target.guidance)
 	}
 	for _, table := range sortedTables(sessionStoreColumns) {
-		columns, err := tableColumns(ctx, queryer, table)
+		columns, err := schema.columns(ctx, table)
 		if err != nil {
 			return err
 		}
@@ -142,7 +216,7 @@ func checkSessionSchema(ctx context.Context, queryer rowQueryer, tables map[stri
 		if len(missing) > 0 {
 			sort.Strings(missing)
 			return fmt.Errorf("%s %s: table %q is missing columns %s. %s",
-				SessionDatabaseName, incompleteSchema, table, strings.Join(missing, ", "), guidance)
+				target.name, incompleteSchema, table, strings.Join(missing, ", "), target.guidance)
 		}
 	}
 	return nil
@@ -167,29 +241,35 @@ func checkTaskStoreVersion(ctx context.Context, queryer rowQueryer, tables map[s
 	return checkTaskTables(ctx, queryer, tables)
 }
 
-// probeStateStores validates the session and task stores through dedicated
-// read-only connections.
+// probeStateStores validates the session and task stores this replica serves
+// from.
 //
-// # Why its own connections
+// # Why the session half is a parameter
 //
-// Readiness must not borrow the traffic pool. Both stores hold a single
-// connection on purpose, so a readiness check that queued behind a live
-// transaction would report a busy server as unready — turning load into a
-// removal from the load balancer, which makes the load worse. Its own read-only
-// handle answers the question readiness actually asks: is the state on disk
-// usable?
+// The task store is a SQLite file in AGENT_STATE_DIR under every backend, so it
+// is probed here. The session store is not: it is that same directory's
+// runtime.db only under config.SessionBackendSQLite, and a PostgreSQL server
+// otherwise. Opening the file regardless would ask about a database no process
+// writes — which on the shared backend is a missing file, and therefore a
+// replica that never becomes ready no matter how healthy its real session store
+// is. [Server.New] resolves probeSessions to [probeFileSessionStore] for the
+// file backend and requires the caller to supply one for any other, so the
+// check always names the store the turns actually use.
+//
+// # Why the file probes get their own connections
+//
+// Readiness must not borrow the traffic pool of a SQLite store. Both file
+// stores hold a single connection on purpose, so a readiness check that queued
+// behind a live transaction would report a busy server as unready — turning
+// load into a removal from the load balancer, which makes the load worse. Its
+// own read-only handle answers the question readiness actually asks: is the
+// state on disk usable? The shared backend answers the same question
+// differently, for the reason [ProbePostgresSessionStore] documents.
 //
 // Unlike the preflight, this runs after startup, so an absent or empty database
 // is a failure rather than a fresh boot.
-func probeStateStores(ctx context.Context, stateDir string) error {
-	sessionPath := filepath.Join(stateDir, SessionDatabaseName)
-	if err := probeDatabase(ctx, sessionPath, SessionDatabaseName, func(pool *sql.DB) error {
-		tables, err := presentTables(ctx, pool)
-		if err != nil {
-			return err
-		}
-		return checkSessionSchema(ctx, pool, tables, selectSnapshot)
-	}); err != nil {
+func probeStateStores(ctx context.Context, stateDir string, probeSessions Step) error {
+	if err := probeSessions(ctx); err != nil {
 		return err
 	}
 	return probeDatabase(ctx, filepath.Join(stateDir, TaskDatabaseName), TaskDatabaseName,
@@ -199,6 +279,20 @@ func probeStateStores(ctx context.Context, stateDir string) error {
 				return err
 			}
 			return checkTaskStoreVersion(ctx, pool, tables)
+		})
+}
+
+// probeFileSessionStore validates ADK's session database inside AGENT_STATE_DIR
+// through a dedicated read-only connection. It is the session half of readiness
+// under config.SessionBackendSQLite.
+func probeFileSessionStore(ctx context.Context, stateDir string) error {
+	return probeDatabase(ctx, filepath.Join(stateDir, SessionDatabaseName), SessionDatabaseName,
+		func(pool *sql.DB) error {
+			tables, err := presentTables(ctx, pool)
+			if err != nil {
+				return err
+			}
+			return checkSessionSchema(ctx, sqliteSessionSchema{queryer: pool}, tables, fileSessionStore)
 		})
 }
 

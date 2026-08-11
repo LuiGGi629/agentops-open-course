@@ -117,6 +117,10 @@ func TestServerSentEventFramesMatchTheCheckedInBrowserParser(t *testing.T) {
 		`/\r\n|\r|\n/`,         // the line separator inside a frame
 		`"tasks/cancel"`,       // the method TestCancellationEndsTheTaskCanceled drives
 		`aria-label="Cancel the active task"`,
+		// The flag that tells a provisional chunk from the whole redacted
+		// message, asserted on the wire by
+		// TestStreamedChunksCrossTheRedactionBoundary.
+		`meta.adk_partial`,
 	} {
 		if !strings.Contains(string(client), fragment) {
 			t.Errorf("the browser client no longer contains %s", fragment)
@@ -661,6 +665,226 @@ func TestStreamingOptInEmitsIncrementalArtifacts(t *testing.T) {
 	}
 }
 
+// TestStreamedChunksCrossTheRedactionBoundary is why AGENT_A2A_STREAMING is
+// still off on the taught path, stated as a measurement rather than a warning.
+//
+// The redactor runs on every model response, partials included, but it can only
+// ever see one response at a time. ADK's OpenAI-compatible adapter — the path
+// local Ollama takes — yields one delta per chunk and one aggregated response at
+// the end, which is what the script below reproduces. An address split across
+// two deltas is therefore invisible in both fragments and caught only in the
+// aggregate, by which time the fragments are already on the wire.
+func TestStreamedChunksCrossTheRedactionBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Neither fragment is an address: "10." has one octet and "1.2.3" has three.
+	// Joined, they are the address the boundary policy masks.
+	const (
+		address     = "10.1.2.3"
+		firstDelta  = "The failing host is 10."
+		secondDelta = "1.2.3, so page the on-call."
+	)
+	whole := firstDelta + secondDelta
+
+	for _, testCase := range []struct {
+		name string
+		// wantLeak is whether the chunks a client has already rendered
+		// reassemble into the address the final message masks.
+		streaming bool
+		wantLeak  bool
+	}{
+		{name: "off", streaming: false, wantLeak: false},
+		{name: "on", streaming: true, wantLeak: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			model := &scriptedLLM{turns: [][]*adkmodel.LLMResponse{{
+				{Partial: true, Content: &genai.Content{Role: "model", Parts: []*genai.Part{{Text: firstDelta}}}},
+				{Partial: true, Content: &genai.Content{Role: "model", Parts: []*genai.Part{{Text: secondDelta}}}},
+				{Content: &genai.Content{Role: "model", Parts: []*genai.Part{{Text: whole}}}},
+			}}}
+			fixture := newFixture(t, func(opts *fixtureOptions) {
+				opts.model = model
+				// The shipped policy plane, not a stand-in: the claim being
+				// measured is about the redaction learners actually run.
+				opts.plugins = []*plugin.Plugin{governancePlugin(t)}
+				opts.options = func(options *a2aserver.Options) { options.Streaming = testCase.streaming }
+			})
+			server := fixture.serve(t)
+
+			results := streamResults(t, server, textMessage("m1", "Which host is failing?"))
+			var streamed strings.Builder
+			var final string
+			for _, result := range results {
+				if result["kind"] != "artifact-update" {
+					continue
+				}
+				if artifactIsPartial(result) {
+					streamed.WriteString(artifactText(result))
+					continue
+				}
+				final = artifactText(result)
+			}
+
+			// The whole message is masked either way. That is the guarantee the
+			// course teaches, and streaming does not take it away.
+			if strings.Contains(final, address) {
+				t.Errorf("final artifact = %q, want the address masked", final)
+			}
+			if !strings.Contains(final, "<IP_ADDRESS>") {
+				t.Errorf("final artifact = %q, want it to carry the mask", final)
+			}
+
+			// What streaming takes away is the whole message being the only thing
+			// the client ever saw.
+			if got := strings.Contains(streamed.String(), address); got != testCase.wantLeak {
+				t.Errorf("streamed chunks %q contain %q = %v, want %v",
+					streamed.String(), address, got, testCase.wantLeak)
+			}
+
+			// Logged rather than only asserted: `go test -v` on this case is the
+			// shortest way to see both texts side by side.
+			t.Logf("chunks the client rendered: %q", streamed.String())
+			t.Logf("whole message after redaction: %q", final)
+		})
+	}
+}
+
+// TestACancelableTaskIDArrivesBeforeTheModelAnswers is the difference between a
+// spinner and a stream, measured at the wire.
+//
+// A client that waits for message/send has no task id until the turn is over,
+// so its Cancel button can never do anything. The same turn over message/stream
+// hands the id to the client in the first frame — with AGENT_A2A_STREAMING off,
+// because task events and model tokens are separate switches.
+func TestACancelableTaskIDArrivesBeforeTheModelAnswers(t *testing.T) {
+	// Serial like the other held-model test in this package: it measures
+	// cancellation, not how fast a parallel suite can open SQLite databases.
+
+	started := make(chan struct{})
+	model := &scriptedLLM{
+		turns: [][]*adkmodel.LLMResponse{textTurn("The answer nobody waited for.")},
+		hold: map[int]func(ctx context.Context){0: func(ctx context.Context) {
+			close(started)
+			<-ctx.Done()
+		}},
+	}
+	fixture := newFixture(t, func(opts *fixtureOptions) {
+		opts.model = model
+		opts.options = func(options *a2aserver.Options) { options.Streaming = false }
+	})
+	server := fixture.serve(t)
+
+	request := streamRequest{
+		path:   a2aserver.RootPath,
+		method: "message/stream",
+		params: textMessage("m1", "Take your time."),
+	}
+	withStream(t, server, request, func(stream *liveStream) {
+		first := stream.next()
+		taskID, ok := first["id"].(string)
+		if !ok || taskID == "" {
+			t.Fatalf("first frame = %v, want a task carrying an id", first)
+		}
+		if got := first["kind"]; got != "task" {
+			t.Errorf("first frame kind = %v, want %q", got, "task")
+		}
+
+		// The id is in the client's hands while the model is still thinking,
+		// which is the whole point: there is something to cancel.
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the model was never called")
+		}
+
+		envelope := rpc(t, server, a2aserver.RootPath, "tasks/cancel", map[string]any{"id": taskID})
+		if _, ok := envelope["result"].(map[string]any); !ok {
+			t.Fatalf("tasks/cancel returned %v, want a task", envelope)
+		}
+
+		var remaining []map[string]any
+		for event := stream.next(); event != nil; event = stream.next() {
+			remaining = append(remaining, event)
+		}
+		if got := states(remaining); len(got) == 0 || got[len(got)-1] != "canceled" {
+			t.Errorf("remaining stream states = %v, want the stream to end canceled", got)
+		}
+		for _, event := range remaining {
+			if strings.Contains(artifactText(event), "The answer") {
+				t.Errorf("the canceled turn still delivered its answer: %v", event)
+			}
+		}
+	})
+}
+
+// TestClosingTheConnectionDoesNotCancelTheTask separates leaving from stopping.
+//
+// a2a-go runs an execution on context.WithoutCancel of the request context
+// (internal/taskexec/local_manager.go), so a browser tab that closes mid-turn
+// abandons the stream and nothing else. The turn keeps burning model calls
+// until tasks/cancel says otherwise, which is why the client has a Cancel
+// button rather than a reload instruction.
+func TestClosingTheConnectionDoesNotCancelTheTask(t *testing.T) {
+	// Serial: it holds the model until the test lets go.
+
+	started := make(chan struct{})
+	released := make(chan struct{})
+	model := &scriptedLLM{
+		turns: [][]*adkmodel.LLMResponse{textTurn("Finished after the client walked away.")},
+		hold: map[int]func(ctx context.Context){0: func(ctx context.Context) {
+			close(started)
+			select {
+			case <-released:
+			case <-ctx.Done():
+			}
+		}},
+	}
+	fixture := newFixture(t, func(opts *fixtureOptions) {
+		opts.model = model
+		// The store answers "not found" for a task another subject owns, so the
+		// turn is submitted under the same identity the inspector reads with.
+		opts.options = func(options *a2aserver.Options) { options.TrustedIdentityHeader = identityHeader }
+	})
+	server := fixture.serve(t)
+
+	request := streamRequest{
+		path:    a2aserver.RootPath,
+		method:  "message/stream",
+		params:  textMessage("m1", "Take your time."),
+		headers: [][2]string{{identityHeader, testOwner}},
+	}
+	var taskID string
+	withStream(t, server, request, func(stream *liveStream) {
+		first := stream.next()
+		id, ok := first["id"].(string)
+		if !ok || id == "" {
+			t.Fatalf("first frame = %v, want a task carrying an id", first)
+		}
+		taskID = id
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the model was never called")
+		}
+		stream.close() // the tab closes
+	})
+	close(released)
+
+	inspector := openTaskStoreAt(t, filepath.Join(fixture.stateDir, a2aserver.TaskDatabaseName))
+	deadline := time.Now().Add(5 * time.Second)
+	var final string
+	for time.Now().Before(deadline) {
+		final = mustGet(t, inspector, a2a.TaskID(taskID)).Task.Status.State.String()
+		if final == "TASK_STATE_COMPLETED" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("state after the client disconnected = %q, want the turn to have finished anyway", final)
+}
+
 // TestAgentCardIsPublicAndHidesTheInstruction is the discovery contract. ADK's
 // own BuildAgentSkills would publish the agent's operating instruction,
 // rewritten into the first person; this card is assembled by hand precisely so
@@ -946,6 +1170,15 @@ func artifactText(event map[string]any) string {
 	part, _ := parts[0].(map[string]any)
 	text, _ := part["text"].(string)
 	return text
+}
+
+// artifactIsPartial reports whether an artifact update carries a model chunk
+// rather than the finished message. ADK marks the difference in the event's own
+// metadata so a client does not have to guess.
+func artifactIsPartial(event map[string]any) bool {
+	metadata, _ := event["metadata"].(map[string]any)
+	partial, _ := metadata["adk_partial"].(bool)
+	return partial
 }
 
 // confirmationCall extracts the confirmation request from a paused task.

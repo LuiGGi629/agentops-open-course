@@ -154,6 +154,19 @@ func quickCheck(ctx context.Context, pool *sql.DB, name string) error {
 	return nil
 }
 
+// sqliteSessionSchema reads a session store held in one SQLite file. It is the
+// [sessionSchema] the file backend's preflight and readiness checks judge, and
+// it adds nothing to the two queries below beyond binding them to one handle.
+type sqliteSessionSchema struct{ queryer rowQueryer }
+
+func (s sqliteSessionSchema) tables(ctx context.Context) (map[string]struct{}, error) {
+	return presentTables(ctx, s.queryer)
+}
+
+func (s sqliteSessionSchema) columns(ctx context.Context, table string) (map[string]struct{}, error) {
+	return tableColumns(ctx, s.queryer, table)
+}
+
 // presentTables returns the user tables a database declares, excluding SQLite's
 // own internal ones.
 func presentTables(ctx context.Context, queryer interface {

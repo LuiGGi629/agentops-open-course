@@ -67,7 +67,7 @@ func TestRequiredSessionColumnsMatchADK(t *testing.T) {
 	// The schema check must also accept the database ADK just created, which is
 	// the property a column list read off a dependency can lose without any
 	// individual column being wrong.
-	if err := checkSessionSchema(t.Context(), pool, tables, selectSnapshot); err != nil {
+	if err := checkSessionSchema(t.Context(), sqliteSessionSchema{queryer: pool}, tables, fileSessionStore); err != nil {
 		t.Errorf("checkSessionSchema() rejected a freshly migrated database: %v", err)
 	}
 }

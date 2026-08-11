@@ -1,6 +1,7 @@
 package a2aserver_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -231,6 +232,9 @@ type fixtureOptions struct {
 	// promptGuardReadiness replaces the default successful configured-model
 	// readiness check.
 	promptGuardReadiness a2aserver.Step
+	// probeSessions supplies the session-store readiness check a non-file
+	// backend requires. The file backend refuses one, so it stays nil there.
+	probeSessions a2aserver.Step
 	// plugins are installed alongside the call budget. The slice stays last to
 	// keep the garbage collector's pointer scan compact.
 	plugins []*plugin.Plugin
@@ -324,8 +328,9 @@ func newUnstartedFixture(t *testing.T, configure ...func(*fixtureOptions)) *fixt
 			_, probeErr := store.ProbeRuntimeDatabase(ctx)
 			return probeErr
 		},
-		Plugins: opts.plugins,
-		Options: options,
+		ProbeSessions: opts.probeSessions,
+		Plugins:       opts.plugins,
+		Options:       options,
 	})
 	if err != nil {
 		t.Fatalf("a2aserver.New() error = %v, want nil", err)
@@ -336,6 +341,18 @@ func newUnstartedFixture(t *testing.T, configure ...func(*fixtureOptions)) *fixt
 		}
 	})
 	return &fixture{server: server, model: opts.model, store: store, steps: steps, stateDir: stateDir}
+}
+
+// onSharedSessionBackend configures a fixture whose sessions live on a
+// PostgreSQL server rather than in its state directory, with probe standing in
+// for the check cmd/agent supplies over the pool it owns.
+func onSharedSessionBackend(probe a2aserver.Step) func(*fixtureOptions) {
+	return func(opts *fixtureOptions) {
+		opts.options = func(options *a2aserver.Options) {
+			options.SessionBackend = config.SessionBackendPostgres
+		}
+		opts.probeSessions = probe
+	}
 }
 
 // newSessionService opens a real ADK session store on the fixture's state dir.
@@ -472,6 +489,74 @@ func streamMethod(
 		results = append(results, envelope.Result)
 	}
 	return results
+}
+
+// liveStream is one open server-sent event connection, read one frame at a
+// time.
+//
+// streamMethod answers "what did the client receive in the end", which is the
+// wrong question for a Cancel button: that button is enabled or greyed out from
+// what the client knows while the turn is still running. next blocks until the
+// next frame arrives and returns nil once the server closes the stream.
+type liveStream struct {
+	next  func() map[string]any
+	close func()
+}
+
+// streamRequest is one streaming call, as a value so [withStream] can keep the
+// connection's lifetime in one function rather than in its signature.
+type streamRequest struct {
+	params  any
+	path    string
+	method  string
+	headers [][2]string
+}
+
+// withStream posts a streaming request and hands the still-open stream to use.
+//
+// The connection closes when use returns; calling stream.close inside use hangs
+// up first, which is how a browser tab closing mid-turn is reproduced. Closing
+// an HTTP response body twice is safe, so both endings can coexist.
+func withStream(t *testing.T, server *httptest.Server, request streamRequest, use func(stream *liveStream)) {
+	t.Helper()
+
+	response := post(t, server, request.path, request.method, request.params, request.headers...)
+	defer func() { _ = response.Body.Close() }()
+	if got := response.StatusCode; got != http.StatusOK {
+		t.Fatalf("%s status = %d, want %d", request.method, got, http.StatusOK)
+	}
+	if got := response.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("%s content type = %q, want text/event-stream", request.method, got)
+	}
+	reader := bufio.NewReader(response.Body)
+	use(&liveStream{
+		close: func() { _ = response.Body.Close() },
+		next: func() map[string]any {
+			for {
+				line, err := reader.ReadString('\n')
+				// The line is decoded before the error is honored: the last frame
+				// of a stream can arrive together with io.EOF.
+				if payload, found := strings.CutPrefix(strings.TrimSpace(line), "data:"); found {
+					var envelope struct {
+						Result map[string]any `json:"result"`
+						Error  map[string]any `json:"error"`
+					}
+					if decodeErr := json.Unmarshal([]byte(strings.TrimSpace(payload)), &envelope); decodeErr != nil {
+						t.Errorf("decoding an event frame: %v", decodeErr)
+						return nil
+					}
+					if envelope.Error != nil {
+						t.Errorf("event stream carried a JSON-RPC error: %v", envelope.Error)
+						return nil
+					}
+					return envelope.Result
+				}
+				if err != nil {
+					return nil
+				}
+			}
+		},
+	})
 }
 
 // textMessage builds the params of a plain user turn.

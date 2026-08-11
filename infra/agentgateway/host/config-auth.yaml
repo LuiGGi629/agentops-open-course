@@ -128,10 +128,17 @@ routes:
           - key: agentgateway
             metadata:
               client: course-learner
+      # Same two buckets as the plain host profile: requests bound how often a
+      # caller may ask, tokens bound how much it may spend. Authentication
+      # names the caller; neither bucket is per-caller (see 7.3b).
       localRateLimit:
         - maxTokens: 30
           tokensPerFill: 30
           fillInterval: 60s
+        - maxTokens: 100000
+          tokensPerFill: 100000
+          fillInterval: 60s
+          type: tokens
       ai:
         # The client route type is what agentgateway parses the body with. Without this
         # override it assumes chat-completions and rejects a Responses request as

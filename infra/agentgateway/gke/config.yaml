@@ -87,10 +87,19 @@ routes:
           - key: agentgateway
             metadata:
               client: agentops-course
+      # The only profile where tokens are billed by someone else. The request
+      # bucket cannot see a caller that grows its context, so the token bucket
+      # carries the spend ceiling. Vertex has no catalog rates here, so the
+      # gateway counts these tokens without pricing them — the cap is real,
+      # the dollar figure is not (7.3b).
       localRateLimit:
         - maxTokens: 30
           tokensPerFill: 30
           fillInterval: 60s
+        - maxTokens: 100000
+          tokensPerFill: 100000
+          fillInterval: 60s
+          type: tokens
       ai:
         promptGuard:
           request:

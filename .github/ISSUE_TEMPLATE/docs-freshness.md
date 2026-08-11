@@ -49,6 +49,15 @@ The quarterly freshness jobs in `.github/workflows/scan.yml` append a read-only 
 - [ ] Every remaining steward and licence pairing in the map still holds — `content/8. Community/8.6. AAIF.md`.
 - [ ] The upstream issue-routing destinations still resolve to the tracker that owns each boundary — `content/8. Community/8.6. AAIF.md`.
 
+## Adjacent-course comparison
+
+`content/0. Overview/0.0. Course.md` states what six other courses do better and dates that reading. A comparison that flatters its author is worthless, and syllabi, access rules, and prices move monthly.
+
+- [ ] Every row still exists, is still reachable at its link, and the strength named for it is still true — `content/0. Overview/0.0. Course.md`.
+- [ ] The access note on each row (free, account, API key, cloud account) still matches what the course actually requires today — `content/0. Overview/0.0. Course.md`.
+- [ ] The category claim still holds: no newly found course takes one application through the whole build-govern-ship-operate loop with no SaaS, no cloud account, and no fee — `content/0. Overview/0.0. Course.md` and `README.md`.
+- [ ] The reading date on the table and in `README.md` was moved to the date of this review, and any row that changed was rewritten rather than silently kept.
+
 ## Benchmarks & measured checkpoints
 
 - [ ] The retrieval release checkpoint still reproduces (dataset commit, Ollama version, model manifest/blob, and index provenance) — `content/3. Capabilities/3.4. Memory.md`.

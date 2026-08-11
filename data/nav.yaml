@@ -63,6 +63,7 @@
     - page: 3. Capabilities/3.5. Workflows.md
     - page: 3. Capabilities/3.6. A2A.md
     - page: 3. Capabilities/3.7. Multi-Agent.md
+    - page: 3. Capabilities/3.8. Streaming.md
 
 - label: 4. Quality
   children:
@@ -105,6 +106,7 @@
     - page: 6. Platform/6.6. Platform Delivery.md
     - page: 6. Platform/6.7. Promotion and Rollback.md
     - page: 6. Platform/6.8. Platform Operations.md
+    - page: 6. Platform/6.9. Scale Out.md
 
 - label: 7. Observability
   children:
@@ -115,6 +117,7 @@
     - page: 7. Observability/7.2. Monitoring.md
     - page: 7. Observability/7.2b. Alerting.md
     - page: 7. Observability/7.3. Costs.md
+    - page: 7. Observability/7.3b. Cost Governance.md
     - page: 7. Observability/7.4. Feedback.md
     - page: 7. Observability/7.5. Online Evaluation.md
     - page: 7. Observability/7.6. Governance.md
@@ -136,3 +139,4 @@
         - page: 8. Community/8.4. Documentation.md
         - page: 8. Community/8.5. Contributions.md
         - page: 8. Community/8.6. AAIF.md
+        - page: 8. Community/8.8. From Python.md

@@ -48,7 +48,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := os.MkdirAll(s.options.StateDir, stateDirPerm); err != nil {
 		return fmt.Errorf("creating the state directory %s: %w", s.options.StateDir, err)
 	}
-	if err := preflightStateStores(ctx, s.options.StateDir); err != nil {
+	if err := preflightStateStores(ctx, s.options.StateDir, s.options.SessionBackend); err != nil {
 		return fmt.Errorf("checking runtime state before startup: %w", err)
 	}
 	if err := s.prepareDataset(ctx); err != nil {

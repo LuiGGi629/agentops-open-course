@@ -44,6 +44,47 @@ func (p *ModelProvider) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// SessionBackend names the database engine behind ADK's session store.
+//
+// It is a defined type for the same reason ModelProvider is: the value selects
+// which store a replica opens, and a typo that reached the switch would pick a
+// silently wrong one. The two members are not interchangeable — they differ in
+// how many processes may write at once, which is the whole subject of Chapter
+// 6.9.
+type SessionBackend string
+
+const (
+	// SessionBackendSQLite keeps sessions in AGENT_STATE_DIR beside the other
+	// runtime databases. It is the account-free default and the single-process
+	// contract: one file, one writer, nothing to install.
+	SessionBackendSQLite SessionBackend = "sqlite"
+	// SessionBackendPostgres moves sessions onto a shared server, so several
+	// replicas can serve turns in the same conversation. It costs one more
+	// component to run and back up.
+	SessionBackendPostgres SessionBackend = "postgres"
+)
+
+// SessionBackends lists every accepted backend in the order error messages
+// present them, so validation and the operator-facing message cannot disagree.
+func SessionBackends() []SessionBackend {
+	return []SessionBackend{SessionBackendSQLite, SessionBackendPostgres}
+}
+
+// Valid reports whether b is one of the supported session backends.
+func (b SessionBackend) Valid() bool { return slices.Contains(SessionBackends(), b) }
+
+// UnmarshalText parses a session backend at the environment boundary, so an
+// unknown value fails during Load rather than at the first turn that needs a
+// session.
+func (b *SessionBackend) UnmarshalText(text []byte) error {
+	candidate := SessionBackend(text)
+	if !candidate.Valid() {
+		return fmt.Errorf("must be one of %s; got %q", joinValues(SessionBackends()), text)
+	}
+	*b = candidate
+	return nil
+}
+
 // Entrypoint selects which composition the server and CLI serve.
 type Entrypoint string
 

@@ -153,12 +153,14 @@ var ErrNotStarted = errors.New("the A2A server has not started")
 // They are function seams rather than concrete types because this package must
 // not decide the order in which *other* packages initialize themselves — it
 // decides only the order in which they run here, which is the invariant. The
-// four the runtime fills are:
+// four the runtime always fills, plus the one the shared session backend adds,
+// are:
 //
 //	RecoverState:    state.RecoverInterruptedRestore(cfg.StateDir, …)
 //	PrepareDataset:  store.PrepareRuntimeDatabase(ctx)
 //	MigrateSessions: database.AutoMigrate(sessions)
 //	ProbeDataset:    store.ProbeRuntimeDatabase(ctx)
+//	ProbeSessions:   ProbePostgresSessionStore(ctx, pool) — Postgres only
 type Step func(ctx context.Context) error
 
 // Options are the transport, lifecycle and policy settings.
@@ -166,9 +168,17 @@ type Step func(ctx context.Context) error
 // Field order follows what go vet's fieldalignment check wants rather than how
 // the fields group by meaning; the grouping a reader wants is in [OptionsFrom].
 type Options struct {
-	// StateDir holds disposable runtime state: ADK's session database and this
-	// package's task database. Required.
+	// StateDir holds disposable runtime state: this package's task database
+	// under every backend, and ADK's session database under the SQLite one.
+	// Required.
 	StateDir string
+
+	// SessionBackend names the engine holding ADK's sessions. Empty means
+	// config.SessionBackendSQLite, the file inside StateDir that this package
+	// probes itself. Any other backend puts the sessions somewhere this package
+	// cannot open on its own, and Config.ProbeSessions is then required — see
+	// [New].
+	SessionBackend config.SessionBackend
 
 	// BindHost is the interface to listen on. Empty means [DefaultBindHost].
 	BindHost string
@@ -216,16 +226,17 @@ type Options struct {
 // plausible home and the mapping can be asserted by a test.
 func OptionsFrom(cfg config.Config, version string) Options {
 	options := Options{
-		StateDir:     cfg.StateDir,
-		BindHost:     cfg.A2ABindHost,
-		Host:         cfg.A2AHost,
-		Protocol:     cfg.A2AProtocol,
-		Version:      version,
-		Entrypoint:   cfg.Entrypoint,
-		DrainTimeout: cfg.DrainTimeout.Duration(),
-		Port:         cfg.A2APort,
-		MaxLLMCalls:  cfg.A2AMaxLLMCalls,
-		Streaming:    cfg.A2AStreaming,
+		StateDir:       cfg.StateDir,
+		SessionBackend: cfg.SessionBackend,
+		BindHost:       cfg.A2ABindHost,
+		Host:           cfg.A2AHost,
+		Protocol:       cfg.A2AProtocol,
+		Version:        version,
+		Entrypoint:     cfg.Entrypoint,
+		DrainTimeout:   cfg.DrainTimeout.Duration(),
+		Port:           cfg.A2APort,
+		MaxLLMCalls:    cfg.A2AMaxLLMCalls,
+		Streaming:      cfg.A2AStreaming,
 	}
 	if cfg.TrustedIdentityHeader != nil {
 		options.TrustedIdentityHeader = *cfg.TrustedIdentityHeader
@@ -237,6 +248,13 @@ func OptionsFrom(cfg config.Config, version string) Options {
 func (o Options) resolve() (Options, error) {
 	resolved := o
 	var problems []error
+	// The empty value is the zero value of an Options built in code rather than
+	// mapped from the environment, whose own default is sqlite. Resolving the two
+	// the same way keeps "unset means the account-free default" true from both
+	// directions, and leaves an unknown value to be refused below.
+	if resolved.SessionBackend == "" {
+		resolved.SessionBackend = config.SessionBackendSQLite
+	}
 	if resolved.BindHost == "" {
 		resolved.BindHost = DefaultBindHost
 	}
@@ -263,8 +281,18 @@ func (o Options) resolve() (Options, error) {
 
 	if resolved.StateDir == "" {
 		problems = append(problems, fmt.Errorf(
-			"%w: Options.StateDir is required; it is where the session and task databases live",
-			ErrIncompleteConfig,
+			"%w: Options.StateDir is required; it is where the task database lives, "+
+				"and the session database too under %s=%s",
+			ErrIncompleteConfig, config.EnvSessionBackend, config.SessionBackendSQLite,
+		))
+	}
+	if !resolved.SessionBackend.Valid() {
+		// Refusing beats defaulting: a backend this server does not recognize would
+		// otherwise be probed as if it were the local file, which is a readiness
+		// check that passes while the store it reports on is somewhere else.
+		problems = append(problems, fmt.Errorf(
+			"%w: Options.SessionBackend is %q, want one of %v",
+			ErrIncompleteConfig, resolved.SessionBackend, config.SessionBackends(),
 		))
 	}
 	if resolved.Port < 1 || resolved.Port > 65535 {
@@ -332,6 +360,18 @@ type Config struct {
 	// with no probe at all, because Kubernetes will send it traffic.
 	ProbeDataset Step
 
+	// ProbeSessions backs the readiness route's session-store check when the
+	// sessions do not live in a file this package can open.
+	//
+	// Required exactly when Options.SessionBackend is not
+	// config.SessionBackendSQLite, and refused otherwise. The pairing is the
+	// guarantee: without it, a deployment that moved its sessions to PostgreSQL
+	// would still have its readiness answered by the runtime.db nobody writes —
+	// a probe that reports on the wrong database, which is worse than no probe,
+	// because it is believed. See [ProbePostgresSessionStore] for the check the
+	// shared backend supplies here.
+	ProbeSessions Step
+
 	// PromptGuardReadiness checks the configured NER model catalog without
 	// running inference. It must be set exactly when PromptGuardHandler is set.
 	PromptGuardReadiness Step
@@ -365,6 +405,7 @@ type Server struct {
 	prepareDataset       Step
 	migrateSessions      Step
 	probeDataset         Step
+	probeSessions        Step
 	promptGuardReadiness Step
 
 	plugins []*plugin.Plugin
@@ -400,6 +441,28 @@ func New(cfg Config) (*Server, error) {
 		problems = append(problems, fmt.Errorf(
 			"%w: PromptGuardHandler and PromptGuardReadiness must be configured together",
 			ErrIncompleteConfig,
+		))
+	}
+	// Which database readiness reports on is decided here, once, from the backend
+	// the deployment configured — never from what happens to be on disk.
+	probeSessions := cfg.ProbeSessions
+	switch {
+	case options.SessionBackend == config.SessionBackendSQLite:
+		if probeSessions != nil {
+			problems = append(problems, fmt.Errorf(
+				"%w: ProbeSessions must not be set under %s=%s; the session store is %s inside "+
+					"Options.StateDir and this package probes it read-only itself",
+				ErrIncompleteConfig, config.EnvSessionBackend, config.SessionBackendSQLite, SessionDatabaseName,
+			))
+		}
+		probeSessions = func(ctx context.Context) error {
+			return probeFileSessionStore(ctx, options.StateDir)
+		}
+	case probeSessions == nil:
+		problems = append(problems, fmt.Errorf(
+			"%w: ProbeSessions is required under %s=%s; the sessions are not in Options.StateDir, "+
+				"so only the caller that owns the connection can report on them",
+			ErrIncompleteConfig, config.EnvSessionBackend, options.SessionBackend,
 		))
 	}
 	for _, step := range []struct {
@@ -453,6 +516,7 @@ func New(cfg Config) (*Server, error) {
 		prepareDataset:       cfg.PrepareDataset,
 		migrateSessions:      cfg.MigrateSessions,
 		probeDataset:         cfg.ProbeDataset,
+		probeSessions:        probeSessions,
 		promptGuardReadiness: cfg.PromptGuardReadiness,
 		plugins:              plugins,
 		gate:                 newSessionGate(),

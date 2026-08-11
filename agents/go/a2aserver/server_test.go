@@ -258,6 +258,179 @@ func TestReadinessReportsAnInvalidSessionStore(t *testing.T) {
 	}
 }
 
+// TestReadinessOnTheSharedBackendIgnoresTheStateDirectoryFile is the regression
+// test for a replica that never became ready.
+//
+// With the sessions on PostgreSQL, no runtime.db exists in AGENT_STATE_DIR — so
+// a readiness check that opened one reported "not initialized" forever, on a
+// deployment whose session store was perfectly healthy. The file is deleted
+// here to make the point unmissable: the store readiness reports on is the one
+// the backend names, and the supplied probe is what answers for it.
+func TestReadinessOnTheSharedBackendIgnoresTheStateDirectoryFile(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	fixture := newFixture(t, onSharedSessionBackend(func(context.Context) error {
+		calls.Add(1)
+		return nil
+	}))
+	server := fixture.serve(t)
+	if err := os.Remove(filepath.Join(fixture.stateDir, a2aserver.SessionDatabaseName)); err != nil {
+		t.Fatalf("removing the session file the shared backend does not use: %v", err)
+	}
+
+	response, err := server.Client().Get(server.URL + a2aserver.ReadinessPath)
+	if err != nil {
+		t.Fatalf("GET %s: %v", a2aserver.ReadinessPath, err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if got := response.StatusCode; got != http.StatusOK {
+		t.Errorf("status = %d, want %d with a healthy shared session store", got, http.StatusOK)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("shared session probe calls = %d, want exactly 1 per readiness poll", got)
+	}
+}
+
+// TestReadinessReportsAnInvalidSharedSessionStore proves the shared backend's
+// probe is a real gate: a session schema its owner reports as unusable makes
+// this replica unready, in the same problem class as the file store.
+func TestReadinessReportsAnInvalidSharedSessionStore(t *testing.T) {
+	t.Parallel()
+
+	fixture := newFixture(t, onSharedSessionBackend(func(context.Context) error {
+		return errors.New("the PostgreSQL session store named by AGENT_SESSION_DSN is missing tables: events")
+	}))
+	server := fixture.serve(t)
+
+	problems := readinessProblems(t, server)
+	if !slices.ContainsFunc(problems, func(problem string) bool {
+		return strings.Contains(problem, "session/task store invalid")
+	}) {
+		t.Errorf("problems = %v, want one naming the session or task store", problems)
+	}
+	// The body carries a failure class and never the store's own message: a
+	// session-store error can name a host, a database and a role, and readiness
+	// is served to anyone who can reach the port.
+	for _, problem := range problems {
+		if strings.Contains(problem, "AGENT_SESSION_DSN") {
+			t.Errorf("problem %q leaked the session store's message onto the wire", problem)
+		}
+	}
+}
+
+// TestReadinessStillProbesTheTaskFileOnTheSharedBackend keeps the two stores
+// separate. Only the sessions move to PostgreSQL; tasks stay a SQLite file in
+// AGENT_STATE_DIR under both backends, so breaking that file must still be
+// caught by a shared-backend replica.
+func TestReadinessStillProbesTheTaskFileOnTheSharedBackend(t *testing.T) {
+	t.Parallel()
+
+	fixture := newFixture(t, onSharedSessionBackend(func(context.Context) error { return nil }))
+	server := fixture.serve(t)
+	execSQL(t, filepath.Join(fixture.stateDir, a2aserver.TaskDatabaseName), "DROP TABLE tasks")
+
+	problems := readinessProblems(t, server)
+	if !slices.ContainsFunc(problems, func(problem string) bool {
+		return strings.Contains(problem, "session/task store invalid")
+	}) {
+		t.Errorf("problems = %v, want the task store reported on the shared backend", problems)
+	}
+}
+
+// TestStartupJudgesTheLeftoverSessionFileByTheBackend covers the other half of
+// the same decision, one step earlier.
+//
+// The preflight refuses an incompatible state generation. Under the file
+// backend runtime.db is part of that generation and an incomplete one is a
+// refusal; under the shared backend it is a leftover no process opens, and
+// refusing over it would block the migration to a shared store outright.
+func TestStartupJudgesTheLeftoverSessionFileByTheBackend(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		configure func(*fixtureOptions)
+		wantStart bool
+	}{
+		"file backend refuses it":   {configure: func(*fixtureOptions) {}, wantStart: false},
+		"shared backend ignores it": {configure: onSharedSessionBackend(func(context.Context) error { return nil }), wantStart: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := newUnstartedFixture(t, testCase.configure)
+			// A valid SQLite database carrying tables ADK never created: the
+			// "current generation, incomplete structure" case the preflight exists
+			// to refuse, written before startup so nothing has published yet.
+			execSQL(t, filepath.Join(fixture.stateDir, a2aserver.SessionDatabaseName),
+				"CREATE TABLE leftover (id TEXT)")
+
+			err := fixture.server.Start(t.Context())
+			if testCase.wantStart {
+				if err != nil {
+					t.Fatalf("Start() error = %v, want nil for a file the shared backend never opens", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("Start() error = nil, want the incomplete-schema refusal")
+			}
+			if !strings.Contains(err.Error(), "incomplete current schema") {
+				t.Errorf("Start() error = %v, want the incomplete-schema refusal", err)
+			}
+		})
+	}
+}
+
+// TestNewPairsTheSessionProbeWithTheBackend pins the wiring rule that keeps
+// readiness honest: exactly one store answers, and it is the configured one.
+func TestNewPairsTheSessionProbeWithTheBackend(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		probe   a2aserver.Step
+		backend config.SessionBackend
+		want    string
+	}{
+		"a shared backend without a probe": {
+			backend: config.SessionBackendPostgres,
+			want:    "ProbeSessions is required",
+		},
+		"a file backend with a probe": {
+			backend: config.SessionBackendSQLite,
+			probe:   func(context.Context) error { return nil },
+			want:    "ProbeSessions must not be set",
+		},
+		"an unknown backend": {
+			backend: "mysql",
+			probe:   func(context.Context) error { return nil },
+			want:    "Options.SessionBackend is \"mysql\"",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// The rest of the wiring is deliberately left out: New accumulates
+			// every hole, and this test judges the one it is about.
+			_, err := a2aserver.New(a2aserver.Config{
+				ProbeSessions: testCase.probe,
+				Options: a2aserver.Options{
+					StateDir:       t.TempDir(),
+					Entrypoint:     config.EntrypointAgent,
+					SessionBackend: testCase.backend,
+				},
+			})
+			if err == nil {
+				t.Fatal("New() error = nil, want a refusal")
+			}
+			errIsNot(t, err, a2aserver.ErrIncompleteConfig, "New()")
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Errorf("New() error = %v, want it to name %q", err, testCase.want)
+			}
+		})
+	}
+}
+
 // TestReadinessReportsAnUnwritableStateDirectory covers the third problem class.
 func TestReadinessReportsAnUnwritableStateDirectory(t *testing.T) {
 	t.Parallel()
@@ -377,7 +550,12 @@ func TestOptionsFromMapsTheAgentConfiguration(t *testing.T) {
 
 	header := "x-verified-subject"
 	cfg, err := config.LoadFrom(map[string]string{
-		config.EnvStateDir:              "/tmp/state",
+		config.EnvStateDir: "/tmp/state",
+		// The backend decides which store readiness reports on, so it has to
+		// survive this mapping; the DSN beside it is what config validation
+		// requires of that backend, and never reaches these options.
+		config.EnvSessionBackend:        string(config.SessionBackendPostgres),
+		config.EnvSessionDSN:            "postgres://agentops:hunter2@sessions.internal:5432/sessions?sslmode=disable",
 		config.EnvA2ABindHost:           "0.0.0.0",
 		config.EnvA2AHost:               "agent.example",
 		config.EnvA2APort:               "9090",
@@ -404,6 +582,30 @@ func TestOptionsFromMapsTheAgentConfiguration(t *testing.T) {
 	}
 	if options.Version != "1.2.3" || options.Entrypoint != config.EntrypointAgent {
 		t.Errorf("identity settings = %+v, want the configured ones", options)
+	}
+	if options.SessionBackend != config.SessionBackendPostgres {
+		t.Errorf("SessionBackend = %q, want %q", options.SessionBackend, config.SessionBackendPostgres)
+	}
+}
+
+// TestAnUnsetSessionBackendResolvesToTheFileStore keeps the account-free default
+// explicit from both directions: an Options built in code and one mapped from an
+// environment with nothing set both mean the SQLite file, which is the only
+// backend this package can probe without help.
+func TestAnUnsetSessionBackendResolvesToTheFileStore(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.LoadFrom(map[string]string{})
+	if err != nil {
+		t.Fatalf("config.LoadFrom() error = %v, want nil", err)
+	}
+	if got := a2aserver.OptionsFrom(cfg, "").SessionBackend; got != config.SessionBackendSQLite {
+		t.Errorf("SessionBackend = %q, want %q", got, config.SessionBackendSQLite)
+	}
+	// An Options built in code carries the empty value, which resolve() fills.
+	fixture := newUnstartedFixture(t)
+	if got := fixture.server.Options().SessionBackend; got != config.SessionBackendSQLite {
+		t.Errorf("resolved SessionBackend = %q, want %q", got, config.SessionBackendSQLite)
 	}
 }
 

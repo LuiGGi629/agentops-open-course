@@ -2,6 +2,8 @@
 
 Learn the complete lifecycle of a production-shaped AI agent in Go: build it with Google ADK, govern traffic with agentgateway, run it with kagent, and collect OpenTelemetry traces, logs, metrics, and evaluation evidence.
 
+It is the only end-to-end open-source AgentOps curriculum a search on 11 August 2026 turned up: one application taken from a first local model call to a monitored Kubernetes workload with no SaaS, no cloud account, and no fee on the required path. [0.0. Course](./content/0.%20Overview/0.0.%20Course.md) compares it row by row against six adjacent courses and states what each of them does better; that claim is the result of a search, not a proof, and a correction is a welcome issue.
+
 This checkout is a complete local reference and Hugo evaluation build. It is not published from this repository; release, repository identity, DNS, and documentation publication remain owner-gated.
 
 ## What makes the course practical?
@@ -19,7 +21,9 @@ This checkout is a complete local reference and Hugo evaluation build. It is not
 
 The required path is open source and uses open-weight model artifacts. Gemini, Vertex AI, GKE, GCS, Artifact Registry, and hosted repository services are optional proprietary comparisons.
 
-The course's defensible difference is scope, not a “best course” claim: one Go application and one wire-only Go evaluator cover typed tools, safety, gateway policy, Kubernetes, recovery, telemetry, and release evidence without requiring hosted evaluation.
+The defensible difference is scope: one Go application and one wire-only Go evaluator cover typed tools, safety, gateway policy, Kubernetes, recovery, telemetry, and release evidence without requiring hosted evaluation. Adjacent courses go deeper than this one on framework breadth, hosted evaluation loops, and the internals of individual projects, and the comparison table in [0.0. Course](./content/0.%20Overview/0.0.%20Course.md) names which.
+
+If Python is where your team prototypes, the sibling [AgentOps Open Course](https://agentops-open-course.fmind.dev/) teaches the same lifecycle in Python, and [8.8. From Python](./content/8.%20Community/8.8.%20From%20Python.md) maps LangGraph and Python-agent concepts onto their Go equivalents here.
 
 ## What will you build?
 
@@ -69,7 +73,7 @@ mise run test
 
 The learner gate does not start a model, container, cluster, collector, paid API, or cloud resource.
 
-No Go coverage threshold is enforced because the owner has not selected one. `mise run coverage` reports measured coverage as evidence; it is not a pass policy.
+`mise run test` in `agents/go` and in `evals` enforces an 80% line-coverage floor on every package, `cmd/` excluded by kind because its behavior is exercised through subprocess tests that Go attributes to the test binary. `mise run coverage` in `agents/go` prints the per-function detail behind that number.
 
 For the first grounded turn, install [Ollama](https://ollama.com/download), then run:
 
@@ -84,7 +88,7 @@ Open the ADK web UI on `http://127.0.0.1:8002/ui/`, ask `List the open incidents
 
 Model-backed commands are observations, not offline gate proof. They may vary across runs even with temperature zero.
 
-Continue with the [canonical roughly three-hour build-first route](./content/0.%20Overview/0.0.%20Course.md#what-is-the-roughly-three-hour-build-first-route) before entering the longer production-operations track.
+Continue with the [canonical roughly three-hour build-first route](./content/0.%20Overview/0.0.%20Course.md#how-should-you-work-through-each-page) before entering the longer production-operations track.
 
 ## Which learning path should you choose?
 
@@ -121,7 +125,7 @@ evals/         Standalone black-box Go evaluation module and assets
 tools/         Standalone Go repository-maintenance commands
 clients/web/   Minimal dependency-free A2A web client
 load/          k6 load tests and latency budgets
-content/       76 FAQ-based Hugo course pages
+content/       Hugo course pages, ordered by hand in data/nav.yaml
 layouts/       Hugo templates, source includes, and accessibility helpers
 data/nav.yaml  Explicit hand-ordered learning path
 infra/         agentgateway, kagent, k3d/GKE, and observability resources
@@ -166,35 +170,25 @@ mise run data:reset
 From `evals`:
 
 ```bash
-mise run eval:validate # offline
+mise run eval:validate        # offline: evalsets, assets, and the import boundary
 mise run check
 mise run test
-mise run eval:policy-trial     # exact-source REST calibration samples
-mise run eval:a2a:policy-trial # exact-source A2A calibration samples
-mise run eval:judge-calibration:trial # judge evidence before policy approval
-mise run eval                  # approved-policy REST qualification
-mise run eval:a2a              # approved-policy A2A qualification
+mise run eval                 # model-backed: 3 samples, 0.33 floor, 4 required safety cases
+mise run eval:judge-calibration # model-backed: judge agreement against the labeled set
+mise run eval:ab              # offline: compare two results.json artifacts
 ```
 
-`release-policy.json` is currently `calibration-required`, so canonical qualification and judge calibration fail closed until reviewed Go trials establish and approve the pass and judge-agreement floors, repeat count, mandatory outcomes, and usage budgets. Trial tasks collect evidence but cannot qualify a release.
+The threshold is on the command line rather than in a policy file: `mise run eval` runs every case three times, requires a 0.33 aggregate pass rate, and requires four safety cases to pass in every sample. `evals/README.md` explains why that asymmetry is the honest shape for a 4B local model.
 
 Resetting agent state removes only `agents/go/.state`; it never changes `agents/data/incidents.db`.
 
-## What does release evidence contain?
+## What does evaluation evidence contain?
 
-Model-backed evaluation produces sanitized handoffs at the `evals` module root:
+Model-backed evaluation produces sanitized artifacts at the `evals` module root: `results.json` from every run, and `judge-calibration-results.json` from the calibration task. Both are generated, never committed fixtures.
 
-- `eval-results.json`
-- `judge-calibration-results.json`
-- `cost-observed.json`
+`results.json` records the source revision and dirty flag, the model and evalset identities, the transport, and per-case scores and token usage. It deliberately cannot contain prompts, answers, tool arguments, tool responses, judge rationales, endpoints, or secrets; serialization tests pin that boundary. See [evals/README.md](./evals/README.md) for the exact schema and task mapping.
 
-The schema-3 run artifact carries separate source mode, identity, revision, tree digest, dirty/shallow state, platform identity, model identity, evalset digest, policy identity, transport, repeated trajectory/judge/control scores, and usage. The schema-3 calibration handoff carries the same source and policy plus typed judge provider/name/digest and the exact policy floor.
-
-Other campaigns use separate result filenames so they cannot overwrite the core release artifact. See [evals/README.md](./evals/README.md) for the exact schema and task mapping.
-
-Release qualification requires all three handoffs plus the repository policy and expected source tree. The qualifier—not the candidate artifact—requires policy status `approved`, recomputes mandatory outcomes, requires judge and control-specific scorer coverage, binds source/tree/platform/model/judge/evalset/calibration/cost identities, and enforces the approved pass, agreement, repeat, and usage floors.
-
-Local files are not release proof by themselves. Exact-head hosted CI, runtime storage, artifact attestation, and public publication are separate boundaries.
+The release story is one sentence: a workflow-dispatch run uploads `results.json`, and a human reads it before tagging. Local files are not release proof by themselves — exact-head hosted CI, runtime storage, artifact attestation, and public publication are separate boundaries.
 
 ## How do you preview the course?
 
