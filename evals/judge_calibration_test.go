@@ -106,11 +106,16 @@ func TestCalibrationMeasuresAgreementAndStaysSanitized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A judge that passes everything agrees with exactly the four good answers.
+	// A judge that passes everything agrees with exactly the four good answers, and
+	// its eight disagreements are all false passes. The 8/4 label split means an
+	// always-reject judge would score 0.667, well above this judge's 0.333.
 	if result.Matches != 4 || result.Total != 12 || result.Agreement != 4.0/12.0 {
 		t.Fatalf("result = %+v", result)
 	}
-	if result.SchemaVersion != 4 || result.JudgeModel.Provider != "openai-compatible" ||
+	if result.FalsePass != 8 || result.FalseFail != 0 || result.MajorityBaseline != 8.0/12.0 {
+		t.Fatalf("error split = %+v", result)
+	}
+	if result.SchemaVersion != 5 || result.JudgeModel.Provider != "openai-compatible" ||
 		result.JudgeModel.Digest != strings.Repeat("a", 64) {
 		t.Fatalf("judge identity = %#v", result.JudgeModel)
 	}

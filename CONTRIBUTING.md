@@ -51,7 +51,7 @@ mise run --cd tools check
 mise run --cd tools test
 ```
 
-No Go coverage threshold is enforced because the owner has not selected one. Report measured coverage when it helps review; never turn the current measurement into implied policy.
+Go coverage has a floor. `mise run test` in `agents/go` and in `evals` fails when any package drops below 80% line coverage, because a repository total lets a well-tested package pay for the untested one you should be worrying about. `cmd/` packages are excluded by kind — they are `package main` wiring exercised through subprocess tests Go attributes to the test binary. `tools/` is maintainer scaffolding and sits outside the floor.
 
 ## When should I run model-backed evaluation?
 
@@ -59,17 +59,16 @@ Run it when agent behavior, prompts, model wiring, gateway translation, or scori
 
 ```bash
 mise run --cd agents/go build
-mise run --cd evals eval:dev
-# Maintainers collect these only from one exact, clean candidate while calibrating policy:
-mise run --cd evals eval:policy-trial
-mise run --cd evals eval:a2a:policy-trial
-mise run --cd evals eval:judge-calibration:trial
-# Run these only after the reviewed release policy is approved:
+# Offline first: evalsets, assets, and the import boundary, with no model at all.
+mise run --cd evals eval:validate
+# Model-backed, and the two that spend tokens:
 mise run --cd evals eval
-mise run --cd evals eval:a2a
+mise run --cd evals eval:judge-calibration
+# Offline again: compare two sanitized artifacts you already captured.
+mise run --cd evals eval:ab -- --baseline baseline.json --candidate candidate.json
 ```
 
-These tasks can be slow and stochastic. They remain outside the offline gate. Policy and judge trials preserve unsuccessful observations and cannot qualify a release. Canonical REST, A2A, and judge-calibration runs take their pass floor, judge-agreement floor, repeats, mandatory cases, and budgets from `evals/release-policy.json` and fail closed while it is `calibration-required`. Release-bearing artifacts must record matching source-tree, platform, typed model/judge, evalset, calibration, transport, and policy identity.
+The two model-backed tasks can be slow and stochastic, and they remain outside the offline gate. There is no policy file to approve: `mise run eval` carries its repeats, pass floor, and mandatory safety cases on its own command line in `evals/mise.toml`, so read that line to know what a run demanded. Every other capability — the A2A transport, the workflow and triage-report evalsets, streaming — is a flag you append after `--`, and `evals/README.md` lists the recipes. Release-bearing artifacts must record matching source-tree, platform, typed model and judge, evalset, calibration, and transport identity.
 
 Do not paste prompts, answers, tool payloads, provider errors, credentials, or judge rationales into a pull request. Use the sanitized result artifacts documented in `evals/README.md`.
 
@@ -96,11 +95,11 @@ For a new case:
 1. Select the smallest evalset that owns the behavior.
 1. Avoid copying the desired answer into the prompt.
 1. Declare only the required ordered tool subset.
-1. Validate schema, domain references, cost coverage, and import boundaries offline.
+1. Validate schema, domain references, and import boundaries offline.
 1. Run model-backed evidence only after offline validation.
 1. Record failures instead of weakening a case or scorer to fit one response.
 
-Release artifacts must remain content-free and include the qualification fields a separate verifier needs.
+Release artifacts must remain content-free — no prompts, answers, tool payloads, judge rationales, or endpoints — and must record the source tree, platform, typed model and judge, evalset, calibration, and transport a reader needs to say which run produced them.
 
 ## How should I submit a pull request?
 

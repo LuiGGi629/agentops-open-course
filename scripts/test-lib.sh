@@ -31,8 +31,21 @@ if (PATH="${tmp_dir}" require_cmd definitely-not-a-command validation) 2>"${tmp_
 	fail "require_cmd accepted a missing command"
 fi
 grep -Fqx \
-	"missing definitely-not-a-command: run 'mise install', then 'mise run doctor:validation' to check the whole tier" \
+	"missing definitely-not-a-command: run 'mise run install:validation', then 'mise run doctor:validation' to check the whole tier" \
 	"${tmp_dir}/require"
+
+# Every profile has to name the tier that actually ships its tools, not a generic one.
+for profile_case in "gateway:mise run install:platform" "platform:mise run install:platform" \
+	"gcp:mise run install:platform" "base:mise run install"; do
+	profile="${profile_case%%:*}"
+	expected_tier="${profile_case#*:}"
+	if (PATH="${tmp_dir}" require_cmd definitely-not-a-command "${profile}") 2>"${tmp_dir}/require-${profile}"; then
+		fail "require_cmd accepted a missing command for the ${profile} profile"
+	fi
+	grep -Fqx \
+		"missing definitely-not-a-command: run '${expected_tier}', then 'mise run doctor:${profile}' to check the whole tier" \
+		"${tmp_dir}/require-${profile}"
+done
 
 if (PATH="${tmp_dir}" require_host_cmd definitely-not-a-command "install it from a reviewed host package source") \
 	2>"${tmp_dir}/require-host"; then

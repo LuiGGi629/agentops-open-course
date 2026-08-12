@@ -152,7 +152,13 @@ func (c Config) fieldProblems() []Problem {
 	closedRange(&found, EnvCircuitFailureThreshold, c.CircuitFailureThreshold, 1, 100)
 
 	positiveAtMost(&found, EnvDrainTimeout, c.DrainTimeout, 300)
-	positiveAtMost(&found, EnvModelTimeout, c.ModelTimeout, 600)
+	// 3600, not 600. A grounded turn makes at least two model calls and each one
+	// re-reads the whole context, so on a CPU-only host the second call is the
+	// expensive one: measured here, the first took ~130s and the second exceeded a
+	// 600s budget. The default stays at 60 — correct on hardware that can meet it,
+	// and a long default would hide a genuinely dead provider behind a long hang —
+	// but the ceiling has to leave room for the hardware the course requires.
+	positiveAtMost(&found, EnvModelTimeout, c.ModelTimeout, 3600)
 	// agentgateway 1.4.1 fixes webhook calls at ten seconds. Finishing first is
 	// what lets the reachable service return its conservative mask action.
 	positiveAtMost(&found, EnvPIIModelTimeout, c.PIIModelTimeout, 9)

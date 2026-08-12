@@ -9,7 +9,7 @@ authors:
     given-names: Médéric
     alias: fmind
     email: agentops-open-course@fmind.dev
-repository-code: https://github.com/MLOps-Courses/agentops-open-course
+repository-code: https://github.com/MLOps-Courses/agentops-open-course-go
 url: https://agentops-open-course.fmind.dev/
 # Dual licensed: MIT for the reference software, CC-BY-4.0 for the course prose.
 license:

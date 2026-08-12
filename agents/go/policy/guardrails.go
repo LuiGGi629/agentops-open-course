@@ -1,11 +1,15 @@
 package policy
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 
 	"golang.org/x/text/unicode/norm"
 	"google.golang.org/adk/v2/agent"
@@ -33,6 +37,7 @@ import (
 // is a tripwire: it catches regressions and known payload shapes, and the real
 // defense is spotlighting plus least privilege plus human confirmation.
 
+// --8<-- [start:spotlight-delimiters]
 // Spotlight delimiters. They fence untrusted free text so the model reads it as
 // data. Exported because the course prose quotes them and because tests on both
 // sides of the boundary assert on them.
@@ -45,6 +50,8 @@ const (
 // purpose: a silently stripped payload teaches nobody anything, and an operator
 // reading a transcript should see where the tripwire fired.
 const NeutralizedMarker = "[neutralized-injection]"
+
+// --8<-- [end:spotlight-delimiters]
 
 // spotlightKeys are the free-text surfaces that come out of retrieval, incident
 // data, durable notes and audit rows. These get fenced recursively;
@@ -84,16 +91,83 @@ var writesDisabledRefusal = "Writes are frozen by the " + config.EnvWritesDisabl
 	" kill-switch; reads still work. Clear the flag once the incident is contained to resume approvals."
 
 // modelUnavailableText is what a caller sees when the provider fails.
+//
+// The class of failure is not sensitive; the provider's body is. These three
+// texts name what the operator can act on — a budget, an endpoint, a provider —
+// and none of them carries a body, a prompt, or a URL. Before they existed, a
+// CPU-only laptop whose first grounded turn simply needed longer than the 60s
+// default was indistinguishable from a provider that was not running at all.
 const modelUnavailableText = "The model provider is unavailable. " +
 	"Retry the request or inspect the provider endpoint logs."
+
+// AGENT_MODEL_TIMEOUT_S is per attempt, not per turn: it rides on the HTTP client
+// (model/openai.go), and openai-go retries AGENT_MAX_RETRIES times on top of it. An
+// operator who reads this message as the whole wait will keep raising a budget that
+// was never the bound they were hitting, so the text names both.
+const modelDeadlineText = "The model did not answer within AGENT_MODEL_TIMEOUT_S, " +
+	"which bounds each attempt and is retried AGENT_MAX_RETRIES times. " +
+	"On a CPU-only host raise that budget, lower the retries, or use a smaller model."
+
+const modelUnreachableText = "Nothing is listening at the configured model endpoint. " +
+	"Start the provider, or check OPENAI_BASE_URL."
+
+const modelRejectedText = "The model provider rejected the request. " +
+	"Inspect the provider endpoint logs for the reason."
 
 // Error surface for a failed model call. ADK carries both on LLMResponse, so
 // the refusal is machine-readable as well as human-readable.
 const (
 	modelUnavailableCode    = "MODEL_UNAVAILABLE"
 	modelUnavailableMessage = "Model request failed safely."
+	modelDeadlineMessage    = "Model request exceeded its deadline."
+	modelUnreachableMessage = "Model endpoint refused the connection."
+	modelRejectedMessage    = "Model provider returned an error status."
 )
 
+// modelFailureClass is the failure class an operator can act on, derived from
+// the error alone. It deliberately reads the error's shape rather than its text:
+// a provider message can echo prompt content, so matching on it would put that
+// content on a code path the redaction guards do not cover.
+func modelFailureClass(modelErr error) (text, message string) {
+	switch {
+	case errors.Is(modelErr, context.DeadlineExceeded):
+		return modelDeadlineText, modelDeadlineMessage
+	case isConnectionRefused(modelErr):
+		return modelUnreachableText, modelUnreachableMessage
+	case isProviderStatusError(modelErr):
+		return modelRejectedText, modelRejectedMessage
+	default:
+		return modelUnavailableText, modelUnavailableMessage
+	}
+}
+
+func isConnectionRefused(modelErr error) bool {
+	if errors.Is(modelErr, syscall.ECONNREFUSED) {
+		return true
+	}
+	// A DNS failure and a refused dial are the same problem for a learner: the
+	// endpoint they configured does not answer.
+	var dnsErr *net.DNSError
+	return errors.As(modelErr, &dnsErr)
+}
+
+// isProviderStatusError reports a non-2xx answer. ADK wraps provider statuses in
+// its own error type per provider, so the shared, stable signal is the numeric
+// status the transport recorded rather than any provider-specific type.
+func isProviderStatusError(modelErr error) bool {
+	var statusErr interface{ StatusCode() int }
+	if errors.As(modelErr, &statusErr) {
+		code := statusErr.StatusCode()
+		return code < 200 || code >= 300
+	}
+	return providerStatusPattern.MatchString(modelErr.Error())
+}
+
+// providerStatusPattern matches the status prefix providers put in front of a
+// body — the number only, never the body itself, which never reaches a caller.
+var providerStatusPattern = regexp.MustCompile(`\b(?:status(?: code)?|HTTP)[: ]+([45]\d{2})\b`)
+
+// --8<-- [start:neutralize-injections]
 // NeutralizeInjections returns NFKC-normalized text with known injection
 // markers replaced, plus the number of markers hit.
 //
@@ -123,6 +197,8 @@ func NeutralizeInjections(text string) (string, int) {
 	}
 	return normalized, hits
 }
+
+// --8<-- [end:neutralize-injections]
 
 // spotlight delimits untrusted free text so the model reads it as data.
 //
@@ -372,6 +448,28 @@ func stringArgument(args map[string]any, key string) string {
 func (p *Policy) HandleToolError(
 	ctx agent.Context, called tool.Tool, _ map[string]any, callErr error,
 ) (map[string]any, error) {
+	// A guarded write that is waiting for a human, and one a human refused, both
+	// arrive here as errors — that is how ADK signals them out of tool.Run — and
+	// neither is a failure. Classifying them first is not cosmetic: the generic
+	// summary below would tell the model a write "failed safely" when nothing has
+	// been decided yet, inviting it to retry an action nobody answered, and the
+	// error-level log line below would make every approval pause count as a failed
+	// turn in the error-budget alert Chapter 7 ships.
+	switch {
+	case errors.Is(callErr, tool.ErrConfirmationRequired):
+		p.activeLogger().InfoContext(ctx, "Tool paused for confirmation", "tool", called.Name())
+		return map[string]any{"status": "awaiting_approval", "detail": fmt.Sprintf(
+			"%q is paused until a named human approves or rejects it. Nothing has changed yet; do not call it again.",
+			called.Name(),
+		)}, nil
+	case errors.Is(callErr, tool.ErrConfirmationRejected):
+		p.activeLogger().InfoContext(ctx, "Tool confirmation rejected", "tool", called.Name())
+		return map[string]any{"status": "rejected", "detail": fmt.Sprintf(
+			"A human rejected %q. Nothing changed; report the refusal instead of proposing the same action again.",
+			called.Name(),
+		)}, nil
+	}
+
 	// The arguments are deliberately not logged: they are model-authored and
 	// may carry text the redaction guards have already removed elsewhere.
 	// Provider and dependency errors can carry response bodies, credentials, or
@@ -393,14 +491,18 @@ func (p *Policy) HandleToolError(
 func (p *Policy) HandleModelError(
 	ctx agent.Context, _ *model.LLMRequest, modelErr error,
 ) (*model.LLMResponse, error) {
-	p.activeLogger().ErrorContext(ctx, "Model request failed", "error_type", fmt.Sprintf("%T", modelErr))
+	text, message := modelFailureClass(modelErr)
+	p.activeLogger().ErrorContext(ctx, "Model request failed",
+		"error_type", fmt.Sprintf("%T", modelErr), "failure", message)
 	return &model.LLMResponse{
 		Content: &genai.Content{
 			Role:  modelRole,
-			Parts: []*genai.Part{{Text: modelUnavailableText}},
+			Parts: []*genai.Part{{Text: text}},
 		},
+		// The code stays one value: callers switch on it, and the class is
+		// carried by the message rather than by a new machine contract.
 		ErrorCode:    modelUnavailableCode,
-		ErrorMessage: modelUnavailableMessage,
+		ErrorMessage: message,
 	}, nil
 }
 

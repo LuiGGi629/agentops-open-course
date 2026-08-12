@@ -8,11 +8,11 @@ slug: "3-capabilities"
 
 - **You will:** Give the agent the capabilities Ana's incident actually needs — one at a time, each arriving with a limit you can check offline.
 - **You need:** Chapter 2 finished, with `mise run test` green inside `agents/go`.
-- **Time:** about 4 hours for the whole chapter, orientation. {{% /admonition %}}
+- **Time:** about 8 minutes, orientation. {{% /admonition %}}
 
-## What the agent still cannot do at 02:14 {#which-capabilities-will-you-add}
+## What the agent still cannot do at 02:14
 
-The agent you ran in [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) can look up `INC-002` and tell Ana that inventory is crash-looping. That is where it stops. It cannot find the right runbook from a symptom nobody typed as a slug. It cannot restart anything, and you would not want it to yet. It cannot reach a tool that lives in another process, cannot remember what last night's engineer already tried, cannot be told to always challenge its own evidence before advising, and cannot hand the write to a specialist that holds nothing else.
+The agent you ran in [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) can look up `INC-002` and tell Ana that inventory is crash-looping. That is where it stops. It cannot find the right runbook from a symptom nobody typed as a slug. It cannot restart anything, and you would not want it to yet. It cannot reach a tool that lives in another process, cannot remember what last night's engineer already tried, cannot be told to always challenge its own evidence before advising, cannot hand the write to a specialist that holds nothing else, and cannot say a word until it has finished thinking.
 
 Chapter 3 closes each of those gaps. The interesting part is not that the agent gets more powerful — anything can be made more powerful by handing it more tools. It is that each capability arrives with a limit drawn around it, and most of those limits are decidable without a model. The two that are not — which skill the model loads, and which specialist the coordinator picks — are named plainly on the pages that own them.
 
@@ -24,6 +24,10 @@ Chapter 3 closes each of those gaps. The interesting part is not that the agent 
 - **[3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})** _(hands-on)_: A four-stage investigation the model cannot shortcut.
 - **[3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})** _(hands-on)_: The agent as a durable network service another team can call.
 - **[3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}})** _(hands-on)_: A coordinator whose specialists cannot borrow each other's authority.
+- **[3.8. Streaming]({{< relref "/3. Capabilities/3.8. Streaming.md" >}})** _(hands-on)_: Token-by-token delivery, and the redaction window it opens.
+- **[3.9. Incident Run]({{< relref "/3. Capabilities/3.9. Incident Run.md" >}})** _(hands-on)_: One session that answers INC-002 with the default composition's tools, skills, and memory.
+
+The ten pages below run to about five hours of hands-on work in total. The chapter has a seam in the middle: 3.0 to 3.4 give the agent more that it can do, while 3.5 to 3.9 change what it is. If you are working through this in evenings, [3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}}) is the natural place to stop for the day.
 
 Every one of those pages adds an element to the same value you already read in Chapter 2 — a config with an instruction, a tool list, and a toolset list:
 
@@ -81,13 +85,13 @@ mise run eval:validate
 `mise run test` ends by reading the coverage profile it just wrote. Here is the tail of a real run in this checkout, with fourteen of the twenty package lines cut for width:
 
 ```text
-DONE 1759 tests in 1.964s
+DONE 1815 tests, 1 skipped in 1.964s
 [test] $ ../../scripts/check-coverage.sh coverage.out 80 agents/go
-  ok      84.6%  agents/go/a2aserver
+  ok      84.2%  agents/go/a2aserver
   ok      91.7%  agents/go/compose
   ok      88.6%  agents/go/mcpserver
-  ok      87.7%  agents/go/memory
-  ok      90.4%  agents/go/policy
+  ok      87.6%  agents/go/memory
+  ok      90.9%  agents/go/policy
   ok      98.5%  agents/go/tools
 agents/go meets the 80% per-package coverage floor
 ```
@@ -101,4 +105,6 @@ Two seconds, no model, no network. The floor is applied per package rather than 
 - You can pick between plain Go, a workflow, one agent, delegation, and A2A for a new task, and say what each choice costs.
 - You can name, for any capability in this chapter, the authority it deliberately lacks and the test that would fail the moment it gained one.
 
-An hour of reading ago the agent was a model with a database attached. It now has a shape you can argue about: every capability with a limit around it, and every limit written down as something that runs in seconds. Continue to [4. Quality]({{< relref "/4. Quality/_index.md" >}}) when those limits are narrow enough to score and attack.
+Every capability in this chapter arrives with a limit around it, and every limit is written down as something that runs in seconds.
+
+Continue to [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}}) once `mise run test` is green inside `agents/go`, because every capability in this chapter is added to the one module that page builds.

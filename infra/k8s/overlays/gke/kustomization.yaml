@@ -8,6 +8,18 @@ resources:
 
 patches:
   - path: workload-identity.yaml
+  # The proprietary model lives here rather than in the base, so an overlay-free
+  # `kubectl apply -k infra/kagent` cannot silently select it. The replacements
+  # block below carries this value into the agent's AGENT_MODEL.
+  - target:
+      group: kagent.dev
+      version: v1alpha2
+      kind: ModelConfig
+      name: agentgateway
+    patch: |-
+      - op: replace
+        path: /spec/model
+        value: gemini-3.5-flash
   - target:
       version: v1
       kind: PersistentVolumeClaim

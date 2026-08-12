@@ -421,13 +421,24 @@ func (n *Notes) ForgetUserMemory(ctx context.Context, userID string) (forgotten 
 		return ForgottenMemory{}, ErrEmptyUserID
 	}
 
-	db, err := n.open(ctx, false)
+	// immediate, because erasure is the one multi-statement write here. Notes and
+	// ingested transcripts are the same person's data under the same legal basis,
+	// so a run that deleted one and failed on the other would leave a subject
+	// half-erased and report success for the half that landed — the worst possible
+	// answer to a right-to-erasure request.
+	db, err := n.open(ctx, true)
 	if err != nil {
 		return ForgottenMemory{}, err
 	}
 	defer func() { err = closeWith(db, err) }()
 
-	result, err := db.ExecContext(ctx, "DELETE FROM incident_notes WHERE user_id = ?", cleaned)
+	transaction, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return ForgottenMemory{}, notesFailure(notesDatabaseName, fmt.Errorf("begin the erasure: %w", err))
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	result, err := transaction.ExecContext(ctx, "DELETE FROM incident_notes WHERE user_id = ?", cleaned)
 	if err != nil {
 		return ForgottenMemory{}, notesFailure(notesDatabaseName, fmt.Errorf("erase the notes: %w", err))
 	}
@@ -435,10 +446,11 @@ func (n *Notes) ForgetUserMemory(ctx context.Context, userID string) (forgotten 
 	if err != nil {
 		return ForgottenMemory{}, notesFailure(notesDatabaseName, fmt.Errorf("count the erased notes: %w", err))
 	}
-	// The ingested session transcripts are the same person's data under the same
-	// legal basis, so they go with the notes.
-	if _, err := db.ExecContext(ctx, "DELETE FROM session_memories WHERE user_id = ?", cleaned); err != nil {
+	if _, err := transaction.ExecContext(ctx, "DELETE FROM session_memories WHERE user_id = ?", cleaned); err != nil {
 		return ForgottenMemory{}, notesFailure(notesDatabaseName, fmt.Errorf("erase the session memories: %w", err))
+	}
+	if err := transaction.Commit(); err != nil {
+		return ForgottenMemory{}, notesFailure(notesDatabaseName, fmt.Errorf("commit the erasure: %w", err))
 	}
 	return ForgottenMemory{UserID: cleaned, Count: int(deleted)}, nil
 }

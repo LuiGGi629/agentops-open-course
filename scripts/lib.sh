@@ -69,10 +69,21 @@ require_cmd() {
 		return 0
 	fi
 
+	# The remedy has to name a tier the course actually teaches. Bare `mise install`
+	# is taught nowhere, and mise.toml's own comment on install:maintainer warns that
+	# it also materializes a contributor's global tool catalog.
+	local tier
+	case "${profile}" in
+	base) tier="mise run install" ;;
+	gateway | platform | gcp) tier="mise run install:platform" ;;
+	validation) tier="mise run install:validation" ;;
+	*) tier="mise run install" ;;
+	esac
+
 	if [[ -n ${profile} ]]; then
-		fail "missing ${command_name}: run 'mise install', then 'mise run doctor:${profile}' to check the whole tier"
+		fail "missing ${command_name}: run '${tier}', then 'mise run doctor:${profile}' to check the whole tier"
 	fi
-	fail "missing ${command_name}: run 'mise install' to materialize the pinned toolchain"
+	fail "missing ${command_name}: run 'mise run install' to materialize the pinned toolchain"
 }
 
 # require_host_cmd <command> <remedy> — assert a prerequisite intentionally

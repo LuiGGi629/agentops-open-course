@@ -105,7 +105,8 @@ func TestAgentContainerOwnsDockerLifecycleAndRuntimeIdentity(t *testing.T) {
 			t.Errorf("container command environment is missing %q", expected)
 		}
 	}
-	if readyURL != "http://127.0.0.1:43123" || readyPath != "/list-apps" {
+	// REST probes under ADK's /api mount, exactly as the process runtime does.
+	if readyURL != "http://127.0.0.1:43123/api" || readyPath != "/list-apps" {
 		t.Fatalf("readiness = %q %q, want REST contract", readyURL, readyPath)
 	}
 
@@ -414,7 +415,7 @@ func TestAgentContainerKillsAnEngineClientThatOutlivesTheContainer(t *testing.T)
 	if err != nil {
 		t.Fatalf("startAgentContainer() error = %v", err)
 	}
-	if got, want := container.BaseURL(), "http://127.0.0.1:43129"; got != want {
+	if got, want := container.BaseURL(), "http://127.0.0.1:43129/api"; got != want {
 		t.Fatalf("BaseURL() = %q, want %q", got, want)
 	}
 	err = container.Close()

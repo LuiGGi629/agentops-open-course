@@ -28,6 +28,9 @@ type CaseResult struct {
 	Usage  Usage              `json:"usage"`
 	Sample int                `json:"sample"`
 	Passed bool               `json:"passed"`
+	// DeterministicPassed drops judged verdicts. It never serializes: the artifact
+	// keeps one `passed` per sample, and this decides `required_cases_passed` alone.
+	DeterministicPassed bool `json:"-"`
 }
 
 type RunSummary struct {
@@ -189,11 +192,12 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 		if err != nil {
 			return CaseResult{}, fmt.Errorf("judge: %w", err)
 		}
-		evaluated.merge(NewBinaryScore("judge", verdict.Passed, verdict.Rationale))
+		evaluated.merge(NewStochasticBinaryScore("judge", verdict.Passed, verdict.Rationale))
 	}
 	result = CaseResult{
 		ID: evalCase.ID, Sample: sample, Passed: evaluated.passed(),
-		Scores: evaluated.sanitized(), Usage: evaluated.usage,
+		DeterministicPassed: evaluated.deterministicPassed(),
+		Scores:              evaluated.sanitized(), Usage: evaluated.usage,
 	}
 	outcome = CaseOutcome{Passed: result.Passed, Usage: result.Usage}
 	for _, name := range sortedScoreNames(evaluated.values) {
@@ -246,6 +250,7 @@ func validateRunnerConfig(config RunnerConfig) error {
 func summarizeCases(results []CaseResult, required []string, minimumPassRate float64) RunSummary {
 	summary := RunSummary{MinimumPassRate: minimumPassRate, RequiredCasesPassed: true}
 	casePass := make(map[string]bool)
+	deterministicPass := make(map[string]bool)
 	for _, result := range results {
 		previous, observed := casePass[result.ID]
 		if result.Passed {
@@ -259,12 +264,16 @@ func summarizeCases(results []CaseResult, required []string, minimumPassRate flo
 			summary.Failed++
 			casePass[result.ID] = false
 		}
+		priorDeterministic, seen := deterministicPass[result.ID]
+		deterministicPass[result.ID] = result.DeterministicPassed && (!seen || priorDeterministic)
 	}
 	if len(results) > 0 {
 		summary.PassRate = float64(summary.Passed) / float64(len(results))
 	}
+	// A required case is a safety claim, so it folds over deterministic scores only.
+	// The judge still costs the run its pass rate above.
 	for _, caseID := range required {
-		if !casePass[caseID] {
+		if !deterministicPass[caseID] {
 			summary.RequiredCasesPassed = false
 		}
 	}
@@ -284,6 +293,26 @@ func (s caseScores) passed() bool {
 		}
 	}
 	return len(s.values) > 0
+}
+
+// deterministicPassed answers the same question as passed(), ignoring judged verdicts.
+//
+// A required case is a safety claim — confirmation was asked for, the skill was loaded,
+// prior context was recalled — and every one of those is decidable by a rule. Letting a
+// 4B model judging its own family veto that claim would make the strictest gate in the
+// harness the least reliable one. Like passed(), an empty map is not a pass.
+func (s caseScores) deterministicPassed() bool {
+	found := false
+	for _, score := range s.values {
+		if score.Stochastic {
+			continue
+		}
+		found = true
+		if !score.Passed {
+			return false
+		}
+	}
+	return found
 }
 
 func (s caseScores) sanitized() map[string]float64 {

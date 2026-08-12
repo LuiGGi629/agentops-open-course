@@ -30,8 +30,23 @@ source_gateway_model="$(
 [[ ${source_gateway_model} == google/* ]] ||
 	fail "the source Vertex model must use the google/ publisher prefix"
 model="${source_gateway_model#google/}"
-source_agent_model="$(yq -er '.spec.byo.deployment.env[] | select(.name == "AGENT_MODEL") | .value' infra/kagent/agent.yaml)"
-source_model_config="$(yq -er '.spec.model' infra/kagent/modelconfig.yaml)"
+# Read the rendered GKE overlay rather than the base sources. The base declares the
+# open-weight default so an overlay-free apply cannot select a proprietary model; the
+# GKE overlay patches it in. The claim worth asserting is that the GKE *plane* agrees
+# with its own gateway, which is a property of the render, not of the base files.
+gke_render="$(kubectl kustomize infra/k8s/overlays/gke)" ||
+	fail "could not render the GKE overlay"
+source_agent_model="$(
+	yq -er '
+      select(.kind == "Agent" and .metadata.name == "agentops-agent")
+      | .spec.byo.deployment.env[]
+      | select(.name == "AGENT_MODEL")
+      | .value
+    ' <<<"${gke_render}"
+)"
+source_model_config="$(
+	yq -er 'select(.kind == "ModelConfig" and .metadata.name == "agentgateway") | .spec.model' <<<"${gke_render}"
+)"
 source_gateway_image="$(
 	yq -er '
       select(.kind == "Deployment" and .metadata.name == "agentgateway")

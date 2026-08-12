@@ -47,10 +47,10 @@ mise run eval:validate
 The first is the widest: it fans out to all three Go modules at once, and two of them end by enforcing a coverage floor.
 
 ```text
-[test:evals] DONE 394 tests in 12.386s
+[test:evals] DONE 395 tests in 12.386s
 [test:evals] evals meets the 80% per-package coverage floor
-[test:tools] DONE 173 tests in 26.869s
-[test:go] DONE 1759 tests in 25.223s
+[test:tools] DONE 296 tests in 26.869s
+[test:go] DONE 1815 tests, 1 skipped in 25.223s
 [test:go] agents/go meets the 80% per-package coverage floor
 Finished in 39.17s
 ```
@@ -59,7 +59,7 @@ Six lines lifted from that run in the order they arrived. The three suites run c
 
 ## What this chapter proved
 
-- Twenty-three hundred tests decide the agent, the evaluator, and the repository tooling under the race detector in well under a minute, with no service to start and nothing spending a token.
+- Just under twenty-five hundred tests decide the agent, the evaluator, and the repository tooling under the race detector in well under a minute, with no service to start and nothing spending a token.
 - `mise run redteam` settles the adversarial policy cases and `mise run eval:validate` proves the evalsets against the seed, both without a model.
 - Three of the seven pages hand you something to break and restore; two hand you something to keep — a table case in [4.2. Testing]({{< relref "/4. Quality/4.2. Testing.md" >}}) and an evaluation case in [4.4. Evaluations]({{< relref "/4. Quality/4.4. Evaluations.md#your-turn-how-do-you-add-one-adversarial-case-and-deterministic-validator" >}}).
 - By the end you can take any green result in this chapter and say whether it is a gate or an observation — and name the command behind it.

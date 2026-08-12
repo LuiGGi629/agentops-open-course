@@ -44,7 +44,9 @@ type errorEnvelope struct {
 	} `json:"error"`
 }
 
-func Handler() http.Handler {
+// Handler serves the fixture. A nil script keeps the original single-reply
+// behavior, which is what scripts/smoke-host.sh drives.
+func Handler(script *Script) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+HealthPath, func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
@@ -74,6 +76,14 @@ func Handler() http.Handler {
 		}
 		if parsed.Model == "" {
 			parsed.Model = defaultModel
+		}
+		if scriptCase := script.match(parsed.Input); scriptCase != nil && parsed.Text.Format.Type != "json_schema" {
+			if output, more := scriptedOutput(scriptCase, completedSteps(parsed.Input)); more {
+				writeJSON(writer, http.StatusOK, responseWithOutput(parsed.Model, output))
+				return
+			}
+			writeJSON(writer, http.StatusOK, response(parsed.Model, scriptCase.Answer))
+			return
 		}
 		writeJSON(writer, http.StatusOK, response(parsed.Model, responseText(parsed)))
 	})
@@ -152,6 +162,15 @@ func namedEntityIndexes(input json.RawMessage) ([]int, bool) {
 }
 
 func response(model, text string) map[string]any {
+	return responseWithOutput(model, []any{map[string]any{
+		"id": "msg-agentops-fake", "type": "message", "status": "completed", "role": "assistant",
+		"content": []any{map[string]any{
+			"type": "output_text", "text": text, "annotations": []any{},
+		}},
+	}})
+}
+
+func responseWithOutput(model string, output []any) map[string]any {
 	return map[string]any{
 		"id":                  "resp-agentops-fake",
 		"object":              "response",
@@ -164,13 +183,8 @@ func response(model, text string) map[string]any {
 		"parallel_tool_calls": true,
 		"tool_choice":         "auto",
 		"tools":               []any{},
-		"output": []any{map[string]any{
-			"id": "msg-agentops-fake", "type": "message", "status": "completed", "role": "assistant",
-			"content": []any{map[string]any{
-				"type": "output_text", "text": text, "annotations": []any{},
-			}},
-		}},
-		"usage": map[string]int{"input_tokens": 10, "output_tokens": 8, "total_tokens": 18},
+		"output":              output,
+		"usage":               map[string]int{"input_tokens": 10, "output_tokens": 8, "total_tokens": 18},
 	}
 }
 
@@ -191,10 +205,10 @@ func writeJSON(writer http.ResponseWriter, status int, payload any) {
 	_, _ = writer.Write(encoded)
 }
 
-func Server(address string, logger *slog.Logger) *http.Server {
+func Server(address string, logger *slog.Logger, script *Script) *http.Server {
 	return &http.Server{
 		Addr:              address,
-		Handler:           Handler(),
+		Handler:           Handler(script),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

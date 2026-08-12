@@ -52,6 +52,7 @@ type agentRuntime struct {
 	config config.Config
 }
 
+// --8<-- [start:runtime-assembly]
 // newAgentRuntime assembles every plane, in dependency order.
 //
 // The order is not incidental. The skill toolset has to exist before the policy
@@ -74,6 +75,7 @@ func newAgentRuntime(
 	console io.Writer,
 	ownsProviders bool,
 ) (assembled *agentRuntime, err error) {
+	// --8<-- [end:runtime-assembly]
 	if recoveryErr := recovered.require(cfg.StateDir); recoveryErr != nil {
 		return nil, recoveryErr
 	}

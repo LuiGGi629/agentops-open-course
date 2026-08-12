@@ -35,6 +35,8 @@ Twenty-one behavioral cases and twelve calibration examples currently assert thi
 
 Write two lines down now, somewhere you will still have them next week: the bounded problem your derivative solves, and the one person who acts on its answer. The capstone's design brief starts from those two lines, and every milestone after it narrows them.
 
+One page in this chapter sits outside the walk entirely. [8.8. From Python]({{< relref "/8. Community/8.8. From Python.md" >}}) _(reference)_ is a lookup for readers arriving from LangGraph or the Python course: every concept you brought with you gets an address in this repository. Open it the first time a Go construct in the reference looks unfamiliar; nothing in the required path depends on it.
+
 Then open [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}). It records your baseline, maps how tightly the reference is wired to its own domain, walks ten milestones each carrying the one command or test that backs it, and ends with a manifest a reviewer can verify from a clean clone.
 
 ## Everything else here is an appendix you may skip
@@ -65,6 +67,6 @@ flowchart LR
 - You measured how much committed evaluation surface a domain swap moves: twenty-one cases and twelve calibration examples across three evalsets.
 - You wrote down the bounded problem and the person who acts on its answer, which is where the capstone brief begins.
 
-An hour ago this chapter looked like seven maintenance pages with a project attached. It is the opposite: one project, with seven pages you may never need.
+This chapter is one project with seven pages you may never need, rather than seven maintenance pages with a project attached.
 
 Continue to [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}) as soon as those two lines are written down.

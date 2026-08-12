@@ -2,6 +2,7 @@ package conventions
 
 import (
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -233,7 +234,8 @@ func checkExercises(where, text string) []Problem {
 		{"**Goal**:"},
 		{"**Files to touch**:"},
 		{"**Preflight**:"},
-		{"**Gate that proves completion**:", "**Proof of completion**:"},
+		{"**Steps**:"},
+		{"**Gate that proves completion**:"},
 		{"**Final state**:"},
 	}
 	var problems []Problem
@@ -270,23 +272,24 @@ func checkExercises(where, text string) []Problem {
 	return problems
 }
 
-func checkDiagramAlternatives(where, text string, legacy map[string]bool) ([]Problem, map[string]bool) {
+// checkDiagramAlternatives requires prose beside every Mermaid diagram.
+//
+// It used to accept a hash allowlist for diagrams reviewed before the rule existed.
+// Every one of those diagrams now carries prose, so the allowlist, its file, and the
+// stale-hash detector are gone — the rule holds for the whole corpus unconditionally,
+// which is the only version of it a reader can rely on.
+func checkDiagramAlternatives(where, text string) []Problem {
 	lines := splitLines(text)
-	used := make(map[string]bool)
 	var problems []Problem
 	for _, block := range fencedBlocks(text, "mermaid") {
 		from := max(0, block.start-5)
 		to := min(len(lines), block.end+5)
-		digest := digestLines(block.body)
-		if legacy[digest] {
-			used[digest] = true
-		}
-		if strings.Contains(strings.Join(lines[from:to], "\n"), "**Diagram in words:**") || legacy[digest] {
+		if strings.Contains(strings.Join(lines[from:to], "\n"), "**Diagram in words:**") {
 			continue
 		}
 		problems = append(problems, problem(where, "line %d: Mermaid diagram needs adjacent `**Diagram in words:**` prose", block.start))
 	}
-	return problems, used
+	return problems
 }
 
 func checkMachinePaths(where, text string) []Problem {
@@ -310,12 +313,6 @@ func checkExactCountClaims(where, text string) []Problem {
 	return problems
 }
 
-func mergeUsed(target, source map[string]bool) {
-	for value := range source {
-		target[value] = true
-	}
-}
-
 func sortedDifference(left, right map[string]bool) []string {
 	var values []string
 	for value := range left {
@@ -325,4 +322,119 @@ func sortedDifference(left, right map[string]bool) []string {
 	}
 	slices.Sort(values)
 	return values
+}
+
+// closingCadenceKeepers are the seven pages allowed to close on the time-marker
+// construction — one per chapter, chosen as that chapter's highest-stakes page —
+// plus one page whose match is mid-page prose rather than a closer.
+//
+// An explicit allowlist rather than a heuristic, following the same reasoning the
+// diagram rule used: re-adding the cadence anywhere else means editing this list
+// and re-arguing the choice, which is exactly the friction the rule wants.
+var closingCadenceKeepers = map[string]bool{
+	"content/0. Overview/0.2. Evidence.md":          true,
+	"content/1. Setup/1.0. System.md":               true,
+	"content/2. Agents/2.1. First Agent.md":         true,
+	"content/3. Capabilities/3.1. Tools.md":         true,
+	"content/5. Gateway/5.5. Gateway Security.md":   true,
+	"content/6. Platform/6.6. Platform Delivery.md": true,
+	"content/8. Community/8.7. Capstone.md":         true,
+}
+
+// timeMarkerParagraph matches a paragraph opening on a short time marker — "An hour
+// ago", "Ten minutes ago", "Seven chapters ago" — which is the shape of the closing
+// construction this rule caps.
+var timeMarkerParagraph = regexp.MustCompile(`^[A-Z][^.!?]{0,45}\bago\b`)
+
+// checkClosingCadence caps one closing construction across the whole corpus.
+//
+// A corpus-level rule rather than a per-page property: the construction is excellent
+// once and strong for five pages, and by the seventh consecutive page a reader has
+// learned to skip the last paragraph of every page — which is exactly where the
+// consolidation lives. At most one per chapter, and never two in the same one.
+func checkClosingCadence(pages pageSet) []Problem {
+	offenders := make(map[string][]string)
+	chapters := make(map[string]int)
+	for where, text := range pages {
+		if !closesOnTimeMarker(text) {
+			continue
+		}
+		chapter, _ := path.Split(where)
+		chapters[chapter]++
+		if !closingCadenceKeepers[where] {
+			offenders[chapter] = append(offenders[chapter], where)
+		}
+	}
+	var problems []Problem
+	for chapter, pages := range offenders {
+		slices.Sort(pages)
+		for _, where := range pages {
+			problems = append(problems, problem(where, "closes on the time-marker cadence; at most one page per chapter may, and %s already does", chapterKeeper(chapter)))
+		}
+	}
+	for chapter, count := range chapters {
+		if count > 1 && len(offenders[chapter]) == 0 {
+			problems = append(problems, problem(strings.TrimSuffix(chapter, "/"), "%d pages close on the time-marker cadence; at most one per chapter may", count))
+		}
+	}
+	slices.SortFunc(problems, func(left, right Problem) int { return strings.Compare(left.String(), right.String()) })
+	return problems
+}
+
+func chapterKeeper(chapter string) string {
+	for where := range closingCadenceKeepers {
+		if directory, _ := path.Split(where); directory == chapter {
+			return path.Base(where)
+		}
+	}
+	return "no page in it"
+}
+
+// closesOnTimeMarker looks only after the page's final H2. A time marker earlier in
+// a page is ordinary prose — 0.6 opens a section with "A tutorial written six months
+// ago…" — and only the closing paragraph is what this rule is about.
+func closesOnTimeMarker(text string) bool {
+	lines := linesOutsideFences(text)
+	last := -1
+	for index, line := range lines {
+		if strings.HasPrefix(line.text, "## ") {
+			last = index
+		}
+	}
+	if last < 0 {
+		return false
+	}
+	for _, line := range lines[last+1:] {
+		if timeMarkerParagraph.MatchString(line.text) {
+			return true
+		}
+	}
+	return false
+}
+
+// markdownImage matches an image with its alt text and destination, so both can be
+// judged. The negative lookbehind Go lacks is unnecessary here: a link is `[text](…)`
+// while an image is `![text](…)`, and the leading `!` is what this anchors on.
+var markdownImage = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)`)
+
+// checkImages holds every course image to the two rules a reader depends on.
+//
+// Alt text is the whole content of the image for anyone who cannot see it, and an
+// empty alt says "this image carries nothing" — which is false for every capture the
+// course ships. The path rule catches the one mistake that renders as a broken image
+// rather than as an error: assets/ is mounted to the site root, so a destination
+// under /assets/images/ resolves to nothing while /images/ resolves correctly.
+func checkImages(where, text string) []Problem {
+	var problems []Problem
+	for _, line := range linesOutsideFences(text) {
+		for _, match := range markdownImage.FindAllStringSubmatch(line.text, -1) {
+			if strings.TrimSpace(match[1]) == "" {
+				problems = append(problems, problem(where, "line %d: image needs alt text describing what a reader would learn from it", line.number))
+			}
+			if strings.HasPrefix(match[2], "/assets/images/") {
+				problems = append(problems, problem(where, "line %d: image path %q silently 404s; assets/ mounts to the site root, so use /images/…", line.number, match[2]))
+			}
+		}
+	}
+	return problems
 }

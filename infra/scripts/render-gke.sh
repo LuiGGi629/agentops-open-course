@@ -49,7 +49,11 @@ sed \
 	-e "s/__GKE_CLUSTER_DNS_IP__/${cluster_dns_ip}/g" \
 	"${template_file}" >"${rendered_file}"
 
-if rg -q '__[A-Z0-9_]+__' "${rendered_file}"; then
+# grep, not rg: this guard is the last thing between an unrendered placeholder and a
+# live cluster, and `set -e` does not abort on a command that fails inside an `if`
+# condition — so a missing binary would exit 127, read as "no match", and let the
+# manifest through. grep is on every supported host; ripgrep is an installed tool.
+if grep -Eq '__[A-Z0-9_]+__' "${rendered_file}"; then
 	fail "rendered GKE manifest still contains unresolved placeholders"
 fi
 

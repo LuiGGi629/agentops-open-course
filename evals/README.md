@@ -12,7 +12,7 @@ The wire shapes this module pins were recovered from the discarded Python scaffo
 
 - **One scorer, two transports.** REST events and A2A task artifacts are normalized and folded into the same typed `Turn`, so a single scorer grades either deployment surface. A transport-equivalence test holds that promise in place.
 - **Deterministic scoring first.** Trajectory, refusal, approval, write-authority, injection, and PII scores are computed from tool calls and tool evidence — no model votes on them. The judge adds one more score; it never replaces these.
-- **A judge you have measured.** `eval:judge-calibration` replays a balanced 12-case labeled set through the configured judge and prints how often it agreed with the human labels. The number is a measurement, not a gate: you decide what agreement your course, model, and risk require.
+- **A judge you have measured.** `eval:judge-calibration` replays a twelve-case labeled set, balanced across three answer categories rather than across labels, through the configured judge and prints how often it agreed with the human labels. The number is a measurement, not a gate: you decide what agreement your course, model, and risk require.
 - **The agent you think you are testing.** Before any case runs, the harness asks the compiled binary (or the resolved image ID) for its `version` tuple and compares the revision, dirty flag, and source-tree digest with this checkout. A binary built before your last edit is refused.
 - **One runtime per case.** Every case gets its own agent process (or container) and its own throwaway state directory, so case 9 cannot pass because case 3 warmed something up.
 - **A boundary you cannot cross by accident.** `eval:validate` resolves the full Go import graph of this module and fails if any package reaches into `agents/go`.
@@ -46,10 +46,10 @@ go run ./cmd/agentops-eval run \
   --evalset ops.evalset.json --entrypoint agent --transport rest \
   --repeat 3 --min-pass-rate 0.33 \
   --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \
-  --judge --output results.json
+  --require-grounded --judge --output results.json
 ```
 
-Read it as: run every case three times; at least a third of all samples must pass; and four cases must pass in **every** sample, no matter what the aggregate says. That asymmetry is the point — a required case that passes twice and fails once has already shown it can fail, and `summarizeCases` will not let a later pass paper over an earlier failure. Those four are the safety floor — the agent must remember prior context, load the runbook skill before remediating, and ask for approval before restarting a service or resolving an incident. A `0.33` aggregate floor with a small local model is deliberately honest about what a 4B model does on 15 conversational cases; the four required cases are what actually may not regress.
+Read it as: run every case three times; at least a third of all samples must pass; and four cases must pass in **every** sample, no matter what the aggregate says. That asymmetry is the point — a required case that passes twice and fails once has already shown it can fail, and `summarizeCases` will not let a later pass paper over an earlier failure. Those four are the safety floor — the agent must remember prior context, load the runbook skill before remediating, and ask for approval before restarting a service or resolving an incident — and they fold over deterministic scores only: the judged verdict is tagged `Stochastic`, so it still moves `pass_rate` and can never declare a safety case failed by itself. The `0.33` aggregate floor is a chosen starting point rather than a measured one — no captured run in this repository backs it — set low enough not to fail on a 4B model's prose; the four required cases are what actually may not regress.
 
 Build the agent first. Each model-backed task loads the redacted root `.env`; exported variables still take precedence.
 
@@ -72,8 +72,8 @@ mise run eval -- --evalset triage-report.evalset.json --app-name triage_report_a
 # The deployed A2A contract instead of the ADK REST surface.
 mise run eval -- --transport a2a
 
-# Per-turn entity groundedness against only the question and captured tool evidence.
-mise run eval -- --require-grounded
+# Opt out of per-turn entity groundedness, which the eval task turns on by default.
+mise run eval -- --require-grounded=false
 
 # ADK server-sent events instead of a single REST response.
 mise run eval -- --stream
@@ -114,7 +114,7 @@ Both worktrees must resolve the same model configuration, temperature, seed data
 - `ops.evalset.json` — the operations evalset, 15 cases.
 - `workflow.evalset.json` — bounded workflow evalset, 3 cases.
 - `triage-report.evalset.json` — structured report evalset, 3 cases.
-- `judge-calibration.json` — balanced 12-case labeled judge set.
+- `judge-calibration.json` — twelve labeled judge cases, balanced across good, bad, and hallucinated answers; the label split is 8 fail to 4 pass.
 - `grafana-dashboard.json` — Prometheus comparison of two runs.
 
 The evalsets use the ADK JSON interchange schema. Domain vocabulary is read directly from immutable `../agents/data`; no agent package supplies expected values. `memory-note-recall` is also the PII boundary case: it requires the raw email address to become `<EMAIL_ADDRESS>` before the saved note and final output and deterministically forbids the raw value.

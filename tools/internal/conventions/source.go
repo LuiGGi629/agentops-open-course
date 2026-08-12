@@ -1,6 +1,7 @@
 package conventions
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 	"go/token"
 	"io/fs"
 	"maps"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -574,6 +577,66 @@ func compareContract(where, label, expected, actual string) []Problem {
 	return nil
 }
 
+// checkEvalThresholds pins two pages to the eval task's command line.
+//
+// The course teaches the thresholds by pointing at that line rather than at a policy
+// file — there is no policy file — so the line is the contract. 4.4 quotes the flags
+// verbatim in the sentence that tells a learner to read them there; 7.0 states the same
+// three numbers in prose. Both are checked against the task, not against each other.
+func checkEvalThresholds(root string, pages pageSet) []Problem {
+	const evaluationsWhere = "content/4. Quality/4.4. Evaluations.md"
+	const reproducibilityWhere = "content/7. Observability/7.0. Reproducibility.md"
+	const anchor = "Read the threshold off the task's command line"
+	fields := strings.Fields(strings.Join(taskCommands(filepath.Join(root, "evals", "mise.toml"), "eval"), "\n"))
+	flag := func(name string) string {
+		for index, field := range fields {
+			if field == name && index+1 < len(fields) {
+				return fields[index+1]
+			}
+		}
+		return ""
+	}
+	repeat, passRate, required := flag("--repeat"), flag("--min-pass-rate"), flag("--required-cases")
+	if repeat == "" || passRate == "" || required == "" {
+		return []Problem{problem("evals/mise.toml", "the eval task must declare --repeat, --min-pass-rate, and --required-cases")}
+	}
+	cases := len(strings.Split(required, ","))
+	var problems []Problem
+	// 4.4's own sentence is the one that claims to reproduce the command line.
+	sentence := ""
+	for _, line := range splitLines(pages[evaluationsWhere]) {
+		if strings.HasPrefix(line, anchor) {
+			sentence = line
+		}
+	}
+	if sentence == "" {
+		problems = append(problems, problem(evaluationsWhere, "expected the sentence that reads the thresholds off the eval task's command line"))
+	} else {
+		for _, quoted := range []string{"`--repeat " + repeat + "`", "`--min-pass-rate " + passRate + "`", "`--required-cases`"} {
+			if !strings.Contains(sentence, quoted) {
+				problems = append(problems, problem(evaluationsWhere, "the threshold sentence must quote %s", quoted))
+			}
+		}
+		if !strings.Contains(sentence, englishNumber(cases)+" names") {
+			problems = append(problems, problem(evaluationsWhere, "the threshold sentence must name %s required cases", englishNumber(cases)))
+		}
+	}
+	for _, wanted := range []string{englishNumber(mustAtoi(repeat)) + " samples", passRate, englishNumber(cases) + " required"} {
+		if !strings.Contains(pages[reproducibilityWhere], wanted) {
+			problems = append(problems, problem(reproducibilityWhere, "the eval description must state %q, which the eval task declares", wanted))
+		}
+	}
+	return problems
+}
+
+func mustAtoi(text string) int {
+	value, err := strconv.Atoi(text)
+	if err != nil {
+		return -1
+	}
+	return value
+}
+
 func checkTaskExpansions(root string, pages pageSet) []Problem {
 	const where = "content/3. Capabilities/3.0. Packaging.md"
 	pattern := regexp.MustCompile(`(?m)^\| ` + "`" + `mise run ([^` + "`" + `]+)` + "`" + `\s+\| ` + "`" + `([^` + "`" + `]+)` + "`" + `\s+\|`)
@@ -830,6 +893,8 @@ func checkCurrentSourceContracts(root string, pages pageSet) []Problem {
 	problems = append(problems, checkCapacityContract(root, pages)...)
 	problems = append(problems, checkProviderContract(root, pages)...)
 	problems = append(problems, checkArtifactRetentionContract(root, pages)...)
+	problems = append(problems, checkDerivedFigures(root, pages)...)
+	problems = append(problems, checkRepositorySlug(root)...)
 	return problems
 }
 
@@ -1061,12 +1126,27 @@ func containsInOrder(text string, values ...string) bool {
 }
 
 func checkQuickstarts(root string, pages pageSet) []Problem {
-	sequence := []string{"mise run install", "mise run doctor", "mise run check:core", "mise run test"}
+	// The clone leads, because every command after it resolves a path inside the
+	// checkout: `mise trust mise.toml` on a page that never said to clone is a
+	// relative path with nothing to resolve against.
+	sequence := []string{
+		"git clone https://github.com/" + RepositorySlug,
+		"mise run install", "mise run doctor", "mise run check:core", "mise run test",
+	}
+	const systemWhere = "content/1. Setup/1.0. System.md"
 	readme, _ := readFile(filepath.Join(root, "README.md"))
 	var problems []Problem
-	for where, text := range map[string]string{"README.md": readme, "content/1. Setup/1.0. System.md": pages["content/1. Setup/1.0. System.md"]} {
+	for where, text := range map[string]string{"README.md": readme, systemWhere: pages[systemWhere]} {
 		if !containsInOrder(text, sequence...) {
-			problems = append(problems, problem(where, "guarded quickstart must contain the canonical install → doctor → check → test sequence"))
+			problems = append(problems, problem(where, "guarded quickstart must contain the canonical clone → install → doctor → check → test sequence"))
+		}
+	}
+	// `mise run install` builds SQLite from source, so a learner without a compiler
+	// hits scripts/install-sqlite.sh's `require_host_cmd cc` on the first of the four
+	// green-path commands. The page that owns the prerequisite has to be actionable.
+	for _, command := range []string{"build-essential", "development-tools", "xcode-select --install"} {
+		if !strings.Contains(pages[systemWhere], command) {
+			problems = append(problems, problem(systemWhere, "the C-toolchain prerequisite must name the %q host command", command))
 		}
 	}
 	landing := pages[landingPage]
@@ -1356,4 +1436,442 @@ func taskLoadsRedactedEnv(path, name, expectedPath string) bool {
 	pathValue, pathOK := document.GetPath([]string{"tasks", name, "env", "_", "file", "path"}).(string)
 	redact, redactOK := document.GetPath([]string{"tasks", name, "env", "_", "file", "redact"}).(bool)
 	return pathOK && redactOK && pathValue == expectedPath && redact
+}
+
+// RepositorySlug is the one place the published repository is named. The rendered
+// edit link, the runbook annotations, and the site navbar all resolve to it, and
+// checkRepositorySlug rejects the retired Python repository this one replaced.
+const RepositorySlug = "MLOps-Courses/agentops-open-course-go"
+
+// retiredRepositorySlug is derived rather than spelled, so this file does not itself
+// contain the string the check bans and then flag its own source.
+var retiredRepositorySlug = strings.TrimSuffix(RepositorySlug, "-go")
+
+// Build output, agent scratch space, and git internals legitimately carry the retired
+// name — site/ is a rebuild of whatever content said at the time, and .agents/ holds
+// the work orders that describe the migration.
+var slugSkippedDirectories = map[string]bool{
+	".agents": true, ".git": true, "node_modules": true, "resources": true, "site": true,
+}
+
+// slugScanLimit keeps the walk off the repository's few large binaries — the seeded
+// SQLite database and the vendored sqlite3 build — which cannot hold a URL anyway.
+const slugScanLimit = 2 << 20
+
+func isBinary(content []byte) bool {
+	head := content
+	if len(head) > 8192 {
+		head = head[:8192]
+	}
+	return bytes.IndexByte(head, 0) >= 0
+}
+
+// checkRepositorySlug bans the retired repository name and proves every runbook
+// annotation resolves to a page that exists.
+//
+// `check:links` runs lychee offline, which validates repository-local paths and never
+// resolves a GitHub URL — so eighteen dead links passed every gate. The second rule is
+// the one that catches an annotation pointing at a course page in a directory layout
+// (`docs/`) this repository has never had.
+func checkRepositorySlug(root string) []Problem {
+	// Root-scoped, so a symlink inside the tree cannot walk the check out of it.
+	scope, err := os.OpenRoot(root)
+	if err != nil {
+		return []Problem{problem(".", "could not open the repository: %v", err)}
+	}
+	defer func() { _ = scope.Close() }()
+	var problems []Problem
+	walkErr := fs.WalkDir(scope.FS(), ".", func(where string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if slugSkippedDirectories[entry.Name()] {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		// CHANGELOG.md's narrative entries legitimately name the repository this one
+		// replaced; rewriting them would falsify the record they exist to keep. Its
+		// link-reference block is not history but addresses, and ValidateReleaseMetadata
+		// already pins the newest one to CITATION.cff's repository-code.
+		if where == "CHANGELOG.md" {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil || info.Size() > slugScanLimit {
+			return nil
+		}
+		content, err := scope.ReadFile(where)
+		if err != nil || isBinary(content) {
+			return nil
+		}
+		problems = append(problems, retiredSlugProblems(where, string(content))...)
+		return nil
+	})
+	if walkErr != nil {
+		problems = append(problems, problem(".", "could not walk the repository: %v", walkErr))
+	}
+	return append(problems, checkRunbookTargets(root)...)
+}
+
+func retiredSlugProblems(where, content string) []Problem {
+	// GitHub resolves owner and repository names case-insensitively, so an all-lowercase
+	// copy of the retired slug addresses the same dead repository as the mixed-case
+	// spelling. (The lowercase form is not written out here for the same reason the slug
+	// itself is derived above: this file would then flag its own source.) Both the needle
+	// and each line are lowered so the scan catches every casing; only the line number is
+	// reported, so byte offsets never have to survive the fold.
+	needle := strings.ToLower(retiredRepositorySlug)
+	var problems []Problem
+	for index, line := range splitLines(content) {
+		lowered := strings.ToLower(line)
+		for offset := 0; ; {
+			found := strings.Index(lowered[offset:], needle)
+			if found < 0 {
+				break
+			}
+			offset += found + len(needle)
+			if !strings.HasPrefix(lowered[offset:], "-go") {
+				problems = append(problems, problem(where, "line %d: names the retired repository; use %s", index+1, RepositorySlug))
+			}
+		}
+	}
+	return problems
+}
+
+func checkRunbookTargets(root string) []Problem {
+	const where = "infra/k8s/overlays/local/prometheus-rules.yaml"
+	text, err := readFile(filepath.Join(root, filepath.FromSlash(where)))
+	if err != nil {
+		return []Problem{problem(where, "could not read alerting rules: %v", err)}
+	}
+	var problems []Problem
+	for _, match := range regexp.MustCompile(`(?m)^\s*runbook:\s*(\S+)$`).FindAllStringSubmatch(text, -1) {
+		target, _, _ := strings.Cut(match[1], "#")
+		_, blob, found := strings.Cut(target, "/blob/main/")
+		if !found {
+			problems = append(problems, problem(where, "runbook %q must address a file on the repository's main branch", match[1]))
+			continue
+		}
+		decoded, err := url.PathUnescape(blob)
+		if err != nil {
+			problems = append(problems, problem(where, "runbook %q is not a decodable path", match[1]))
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(decoded))); err != nil {
+			problems = append(problems, problem(where, "runbook %q points at a page this repository does not hold", decoded))
+		}
+	}
+	return problems
+}
+
+type captureSuite struct {
+	Tests   int `yaml:"tests"`
+	Skipped int `yaml:"skipped"`
+}
+
+type captureManifest struct {
+	Suites   map[string]captureSuite `yaml:"suites"`
+	Coverage map[string]float64      `yaml:"coverage"`
+}
+
+var (
+	englishUnits = []string{
+		"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+		"ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+		"seventeen", "eighteen", "nineteen",
+	}
+	englishTens = []string{"", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"}
+)
+
+// englishNumber spells 0-99, which covers every count a course page states in words.
+func englishNumber(value int) string {
+	switch {
+	case value < 0 || value > 99:
+		return strconv.Itoa(value)
+	case value < len(englishUnits):
+		return englishUnits[value]
+	case value%10 == 0:
+		return englishTens[value/10]
+	default:
+		return englishTens[value/10] + "-" + englishUnits[value%10]
+	}
+}
+
+func parseCountedNumber(text string) (int, bool) {
+	if value, err := strconv.Atoi(text); err == nil {
+		return value, true
+	}
+	for value := 0; value <= 99; value++ {
+		if englishNumber(value) == strings.ToLower(text) {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+var (
+	// Deliberately narrow. Pages state small subset counts in words ("Four settings
+	// decide the model"), and only the resolved total is ever written as digits or in
+	// the forty-/fifty- range this contract lives in.
+	settingsClaim  = regexp.MustCompile(`(?i)\b([0-9]+|forty-\w+|fifty-\w+)\s+(?:resolved\s+)?settings\b`)
+	doneTests      = regexp.MustCompile(`DONE ([0-9]+) tests(?:, ([0-9]+) skipped)? in `)
+	coverageReport = regexp.MustCompile(`\bok\s+([0-9]+\.[0-9]+)%\s+(agents/go/\S+)`)
+	coverageTick   = regexp.MustCompile(`✓\s+(\S+)\s+\([^)]*\)\s+\(coverage:\s+([0-9]+\.[0-9]+)% of statements\)`)
+	alertName      = regexp.MustCompile(`(?m)^\s*- alert:\s*(\S+)\s*$`)
+)
+
+// checkDerivedFigures ties every count a capture prints back to a file that settles it.
+//
+// checkExactCountClaims already bans brittle counts, but it iterates linesOutsideFences,
+// so every figure inside a ```text capture was deliberately exempt — which is how eight
+// pages came to print a test total wrong by 47 and 7.2b came to contradict its own rule
+// file by five rules. Suite totals and coverage cannot be derived without running the
+// suites, and check:docs runs before test, so those come from the committed manifest
+// `mise run docs:captures` writes; everything else is derived from source here.
+func checkDerivedFigures(root string, pages pageSet) []Problem {
+	problems := checkSettingsFigure(root, pages)
+	problems = append(problems, checkAlertingFigures(root, pages)...)
+	return append(problems, checkCaptureManifest(root, pages)...)
+}
+
+func checkSettingsFigure(root string, pages pageSet) []Problem {
+	const where = "agents/go/config/config.go"
+	source, err := readFile(filepath.Join(root, filepath.FromSlash(where)))
+	if err != nil {
+		return []Problem{problem(where, "could not read the configuration contract: %v", err)}
+	}
+	// One env tag per field is what `config:check` resolves and prints.
+	settings := strings.Count(source, `env:"`)
+	if settings == 0 {
+		return []Problem{problem(where, "expected the configuration contract to declare env-tagged settings")}
+	}
+	var problems []Problem
+	for page, text := range pages {
+		for _, line := range splitLines(text) {
+			for _, match := range settingsClaim.FindAllStringSubmatch(line, -1) {
+				value, ok := parseCountedNumber(match[1])
+				if ok && value != settings {
+					problems = append(problems, problem(page, "states %s settings; %s resolves %d", match[1], where, settings))
+				}
+			}
+		}
+	}
+	slices.SortFunc(problems, func(left, right Problem) int { return strings.Compare(left.String(), right.String()) })
+	return problems
+}
+
+func checkAlertingFigures(root string, pages pageSet) []Problem {
+	const rulesWhere = "infra/k8s/overlays/local/prometheus-rules.yaml"
+	const pageWhere = "content/7. Observability/7.2b. Alerting.md"
+	rules, err := readFile(filepath.Join(root, filepath.FromSlash(rulesWhere)))
+	if err != nil {
+		return []Problem{problem(rulesWhere, "could not read alerting rules: %v", err)}
+	}
+	records := len(regexp.MustCompile(`(?m)^\s*- record:\s*\S+\s*$`).FindAllString(rules, -1))
+	alerts := alertName.FindAllStringSubmatch(rules, -1)
+	const anchor = "That is both commands run back to back"
+	page := pages[pageWhere]
+	problems := requireTokens(pageWhere, page, fmt.Sprintf("SUCCESS: %d rules found", records+len(alerts)))
+	sentence := ""
+	for _, line := range splitLines(page) {
+		if strings.HasPrefix(line, anchor) {
+			sentence = line
+		}
+	}
+	if sentence == "" {
+		// A count rule whose only trigger is an English sentence disarms itself the
+		// moment someone rewords or deletes that sentence, and the page then states
+		// its two halves with nothing checking them. A missing anchor is therefore a
+		// failure that names what it needed, not a silent skip.
+		problems = append(problems, problem(pageWhere,
+			"expected the sentence starting %q, which states the recording-rule and alert counts derived from %s", anchor, rulesWhere))
+	} else {
+		// Ordered rather than ranged over a map, so a drifted page reports its halves
+		// in the same order on every run.
+		for _, half := range []struct {
+			label string
+			count int
+		}{{"recording rules", records}, {"alerts", len(alerts)}} {
+			if !strings.Contains(sentence, englishNumber(half.count)+" "+half.label) {
+				problems = append(problems, problem(pageWhere, "the rules-run sentence must state %s %s", englishNumber(half.count), half.label))
+			}
+		}
+	}
+	// Every shipped alert has to be answerable somewhere in the chapter that owns
+	// alerting. This is the rule that would have caught the three cost alerts.
+	var unnamed []string
+	for _, match := range alerts {
+		named := false
+		for where, text := range pages {
+			if strings.HasPrefix(where, "content/7. Observability/") && strings.Contains(text, "`"+match[1]+"`") {
+				named = true
+				break
+			}
+		}
+		if !named {
+			unnamed = append(unnamed, match[1])
+		}
+	}
+	slices.Sort(unnamed)
+	if len(unnamed) > 0 {
+		problems = append(problems, problem(rulesWhere, "chapter 7 never names these shipped alerts: %s", strings.Join(unnamed, ", ")))
+	}
+	return problems
+}
+
+func checkCaptureManifest(root string, pages pageSet) []Problem {
+	const where = "data/captures.yaml"
+	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(where)))
+	if err != nil {
+		return []Problem{problem(where, "could not read the capture manifest; run `mise run docs:captures`: %v", err)}
+	}
+	var manifest captureManifest
+	if err := yaml.Unmarshal(content, &manifest); err != nil {
+		return []Problem{problem(where, "could not read the capture manifest: %v", err)}
+	}
+	if len(manifest.Suites) == 0 || len(manifest.Coverage) == 0 {
+		return []Problem{problem(where, "capture manifest must declare suite totals and per-package coverage")}
+	}
+	summaries := make(map[[2]int]bool, len(manifest.Suites))
+	for _, suite := range manifest.Suites {
+		summaries[[2]int{suite.Tests, suite.Skipped}] = true
+	}
+	var problems []Problem
+	for page, text := range pages {
+		for _, line := range splitLines(text) {
+			problems = append(problems, checkCaptureLine(page, line, summaries, manifest.Coverage)...)
+		}
+	}
+	slices.SortFunc(problems, func(left, right Problem) int { return strings.Compare(left.String(), right.String()) })
+	return problems
+}
+
+func checkCaptureLine(page, line string, summaries map[[2]int]bool, coverage map[string]float64) []Problem {
+	var problems []Problem
+	for _, match := range doneTests.FindAllStringSubmatch(line, -1) {
+		tests, _ := strconv.Atoi(match[1])
+		skipped, _ := strconv.Atoi(match[2])
+		if !summaries[[2]int{tests, skipped}] {
+			problems = append(problems, problem(page, "capture claims %s tests / %d skipped, which no suite in data/captures.yaml reports", match[1], skipped))
+		}
+	}
+	for _, match := range coverageReport.FindAllStringSubmatch(line, -1) {
+		problems = append(problems, comparePackageCoverage(page, match[2], match[1], coverage)...)
+	}
+	for _, match := range coverageTick.FindAllStringSubmatch(line, -1) {
+		// gotestsum prints the bare package name; every such capture in content/ is
+		// from the agent suite, so an unknown name is another module's and is skipped.
+		problems = append(problems, comparePackageCoverage(page, "agents/go/"+match[1], match[2], coverage)...)
+	}
+	return problems
+}
+
+func comparePackageCoverage(page, packagePath, printed string, coverage map[string]float64) []Problem {
+	expected, known := coverage[packagePath]
+	if !known {
+		return nil
+	}
+	if printed != strconv.FormatFloat(expected, 'f', 1, 64) {
+		return []Problem{problem(page, "capture reports %s at %s%%; data/captures.yaml records %.1f%%", packagePath, printed, expected)}
+	}
+	return nil
+}
+
+// checkImageFiles requires every referenced capture to exist on disk.
+//
+// This is the half of the image contract checkImages cannot enforce from the page
+// text alone. Hugo resolves a leading-slash destination through resources.Get and
+// renders an ordinary <img> when that lookup misses, so a capture deleted, renamed,
+// or never committed leaves a broken image in a published page and a green build.
+// Pairing the two makes the whole reference checkable: the page states the path, and
+// this proves an asset answers to it.
+func checkImageFiles(root string, pages pageSet) []Problem {
+	var problems []Problem
+	// Sorted so a run reports the same pages in the same order every time.
+	paths := slices.Sorted(maps.Keys(pages))
+	for _, where := range paths {
+		for _, line := range linesOutsideFences(pages[where]) {
+			for _, match := range markdownImage.FindAllStringSubmatch(line.text, -1) {
+				destination, found := strings.CutPrefix(match[2], "/images/")
+				if !found {
+					continue
+				}
+				asset := filepath.Join(root, "assets", "images", filepath.FromSlash(destination))
+				if _, err := os.Stat(asset); err != nil {
+					problems = append(problems, problem(where, "line %d: image %q has no file at assets/images/%s", line.number, match[2], destination))
+				}
+			}
+		}
+	}
+	return problems
+}
+
+// pageDestination matches the one way a course page addresses another course page:
+// Hugo's relref shortcode, in prose and in the chapter tables alike, as in
+// `[2.2. Models]({{< relref "/2. Agents/2.2. Models.md" >}})`. Course filenames carry
+// spaces, so a raw Markdown destination would have to percent-escape them and would no
+// longer be a followable path — which is why checkPageLinkTargets reads the same shape.
+var pageDestination = regexp.MustCompile(`\{\{[%<]\s*(?:relref|ref)\s+"([^"]+)"`)
+
+// linkedBasenames collects the basename of every page a chapter index actually links.
+//
+// Fenced blocks are excluded because a shortcode quoted inside a ```markdown example
+// documents the syntax; it does not put the page in the learner's reading chain.
+func linkedBasenames(text string) map[string]bool {
+	linked := make(map[string]bool)
+	for _, line := range linesOutsideFences(text) {
+		for _, match := range pageDestination.FindAllStringSubmatch(line.text, -1) {
+			// An anchor addresses a section of the page, so it still links the page.
+			target, _, _ := strings.Cut(match[1], "#")
+			if target = strings.TrimSpace(target); target != "" {
+				linked[path.Base(target)] = true
+			}
+		}
+	}
+	return linked
+}
+
+// checkChapterIndexCoverage requires the chapter that owns a page to link it.
+//
+// checkNavigation already proves data/nav.yaml lists every page, but the sidebar is not
+// the course's primary reading device — the in-page chain is. Four pages were correctly
+// in the navigation and absent from their chapter index, so a learner following the
+// chapter never reached roughly ten thousand words of the newest material.
+//
+// The rule reads link destinations rather than the index's bytes. A substring search
+// passed on any mention of the filename, including a sentence saying the page was
+// retired and an example inside a fence — neither of which a learner can follow.
+func checkChapterIndexCoverage(pages pageSet) []Problem {
+	linked := make(map[string]map[string]bool)
+	missing := make(map[string][]string)
+	for where := range pages {
+		directory, base := path.Split(where)
+		if base == "_index.md" || directory == "content/" {
+			continue
+		}
+		index := directory + "_index.md"
+		text, ok := pages[index]
+		if !ok {
+			continue
+		}
+		if _, parsed := linked[index]; !parsed {
+			linked[index] = linkedBasenames(text)
+		}
+		if !linked[index][base] {
+			missing[index] = append(missing[index], base)
+		}
+	}
+	indexes := make([]string, 0, len(missing))
+	for index := range missing {
+		indexes = append(indexes, index)
+	}
+	slices.Sort(indexes)
+	problems := make([]Problem, 0, len(indexes))
+	for _, index := range indexes {
+		slices.Sort(missing[index])
+		problems = append(problems, problem(index, "chapter index omits pages: %s", strings.Join(missing[index], ", ")))
+	}
+	return problems
 }

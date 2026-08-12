@@ -590,7 +590,7 @@ func TestFieldBoundsMatrix(t *testing.T) {
 		"a2a protocol":           {EnvA2AProtocol, []string{"http", "https"}, []string{"ftp", "HTTP", ""}},
 		"a2a max llm calls":      {EnvA2AMaxLLMCalls, []string{"1", "12", "100"}, []string{"0", "101"}},
 		"drain timeout":          {EnvDrainTimeout, []string{"0.5", "10", "300"}, []string{"0", "300.1", "-1"}},
-		"model timeout":          {EnvModelTimeout, []string{"0.1", "60", "600"}, []string{"0", "601"}},
+		"model timeout":          {EnvModelTimeout, []string{"0.1", "60", "600", "3600"}, []string{"0", "3600.1"}},
 		"pii model timeout":      {EnvPIIModelTimeout, []string{"0.1", "8", "9"}, []string{"0", "9.1"}},
 		"tool timeout":           {EnvToolTimeout, []string{"30", "600"}, []string{"0", "601"}},
 		"max retries":            {EnvMaxRetries, []string{"0", "2", "10"}, []string{"-1", "11"}},

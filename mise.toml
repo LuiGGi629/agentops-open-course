@@ -271,26 +271,32 @@ description = "Format docs, config, shell scripts, and every Go module"
 depends = ["format:dprint", "format:evals", "format:go", "format:shell", "format:tools"]
 
 [tasks."format:dprint"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format Markdown and configuration files"
 run = "dprint fmt"
 
 [tasks."format:go"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format the Go reference agent"
 run = "cd agents/go && mise run format"
 
 [tasks."format:evals"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format the standalone Go evaluation harness"
 run = "cd evals && mise run format"
 
 [tasks."format:tools"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format native repository tools"
 run = "cd tools && mise run format"
 
 [tasks."format:shell"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format repository shell scripts"
 run = "shfmt -w scripts infra/scripts"
 
 [tasks."format:tofu"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format the OpenTofu GCP module"
 run = "tofu -chdir=infra/gcp fmt -recursive"
 
@@ -307,16 +313,19 @@ description = "Audit every Go module against published advisories"
 depends = ["check:vuln:evals", "check:vuln:go", "check:vuln:tools"]
 
 [tasks."check:vuln:go"]
+hide = true # a leaf of `check:vuln`; the aggregate is the audit a learner runs
 # One owner per ecosystem: govulncheck is the only gate that audits agents/go, and it is
 # reachability-aware and owns the production module.
 description = "Audit the Go reference agent against the Go vulnerability database"
 run = "cd agents/go && mise run check:vuln"
 
 [tasks."check:vuln:evals"]
+hide = true # a leaf of `check:vuln`; the aggregate is the audit a learner runs
 description = "Audit the standalone evaluation harness against the Go vulnerability database"
 run = "cd evals && mise run check:vuln"
 
 [tasks."check:vuln:tools"]
+hide = true # a leaf of `check:vuln`; the aggregate is the audit a learner runs
 description = "Audit native repository tooling against the Go vulnerability database"
 run = "cd tools && mise run check:vuln"
 
@@ -343,6 +352,7 @@ fi
 """
 
 [tasks."check:source"]
+hide = true # a fan-out of `check`/`check:core`, never typed directly
 description = "Validate shared course sources without infrastructure or license profiles"
 depends = [
   "tools:built",
@@ -359,6 +369,7 @@ depends = [
 ]
 
 [tasks."check:modules"]
+hide = true # a fan-out of `check`/`check:core`, never typed directly
 # golangci-lint holds a process lock by default. Keep each module's full check
 # intact, but run the three linters serially inside this one dependency.
 description = "Run all Go module source checks without parallel linter contention"
@@ -394,6 +405,13 @@ fi
 """,
   "tools/bin/conventions rendered site",
 ]
+
+[tasks."docs:captures"]
+description = "Regenerate data/captures.yaml from one real run of all three test suites"
+# Maintainer-only, and deliberately not wired into `check` or `test`: it runs the suites,
+# so a gate that depended on it would run them twice. `check:docs` reads the committed
+# manifest instead, and fails when a page quotes a figure the manifest does not carry.
+run = "./scripts/generate-captures.sh"
 
 [tasks."check:accessibility"]
 description = "Build and exercise the representative documentation and web-client accessibility surfaces"
@@ -432,7 +450,12 @@ run = "./scripts/check-infra.sh"
 
 [tasks."check:links"]
 description = "Check repository-local Markdown links without network access"
-run = "lychee --offline --root-dir '{{config_root}}/static' README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'content/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
+# --root-dir resolves absolute destinations like `/images/5-3-approval-form.png`. It points at
+# assets/, not static/, because Hextra's image render hook resolves a leading-slash destination
+# through resources.Get first — so a course capture lives under assets/images/ and is published
+# only when a page references it. Pointing lychee at static/ would report every real capture as
+# a dead link; pointing the pages at static/ would publish captures nothing renders.
+run = "lychee --offline --root-dir '{{config_root}}/assets' README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'content/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
 
 [tasks."check:skills"]
 description = "Validate the installable Agent Skills under skills/"
@@ -480,14 +503,17 @@ description = "Run every Go module test suite"
 depends = ["test:evals", "test:go", "test:tools"]
 
 [tasks."test:go"]
+hide = true # a leaf of `test`; a learner runs the suite, not one module of it
 description = "Run the Go reference agent test suite"
 run = "cd agents/go && mise run test"
 
 [tasks."test:evals"]
+hide = true # a leaf of `test`; a learner runs the suite, not one module of it
 description = "Run the standalone evaluation harness test suite"
 run = "cd evals && mise run test"
 
 [tasks."test:tools"]
+hide = true # a leaf of `test`; a learner runs the suite, not one module of it
 description = "Run native repository-tool tests"
 run = "cd tools && mise run test"
 
@@ -581,6 +607,33 @@ run = "mise x k6@2.1.0 -- k6 run load/a2a-send.js"
 [tasks."model:fake"]
 description = "Run a deterministic OpenAI-compatible fake model on :11434 for platform-only load tests"
 run = "tools/bin/fake-model"
+
+[tasks."eval:offline"]
+description = "Run the four required evaluation cases against the scripted fixture: no model, no weights, no wait"
+depends = ["tools:built"]
+# The scripted fixture walks each required case's exact trajectory, so the harness,
+# the transports, and the trajectory assertions are all exercised — and nothing about
+# the model is. That distinction is the whole point: this is a maintainer- and
+# CI-facing task that proves the harness, the transports, and the trajectory
+# assertions with no model, and it says nothing about the agent's judgement.
+# Port 11435 keeps it clear of a real Ollama on :11434.
+shell = "bash -c"
+run = """
+set -euo pipefail
+tools/bin/fake-model --port 11435 --script tools/testdata/ops-script.json &
+fixture=$!
+trap 'kill "${fixture}" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do
+  curl -fsS http://127.0.0.1:11435/healthz >/dev/null 2>&1 && break
+  sleep 0.1
+done
+cd evals && OPENAI_BASE_URL=http://127.0.0.1:11435/v1 OPENAI_API_KEY=offline \\
+  AGENT_MODEL=agentops-fake AGENT_MODEL_PROVIDER=openai-compatible \\
+  go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent \\
+  --transport rest --repeat 1 --min-pass-rate 0 \\
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \\
+  --output offline-results.json
+"""
 
 [tasks."observability:up"]
 description = "Start and readiness-check the hardened local observability stack"

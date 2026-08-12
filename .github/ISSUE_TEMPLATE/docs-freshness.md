@@ -16,9 +16,9 @@ The quarterly freshness jobs in `.github/workflows/scan.yml` append a read-only 
 
 ## Model & provider names
 
-- [ ] `gemini-3.6-flash` is still the current GA model for optional native Gemini calls and its lifecycle remains accurate — `.env.example`, `content/0. Overview/0.5. Providers.md`, and `content/2. Agents/2.2. Models.md`.
-- [ ] `gemini-3.5-flash` remains the compatibility pin proven with the current agentgateway Vertex tool-result translation, and `infra/scripts/smoke-gke-model.sh` still passes before any GKE model-id change — `content/0. Overview/0.5. Providers.md`, `content/6. Platform/6.3. Platform Agents.md`, and the GKE manifests.
-- [ ] `qwen3:4b-instruct` is still the default local Ollama model and its weights remain Apache-2.0 licensed — `agents/go/config/config.go`, `content/0. Overview/0.5. Providers.md`, `content/6. Platform/6.6. Platform Delivery.md`, and the local manifests.
+- [ ] `gemini-3.6-flash` is still the current GA model for optional native Gemini calls and its lifecycle remains accurate — `.env.example`, `content/0. Overview/0.5. Provider Options.md`, and `content/2. Agents/2.2. Models.md`.
+- [ ] `gemini-3.5-flash` remains the compatibility pin proven with the current agentgateway Vertex tool-result translation, and `infra/scripts/smoke-gke-model.sh` still passes before any GKE model-id change — `content/0. Overview/0.5. Provider Options.md`, `content/6. Platform/6.3. Platform Agents.md`, and the GKE manifests.
+- [ ] `qwen3:4b-instruct` is still the default local Ollama model and its weights remain Apache-2.0 licensed — `agents/go/config/config.go`, `content/0. Overview/0.5. Provider Options.md`, `content/6. Platform/6.6. Platform Delivery.md`, and the local manifests.
 - [ ] `nomic-embed-text` is still the embedding model — `agents/go/config/config.go`, `content/3. Capabilities/3.4. Memory.md`.
 
 ## Prices & cost inputs

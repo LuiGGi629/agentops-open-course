@@ -23,17 +23,36 @@ const (
 	claim         = "deterministic offline course gates at the recorded source revision"
 )
 
-var (
-	DefaultGates     = [][]string{{"mise", "run", "check:core"}, {"mise", "run", "test"}}
-	DefaultArtifacts = []string{
-		"mise.lock",
-		"agents/go/go.sum",
-		"evals/go.sum",
-		"tools/go.sum",
-		"agents/data/incidents.db",
-		"evals/ops.evalset.json",
+// artifactListPath holds the inventory a manifest attests to. It is a committed
+// file rather than a Go literal so that changing what a completion certificate
+// covers is a reviewable diff instead of a recompile.
+const artifactListPath = "tools/internal/courseevidence/artifacts.txt"
+
+var DefaultGates = [][]string{{"mise", "run", "check:core"}, {"mise", "run", "test"}}
+
+// DefaultArtifacts reads the committed inventory. A missing or empty list is an
+// error at use, not a silent empty manifest.
+func DefaultArtifacts(root string) ([]string, error) {
+	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifactListPath)))
+	if err != nil {
+		return nil, fmt.Errorf("reading the course-evidence artifact inventory: %w", err)
 	}
-)
+	var paths []string
+	for line := range strings.Lines(string(content)) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			paths = append(paths, trimmed)
+		}
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("%s lists no evidence artifacts", artifactListPath)
+	}
+	return paths, nil
+}
+
+// ErrMissingArtifact names the one failure a learner can fix without reading
+// the code: an attested file is not on disk.
+var ErrMissingArtifact = errors.New("evidence artifact is missing")
 
 type GateResult struct {
 	Command string `json:"command"`
@@ -65,8 +84,11 @@ type Config struct {
 }
 
 func DefaultConfig(root string) Config {
+	// A read failure surfaces at the first artifact instead of here, which keeps
+	// DefaultConfig total and leaves the actionable error to artifactRecords.
+	artifacts, _ := DefaultArtifacts(root)
 	return Config{
-		Root: root, Gates: cloneCommands(DefaultGates), Artifacts: append([]string(nil), DefaultArtifacts...),
+		Root: root, Gates: cloneCommands(DefaultGates), Artifacts: artifacts,
 		Now: time.Now, Run: runCommand,
 	}
 }
@@ -76,11 +98,14 @@ func Create(ctx context.Context, config Config, output string) error {
 	if err != nil {
 		return err
 	}
-	gates, err := runGates(ctx, config)
+	// Hash the artifacts before running the gates. A missing artifact is cheap to
+	// detect and expensive to detect late: the other order cost a learner a whole
+	// `check:core` plus `test` run before telling them a file was not there.
+	artifacts, err := artifactRecords(config.Root, config.Artifacts)
 	if err != nil {
 		return err
 	}
-	artifacts, err := artifactRecords(config.Root, config.Artifacts)
+	gates, err := runGates(ctx, config)
 	if err != nil {
 		return err
 	}
@@ -100,7 +125,37 @@ func Create(ctx context.Context, config Config, output string) error {
 	if err := os.WriteFile(output, encoded, 0o600); err != nil {
 		return fmt.Errorf("writing course evidence %s: %w", output, err)
 	}
+	// The JSON is the machine artifact; the Markdown is the thing a learner
+	// pastes into a pull request or a message. Both carry the same facts.
+	summary := SummaryPath(output)
+	if err := os.WriteFile(summary, []byte(renderSummary(manifest)), 0o600); err != nil {
+		return fmt.Errorf("writing course evidence summary %s: %w", summary, err)
+	}
 	return nil
+}
+
+// SummaryPath is the human-readable twin of a manifest path.
+func SummaryPath(manifestPath string) string {
+	return strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".md"
+}
+
+func renderSummary(manifest Manifest) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "# Course completion — %s\n\n", manifest.Course)
+	fmt.Fprintf(&out, "- **Revision**: `%s`\n", manifest.Revision)
+	fmt.Fprintf(&out, "- **Tree digest**: `%s`\n", manifest.TreeDigest)
+	fmt.Fprintf(&out, "- **Generated**: %s\n", manifest.GeneratedAt)
+	fmt.Fprintf(&out, "- **Claim**: %s\n\n", manifest.Claim)
+	out.WriteString("## Gates\n\n| Command | Result |\n| --- | --- |\n")
+	for _, gate := range manifest.Gates {
+		fmt.Fprintf(&out, "| `%s` | %s |\n", gate.Command, gate.Result)
+	}
+	out.WriteString("\n## Artifacts\n\n| Path | SHA-256 |\n| --- | --- |\n")
+	for _, artifact := range manifest.Artifacts {
+		fmt.Fprintf(&out, "| `%s` | `%s` |\n", artifact.Path, artifact.SHA256)
+	}
+	out.WriteString("\nReproduce with `mise run course:evidence:verify` on a checkout at that revision.\n")
+	return out.String()
 }
 
 func Verify(ctx context.Context, config Config, manifestPath string) (string, error) {
@@ -159,11 +214,17 @@ func runGates(ctx context.Context, config Config) ([]GateResult, error) {
 }
 
 func artifactRecords(root string, paths []string) ([]Artifact, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no evidence artifacts to hash; check %s", artifactListPath)
+	}
 	records := make([]Artifact, 0, len(paths))
 	for _, relative := range paths {
 		file, err := os.Open(filepath.Join(root, filepath.FromSlash(relative)))
 		if err != nil {
-			return nil, fmt.Errorf("opening evidence artifact %s: %w", relative, err)
+			return nil, fmt.Errorf(
+				"%w: %s is missing; restore it with `git restore -- %s` or correct %s",
+				ErrMissingArtifact, relative, relative, artifactListPath,
+			)
 		}
 		digest := sha256.New()
 		_, copyErr := io.Copy(digest, file)

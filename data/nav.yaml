@@ -1,11 +1,11 @@
 # The learning path, ordered by hand — the port of the `nav:` block in mkdocs.yml.
 #
-# This is deliberately NOT 76 `weight:` front-matter fields. Ordering scattered across the
+# This is deliberately NOT 74 `weight:` front-matter fields. Ordering scattered across the
 # pages loses the property this file exists for: adding a page cannot silently reorder the
 # course. Two things here are also inexpressible in Hugo's content tree, which is the other
 # reason the nav stays a single hand-written file:
 #
-#   1. Cross-chapter prerequisites — "1.2. Containers" appears inside chapter 5 and
+#   1. Cross-chapter prerequisites — "1.2. Container Engine" appears inside chapter 5 and
 #      "1.3. Kubernetes" inside chapter 6, while both live in chapter 1.
 #   2. The nested "Optional OSS maintenance" group inside chapter 8.
 #
@@ -26,7 +26,7 @@
     - page: 0. Overview/0.2. Evidence.md
     - page: 0. Overview/0.3. AgentOps.md
     - page: 0. Overview/0.4. Ecosystem.md
-    - page: 0. Overview/0.5. Providers.md
+    - page: 0. Overview/0.5. Provider Options.md
     - page: 0. Overview/0.6. Resources.md
     - page: 0. Overview/0.7. Troubleshooting.md
     - page: 0. Overview/0.8. Glossary.md
@@ -64,6 +64,7 @@
     - page: 3. Capabilities/3.6. A2A.md
     - page: 3. Capabilities/3.7. Multi-Agent.md
     - page: 3. Capabilities/3.8. Streaming.md
+    - page: 3. Capabilities/3.9. Incident Run.md
 
 - label: 4. Quality
   children:
@@ -82,8 +83,8 @@
     - page: 5. Gateway/_index.md
       label: Gateway
     - page: 5. Gateway/5.0. Gateway.md
-    - page: 1. Setup/1.2. Containers.md
-      label: Prerequisite — 1.2. Containers
+    - page: 1. Setup/1.2. Container Engine.md
+      label: Prerequisite — 1.2. Container Engine
     - page: 5. Gateway/5.1. Gateway Setup.md
     - page: 5. Gateway/5.2. MCP Gateway.md
     - page: 5. Gateway/5.3. A2A Gateway.md
@@ -130,6 +131,10 @@
     # The capstone is the chapter's destination and the end of the required path, so it sits
     # directly under the chapter index. Everything below it is skippable maintenance reference.
     - page: 8. Community/8.7. Capstone.md
+    # A lookup for readers arriving from LangGraph or the Python course, not
+    # maintenance reference — so it sits beside the capstone rather than inside
+    # the appendix, where its heading told readers it was optional.
+    - page: 8. Community/8.8. From Python.md
     - label: Appendix — Optional OSS maintenance
       children:
         - page: 8. Community/8.0. Repository.md
@@ -139,4 +144,3 @@
         - page: 8. Community/8.4. Documentation.md
         - page: 8. Community/8.5. Contributions.md
         - page: 8. Community/8.6. AAIF.md
-        - page: 8. Community/8.8. From Python.md

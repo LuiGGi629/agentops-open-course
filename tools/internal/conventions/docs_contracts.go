@@ -38,6 +38,9 @@ var generatedPathPrefixes = []string{
 	"evals/prompt-comparison.json",
 	"evals/retrieval-results.json",
 	"infra/agentgateway/host/auth/",
+	// 5.5's config-authoring exercise: the learner writes this from an empty file,
+	// and it is git-ignored so a half-finished attempt leaves nothing to explain.
+	"infra/agentgateway/lab/",
 	"infra/k8s/base/secrets/my-secret.enc.yaml",
 	"infra/secrets",
 	"site/",
@@ -82,9 +85,9 @@ func checkLiteralRepositoryPath(root, where string, line int, path string) []Pro
 	if _, err := os.Lstat(filepath.Join(root, "agents", "go", filepath.FromSlash(path))); err == nil {
 		return nil
 	}
-	// MCP's protocol method is written like a relative path but is not a
-	// repository file. Keep this exception exact so missing tools/* files fail.
-	if path == "tools/call" {
+	// MCP's protocol methods are written like relative paths but are not
+	// repository files. Keep these exact so missing tools/* files still fail.
+	if path == "tools/call" || path == "tools/list" {
 		return nil
 	}
 	return []Problem{problem(where, "line %d: literal repository path does not exist: %s", line, path)}

@@ -29,7 +29,7 @@ tests:
             exp_annotations:
               summary: Model spend is burning the monthly budget about four times too fast
               description: Model calls through the gateway have cost more than four times the even burn of the stated USD 50 monthly budget for 15 minutes. At this rate the month is spent in about a week. Look for a caller whose context is growing, a retry storm, or a model swap.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/docs/7.%20Observability/7.3b.%20Cost%20Governance.md
+              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.3b.%20Cost%20Governance.md
 
   # Unpriced model: priced traffic alone is silent, so a busy lab does not page
   # itself; only a catalog miss fires.
@@ -52,7 +52,7 @@ tests:
             exp_annotations:
               summary: Model calls are being served at a price the catalog does not know
               description: The gateway served calls for a model with no entry in config.modelCatalog in the last 15 minutes. Their tokens are counted and their cost is reported as zero, so every dollar figure downstream is an undercount until the catalog gains that model.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/docs/7.%20Observability/7.3b.%20Cost%20Governance.md
+              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.3b.%20Cost%20Governance.md
 
   # Route budget refusals: MCP refusals belong to another owner, model route
   # refusals belong to this alert. The MCP series runs hot throughout so the
@@ -76,4 +76,4 @@ tests:
             exp_annotations:
               summary: The gateway is refusing model calls against its route budget
               description: "The model route returned HTTP 429 from its request or token bucket in the last 10 minutes. Compare the refusal count with the token burn: a spending caller means the cap worked, a low burn means the cap is smaller than one honest turn."
-              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/docs/7.%20Observability/7.3b.%20Cost%20Governance.md
+              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.3b.%20Cost%20Governance.md

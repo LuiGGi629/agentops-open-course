@@ -46,6 +46,15 @@ type CalibrationResult struct {
 	Matches           int                     `json:"matches"`
 	Total             int                     `json:"total"`
 	Agreement         float64                 `json:"agreement"`
+	// A judge can be wrong in two directions, and they cost different things: a false
+	// pass ships a bad answer, a false fail blocks a good one. One agreement number
+	// hides which it is doing.
+	FalsePass int `json:"false_pass"`
+	FalseFail int `json:"false_fail"`
+	// MajorityBaseline is the larger label class over the total — what a judge that
+	// always answered the same way would score. Agreement at or below it is worth
+	// nothing, which is the number the set's own label split makes easy to miss.
+	MajorityBaseline float64 `json:"majority_baseline"`
 }
 
 type VerdictJudge interface {
@@ -125,13 +134,14 @@ func Calibrate(
 		return CalibrationResult{}, errors.New("judge calibration needs a judge provider and model name")
 	}
 	result := CalibrationResult{
-		SchemaVersion:     4,
+		SchemaVersion:     5,
 		Source:            source,
 		JudgeModel:        judgeModel,
 		CalibrationDigest: set.Digest,
 		Total:             len(set.Cases),
 		Cases:             make([]CalibrationCaseResult, 0, len(set.Cases)),
 	}
+	expectedPasses := 0
 	for _, calibrationCase := range set.Cases {
 		verdict, err := judge.Judge(ctx, JudgeInput{
 			Questions:        []string{calibrationCase.Question},
@@ -142,8 +152,16 @@ func Calibrate(
 			return CalibrationResult{}, fmt.Errorf("judge calibration case %q: %w", calibrationCase.ID, err)
 		}
 		matched := verdict.Passed == calibrationCase.ExpectedPass
-		if matched {
+		switch {
+		case matched:
 			result.Matches++
+		case verdict.Passed:
+			result.FalsePass++
+		default:
+			result.FalseFail++
+		}
+		if calibrationCase.ExpectedPass {
+			expectedPasses++
 		}
 		result.Cases = append(result.Cases, CalibrationCaseResult{
 			ID:            calibrationCase.ID,
@@ -154,6 +172,7 @@ func Calibrate(
 		})
 	}
 	result.Agreement = float64(result.Matches) / float64(result.Total)
+	result.MajorityBaseline = float64(max(expectedPasses, result.Total-expectedPasses)) / float64(result.Total)
 	return result, nil
 }
 

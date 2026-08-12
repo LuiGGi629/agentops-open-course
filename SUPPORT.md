@@ -144,4 +144,4 @@ The latest release and `main` receive security and correctness fixes. Older rele
 
 Dependency updates and security triage are best effort from a single maintainer. If safe maintenance stops for six months, the maintainer will announce archival, disable unsupported publication workflows, and seek a successor under [GOVERNANCE.md](./GOVERNANCE.md).
 
-Use [SECURITY.md](./SECURITY.md) for vulnerabilities, [ACCESSIBILITY.md](./ACCESSIBILITY.md) for accessibility barriers, and a public issue for other support requests.
+Use [SECURITY.md](./SECURITY.md) for vulnerabilities, [ACCESSIBILITY.md](./ACCESSIBILITY.md) for accessibility barriers, and a public issue for other support requests. Finished derivatives are not support requests: the **Capstone showcase** issue form collects them under the `capstone` label, which is where to look for what other people built.

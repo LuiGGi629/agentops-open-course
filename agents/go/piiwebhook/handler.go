@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -353,5 +354,11 @@ func (h *Handler) writeJSON(writer http.ResponseWriter, status int, value any) {
 	writer.WriteHeader(status)
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(value)
+	if err := encoder.Encode(value); err != nil {
+		// The status line is already on the wire, so a log record is the only
+		// remaining action — and without one a truncated body is invisible to
+		// both the gateway and the operator. slog.Default is the redacting
+		// handler the runtime installs, so the error class is safe to record.
+		slog.Default().Error("PII webhook response encoding failed", "error_type", fmt.Sprintf("%T", err))
+	}
 }

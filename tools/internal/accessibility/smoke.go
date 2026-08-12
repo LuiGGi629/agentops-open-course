@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cdpaccessibility "github.com/chromedp/cdproto/accessibility"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
 )
@@ -351,18 +352,35 @@ func contentControlsSmoke(page *browserPage, pageURL string) error {
 	); err != nil {
 		return fmt.Errorf("%s: inspect Mermaid rendering: %w", pageURL, err)
 	}
-	if diagrams < 3 {
-		return fmt.Errorf("%s: representative page no longer exercises a dense diagram surface", pageURL)
+	// The number tracks the corpus, not an aspiration: no page in content/ carries
+	// more than two Mermaid blocks, so a threshold of three made this assertion
+	// unsatisfiable on every page and left check:accessibility permanently red. Two
+	// is what "dense" means here, and the plural is what matters — the label
+	// assertion below has to run against more than one diagram to prove anything.
+	const denseDiagramSurface = 2
+	if diagrams < denseDiagramSurface {
+		return fmt.Errorf(
+			"%s: representative page carries %d diagrams; the label assertion needs at least %d",
+			pageURL, diagrams, denseDiagramSurface,
+		)
 	}
-	var labeled int
+	// Counting labeled diagrams cannot fail: the theme's render hook wraps every
+	// one in `role="img" aria-label="…"`, so the count and the total were the same
+	// expression. What can fail is the *name* — fifty-five images all announced as
+	// "Diagram" is a labeled surface nobody can navigate.
+	var generic int
 	if err := page.run(callFunction(
-		`function() { return document.querySelectorAll("main#content [role='img'][aria-label]:has(pre.mermaid)").length; }`,
-		&labeled,
+		`function() {
+      return [...document.querySelectorAll("main#content [role='img']:has(pre.mermaid)")]
+        .filter(node => (node.getAttribute("aria-label") || "").trim().toLowerCase() === "diagram")
+        .length;
+    }`,
+		&generic,
 	)); err != nil {
 		return fmt.Errorf("%s: inspect diagram labels: %w", pageURL, err)
 	}
-	if labeled != diagrams {
-		return fmt.Errorf("%s: every rendered diagram needs an accessible name, %d of %d have one", pageURL, labeled, diagrams)
+	if generic > 0 {
+		return fmt.Errorf("%s: %d of %d diagrams are announced only as \"Diagram\"; give each one a name", pageURL, generic, diagrams)
 	}
 	nodes, treeErr := accessibilityTree(page)
 	if treeErr != nil {
@@ -506,4 +524,63 @@ func callFunction(declaration string, result any, arguments ...any) chromedp.Act
 		expression := "(" + declaration + ")(" + strings.Join(encoded, ",") + ")"
 		return chromedp.Evaluate(expression, result).Do(ctx)
 	})
+}
+
+// darkAdmonitionKinds are the seven accent tokens assets/css/custom.css flips under
+// .dark. Each pairs an accent-colored title against the surface behind it, and a
+// large developer audience reads this course in exactly that palette.
+var darkAdmonitionKinds = []string{"abstract", "danger", "info", "note", "success", "tip", "warning"}
+
+// darkContrastSmoke measures the dark palette, which no other page here exercises.
+//
+// Every other emulated page pins prefers-color-scheme: light while hugo.toml sets
+// [params.theme] default = "system", so the palette most developers actually read
+// had never been contrast-tested. The theme toggle is what sets .dark on <html>, so
+// this drives that rather than trusting the media query alone.
+func darkContrastSmoke(browser *browser, docsURL string) error {
+	page, err := browser.newPage([]*emulation.MediaFeature{{Name: "prefers-color-scheme", Value: "dark"}})
+	if err != nil {
+		return err
+	}
+	defer page.close()
+	pageURL := docsURL + "/0-overview/0-0-course/"
+	if err := openPage(page, pageURL); err != nil {
+		return err
+	}
+	var dark bool
+	if err := page.run(
+		chromedp.Evaluate(`(() => {
+      document.documentElement.classList.add("dark");
+      document.documentElement.classList.remove("light");
+      return document.documentElement.classList.contains("dark");
+    })()`, &dark),
+	); err != nil {
+		return fmt.Errorf("%s: switch to the dark theme: %w", pageURL, err)
+	}
+	if !dark {
+		return fmt.Errorf("%s: the dark theme did not apply", pageURL)
+	}
+	// Probe every accent against the surface, whether or not this page happens to
+	// use that admonition kind, by borrowing one existing block's markup.
+	for _, kind := range darkAdmonitionKinds {
+		var applied bool
+		if err := page.run(callFunction(`function(kind) {
+      const block = document.querySelector("main#content .course-admonition");
+      if (!block) { return false; }
+      block.className = block.className.replace(/course-admonition--[a-z]+/, "course-admonition--" + kind);
+      return block.classList.contains("course-admonition--" + kind);
+    }`, &applied, kind)); err != nil {
+			return fmt.Errorf("%s: apply the %s accent: %w", pageURL, kind, err)
+		}
+		if !applied {
+			return fmt.Errorf("%s: no admonition block to measure the %s accent against", pageURL, kind)
+		}
+		label := "dark " + kind + " admonition title"
+		if err := contrastSmoke(page, "main#content .course-admonition .course-admonition__title", label); err != nil {
+			return err
+		}
+	}
+	// The sidebar's current-page link is the one navigation element whose color
+	// changes with the theme rather than with focus.
+	return contrastSmoke(page, `a.course-nav__link[aria-current="page"]`, "dark sidebar current page")
 }

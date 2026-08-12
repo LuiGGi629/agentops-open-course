@@ -16,12 +16,12 @@ import (
 const landingPage = "content/_index.md"
 
 var navigationSuccessors = map[string]string{
-	"1. Setup/1.1. Go.md":          "1. Setup/1.4. Providers.md",
-	"1. Setup/1.5. Workspace.md":   "2. Agents/_index.md",
-	"5. Gateway/5.0. Gateway.md":   "1. Setup/1.2. Containers.md",
-	"1. Setup/1.2. Containers.md":  "5. Gateway/5.1. Gateway Setup.md",
-	"6. Platform/6.0. Platform.md": "1. Setup/1.3. Kubernetes.md",
-	"1. Setup/1.3. Kubernetes.md":  "6. Platform/6.1. Containers.md",
+	"1. Setup/1.1. Go.md":               "1. Setup/1.4. Providers.md",
+	"1. Setup/1.5. Workspace.md":        "2. Agents/_index.md",
+	"5. Gateway/5.0. Gateway.md":        "1. Setup/1.2. Container Engine.md",
+	"1. Setup/1.2. Container Engine.md": "5. Gateway/5.1. Gateway Setup.md",
+	"6. Platform/6.0. Platform.md":      "1. Setup/1.3. Kubernetes.md",
+	"1. Setup/1.3. Kubernetes.md":       "6. Platform/6.1. Containers.md",
 }
 
 type pageSet map[string]string
@@ -66,25 +66,12 @@ func CheckDocs(root string) []Problem {
 	if len(pages) == 0 {
 		return []Problem{problem("content", "no Markdown pages found")}
 	}
-	legacyPath := filepath.Join(root, "scripts", "diagram-legacy.txt")
-	legacyText, err := readFile(legacyPath)
-	if err != nil {
-		return []Problem{problem("scripts/diagram-legacy.txt", "could not read diagram legacy hashes: %v", err)}
-	}
-	legacy := make(map[string]bool)
-	for _, line := range splitLines(legacyText) {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
-			legacy[line] = true
-		}
-	}
 	paths := make([]string, 0, len(pages))
 	for path := range pages {
 		paths = append(paths, path)
 	}
 	slices.Sort(paths)
 	var problems []Problem
-	usedLegacy := make(map[string]bool)
 	for _, where := range paths {
 		text := pages[where]
 		path := filepath.Join(root, filepath.FromSlash(where))
@@ -103,23 +90,22 @@ func CheckDocs(root string) []Problem {
 		problems = append(problems, checkPageLinkTargets(where, text)...)
 		problems = append(problems, checkHandsOnAction(where, text)...)
 		problems = append(problems, checkExercises(where, text)...)
-		diagramProblems, used := checkDiagramAlternatives(where, text, legacy)
-		problems = append(problems, diagramProblems...)
-		mergeUsed(usedLegacy, used)
+		problems = append(problems, checkDiagramAlternatives(where, text)...)
+		problems = append(problems, checkImages(where, text)...)
 		problems = append(problems, checkExactCountClaims(where, text)...)
 		if where != landingPage {
 			problems = append(problems, checkClosing(where, text)...)
 			problems = append(problems, checkKind(where, text)...)
 		}
 	}
-	if stale := sortedDifference(legacy, usedLegacy); len(stale) > 0 {
-		problems = append(problems, problem("scripts/diagram-legacy.txt", "remove %d stale diagram hashes after adding alternatives or deleting diagrams", len(stale)))
-	}
 	problems = append(problems, checkIndexKinds(pages)...)
 	_, routeProblems := buildPageRoutes(pages)
 	problems = append(problems, routeProblems...)
 	problems = append(problems, checkPermalinkConfig(root)...)
 	problems = append(problems, checkNavigation(root, pages)...)
+	problems = append(problems, checkChapterIndexCoverage(pages)...)
+	problems = append(problems, checkImageFiles(root, pages)...)
+	problems = append(problems, checkClosingCadence(pages)...)
 	problems = append(problems, checkSourceSnippetCoverage(pages)...)
 	problems = append(problems, checkLiteralRepositoryPaths(root, pages)...)
 	problems = append(problems, checkDocumentedGoPackages(root, pages)...)
@@ -133,6 +119,7 @@ func CheckDocs(root string) []Problem {
 	problems = append(problems, checkNoPagesDeployment(root)...)
 	problems = append(problems, checkWorkflowShellExpressions(root)...)
 	problems = append(problems, checkTaskExpansions(root, pages)...)
+	problems = append(problems, checkEvalThresholds(root, pages)...)
 	problems = append(problems, checkThemePin(root)...)
 	problems = append(problems, checkSourceVersions(root, pages)...)
 	problems = append(problems, checkCurrentSourceContracts(root, pages)...)

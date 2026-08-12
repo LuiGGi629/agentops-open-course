@@ -34,10 +34,12 @@ func TestAgentProcessOwnsItsChildFromReadinessToShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartAgentProcess() error = %v", err)
 	}
-	if got, want := process.BaseURL(), "http://127.0.0.1:"+strconv.Itoa(port); got != want {
-		t.Fatalf("BaseURL() = %q, want the loopback address %q", got, want)
+	// The REST base URL carries ADK's /api mount. Without it the readiness probe and
+	// every later request 404 against a server that is running perfectly.
+	if got, want := process.BaseURL(), "http://127.0.0.1:"+strconv.Itoa(port)+"/api"; got != want {
+		t.Fatalf("BaseURL() = %q, want the ADK API mount %q", got, want)
 	}
-	if got := probedPath.Load(); got != "/list-apps" {
+	if got := probedPath.Load(); got != "/api/list-apps" {
 		t.Fatalf("readiness path = %v, want the REST contract", got)
 	}
 	if err := process.Close(); err != nil {
@@ -55,7 +57,8 @@ func TestStartAgentProcessBoundsStartupAndProbesTheTransportContract(t *testing.
 
 	binary := filepath.Join(t.TempDir(), "agent")
 	writeExecutableScript(t, binary, "#!/bin/sh\nexec sleep 30\n")
-	for name, wantPath := range map[string]string{"rest": "/list-apps", "a2a": "/healthz"} {
+	// REST probes under ADK's /api mount; A2A serves /healthz at the root.
+	for name, wantPath := range map[string]string{"rest": "/api/list-apps", "a2a": "/healthz"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			// The stand-in never serves the contract, so startup must end at the
@@ -68,7 +71,7 @@ func TestStartAgentProcessBoundsStartupAndProbesTheTransportContract(t *testing.
 				DataDir: "data", StateDir: t.TempDir(), Port: port, Output: io.Discard,
 				StartupTimeout: 2 * time.Second, ShutdownTimeout: time.Second,
 			})
-			if err == nil || !strings.Contains(err.Error(), "did not answer "+wantPath) {
+			if err == nil || !strings.Contains(err.Error(), "did not answer /"+strings.TrimPrefix(strings.TrimPrefix(wantPath, "/api/"), "/")) {
 				t.Fatalf("StartAgentProcess() error = %v, want a bounded %s readiness failure", err, wantPath)
 			}
 			if got := probedPath.Load(); got != wantPath {

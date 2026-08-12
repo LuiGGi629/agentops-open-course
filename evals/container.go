@@ -146,9 +146,13 @@ func startAgentContainer(
 	}
 	arguments = append(arguments, config.Image)
 	readinessPath := "/healthz"
+	// Same /api prefix as the process runtime: ADK's `web … api` mounts the REST
+	// routes under it, and the A2A server does not.
+	basePath := ""
 	if config.Transport == "rest" {
 		arguments = append(arguments, "web", "-port", strconv.Itoa(config.Port), "api")
 		readinessPath = "/list-apps"
+		basePath = adkAPIBasePath
 	} else {
 		arguments = append(arguments, "a2a")
 	}
@@ -162,7 +166,7 @@ func startAgentContainer(
 	container := &AgentContainer{
 		command: command, done: make(chan error, 1), dependencies: dependencies,
 		engine: config.Engine, name: name,
-		baseURL:     "http://127.0.0.1:" + strconv.Itoa(config.Port),
+		baseURL:     "http://127.0.0.1:" + strconv.Itoa(config.Port) + basePath,
 		environment: environment, output: config.Output, shutdownTimeout: config.ShutdownTimeout,
 	}
 	go func() {

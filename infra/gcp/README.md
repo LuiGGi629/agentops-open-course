@@ -74,12 +74,30 @@ expected_context="gke_${project_id}_${cluster_zone}_${cluster_name}"
 test "$(kubectl config current-context)" = "${expected_context}"
 ```
 
-Capture every dynamically provisioned disk before deleting either namespace. GKE CSI disks are normally named `pvc-*`, so a `gke-agentops-*` name filter cannot prove their deletion:
+Capture every dynamically provisioned disk before deleting either namespace. GKE CSI disks are normally named `pvc-*`, so a `gke-agentops-*` name filter cannot prove their deletion. `infra/scripts/gcp-lab-audit.sh` performs this capture and the matching absence proof for a lab driven through its approval ledger, where `record <ledger-dir>` writes the inventory and `destroy <ledger-dir> <token>` verifies it. That lifecycle needs a ledger prepared before the apply, so the manual path documented here runs the equivalent commands directly:
 
 ```bash
-./infra/scripts/gcp-lab-audit.sh \
-  capture-pvs "${expected_context}" "${audit_dir}"
+kubectl --context "${expected_context}" get pv -o json >"${audit_dir}/pvs-last.json"
+jq -e '
+  all(.items[] | select(
+    .spec.claimRef.namespace == "agentops" or
+    .spec.claimRef.namespace == "kagent"
+  );
+    (.metadata.name | type == "string" and length > 0) and
+    (.spec.csi.volumeHandle | type == "string" and length > 0)
+  )
+' "${audit_dir}/pvs-last.json" >/dev/null
+jq -r '
+  .items[] |
+  select(
+    .spec.claimRef.namespace == "agentops" or
+    .spec.claimRef.namespace == "kagent"
+  ) |
+  [.metadata.name, .spec.claimRef.namespace, .spec.csi.volumeHandle] | @tsv
+' "${audit_dir}/pvs-last.json" | sort -u >"${audit_dir}/pvs-before-delete.tsv"
 ```
+
+The `jq -e` guard runs first because a claimed PersistentVolume with no name or no CSI handle would otherwise write a blank column that later checks would read as nothing to verify.
 
 Delete the workload data first, then the controller and its course-owned namespace:
 
@@ -102,7 +120,22 @@ kubectl --context "${expected_context}" \
   delete namespace kagent --wait=true --timeout=300s
 ```
 
-Wait until every PV name and every exact disk handle recorded in `pvs-before-delete.tsv` is absent. Parse the disk name from the last path segment of each handle and query it exactly with `gcloud compute disks list --project "${project_id}" --filter="name=<captured-name>"`. A failed inventory command fails cleanup; it is not evidence of absence.
+Wait until every PV name recorded in `pvs-before-delete.tsv` is gone from the cluster. The CSI controller that deletes the backing disks runs inside the cluster, so destroying the cluster while a claim still holds a volume orphans a billable disk that nothing is left to release:
+
+```bash
+captured_pvs="$(jq -Rn '[inputs | split("\t") | .[0]] | unique' \
+  <"${audit_dir}/pvs-before-delete.tsv")"
+for _ in {1..60}; do
+  remaining="$(kubectl --context "${expected_context}" get pv -o json |
+    jq -c --argjson captured "${captured_pvs}" \
+      '[.items[]? | select(.metadata.name as $name | $captured | index($name))]')"
+  if [[ ${remaining} == "[]" ]]; then break; fi
+  sleep 5
+done
+test "${remaining}" = "[]"
+```
+
+If that final `test` fails, `printf '%s\n' "${remaining}"` names the PersistentVolumes still bound; resolve them before destroying anything. The disk-side proof runs after the destroy plan applies, in the final inventory below. A failed inventory command fails cleanup; it is not evidence of absence.
 
 Create and apply a saved destroy plan instead of issuing an unreviewed destroy:
 
@@ -175,8 +208,20 @@ assert_empty "VPC routes" \
   --project "${project_id}" \
   --filter="network~'/networks/${network_name}$'" \
   --format='value(name)'
-./infra/scripts/gcp-lab-audit.sh \
-  verify-disks "${project_id}" "${audit_dir}/pvs-before-delete.tsv"
+jq -Rr 'split("\t") | select(length == 3) | .[2] | split("/") | last' \
+  "${audit_dir}/pvs-before-delete.tsv" | sort -u >"${audit_dir}/captured-disks.txt"
+while IFS= read -r disk_name; do
+  assert_empty "captured persistent disk ${disk_name}" \
+    gcloud compute disks list \
+    --project "${project_id}" \
+    --filter="name=${disk_name}" \
+    --format='value(name)'
+done <"${audit_dir}/captured-disks.txt"
+assert_empty "GKE cluster persistent disks" \
+  gcloud compute disks list \
+  --project "${project_id}" \
+  --filter="labels.goog-k8s-cluster-name=${cluster_name}" \
+  --format='value(name)'
 gcloud iam service-accounts list --project "${project_id}" \
   --format='value(email)' | sort -u >"${audit_dir}/service-accounts-after.txt"
 gcloud projects get-iam-policy "${project_id}" \
@@ -194,6 +239,8 @@ for service_account in "${node_sa}" "${agentgateway_sa}"; do
     "${audit_dir}/project-iam-after.json"
 done
 ```
+
+Those two disk checks are only as strong as the capture behind them. The first proves absence for the exact handles written to `pvs-before-delete.tsv`, and the second for the disks GKE labelled with the cluster name; a disk created outside the cluster and never recorded passes both. Recapture the PersistentVolumes if you deploy anything after the first capture.
 
 The module deliberately leaves APIs enabled (`disable_on_destroy=false`) because it cannot know whether another project owner enabled them first. Restore only the exact set this lab added:
 

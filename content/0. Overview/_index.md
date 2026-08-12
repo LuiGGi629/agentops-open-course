@@ -39,7 +39,7 @@ Chapter 0 is the only part of the course you cannot run, so it earns its place b
 - **[0.1. Agents]({{< relref "/0. Overview/0.1. Agents.md" >}})** _(concept · ~12 min)_: what an agent actually is, and when a plain function beats one.
 - **[0.2. Evidence]({{< relref "/0. Overview/0.2. Evidence.md" >}})** _(concept · ~8 min)_: what a gate proves, what an observation suggests, and why the course never blurs them.
 
-The other six are reference — open them when a chapter sends you. [0.3. AgentOps]({{< relref "/0. Overview/0.3. AgentOps.md" >}}) maps the lifecycle to the chapters, [0.4. Ecosystem]({{< relref "/0. Overview/0.4. Ecosystem.md" >}}) says who owns which boundary and port, [0.5. Providers]({{< relref "/0. Overview/0.5. Providers.md" >}}) settles the model choice, [0.6. Resources]({{< relref "/0. Overview/0.6. Resources.md" >}}) says which source wins when two disagree, [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md" >}}) fixes a failing checkpoint, and [0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}}) defines every term in one line — keep that one open in a second tab.
+The other six are reference — open them when a chapter sends you. [0.3. AgentOps]({{< relref "/0. Overview/0.3. AgentOps.md" >}}) maps the lifecycle to the chapters, [0.4. Ecosystem]({{< relref "/0. Overview/0.4. Ecosystem.md" >}}) says who owns which boundary and port, [0.5. Provider Options]({{< relref "/0. Overview/0.5. Provider Options.md" >}}) settles the model choice, [0.6. Resources]({{< relref "/0. Overview/0.6. Resources.md" >}}) says which source wins when two disagree, [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md" >}}) fixes a failing checkpoint, and [0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}}) defines every term in one line — keep that one open in a second tab.
 
 ## What this chapter proved
 
@@ -47,6 +47,6 @@ The other six are reference — open them when a chapter sends you. [0.3. AgentO
 - You know which three pages to read now and which six to bookmark.
 - You know that Chapter 0 installs nothing: [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) owns the clone and the toolchain.
 
-Four minutes ago this was a repository someone recommended. You now know what it contains, what the course will make you responsible for, and which page to open first.
+You now know what this repository contains, what the course will make you responsible for, and which page to open first. That last one is the only decision this page was ever asking for.
 
 Continue to [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), which shows you the first thing the agent does with `INC-002`.

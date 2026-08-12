@@ -18,14 +18,26 @@ import (
 func main() {
 	host := flag.String("host", "127.0.0.1", "bind address")
 	port := flag.Int("port", 11434, "bind port")
+	// Without a script the fixture keeps its single-reply behavior, which is what
+	// scripts/smoke-host.sh drives and must keep working unchanged.
+	scriptPath := flag.String("script", "", "trajectory script driving scripted tool calls")
 	flag.Parse()
 	if *port < 1 || *port > 65535 {
 		fmt.Fprintf(os.Stderr, "fake-model: port must be between 1 and 65535, got %d\n", *port)
 		os.Exit(2)
 	}
+	var script *fakemodel.Script
+	if *scriptPath != "" {
+		loaded, err := fakemodel.LoadScript(*scriptPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "fake-model: %v\n", err)
+			os.Exit(2)
+		}
+		script = loaded
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := fakemodel.Server(fmt.Sprintf("%s:%d", *host, *port), logger)
+	server := fakemodel.Server(fmt.Sprintf("%s:%d", *host, *port), logger, script)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {

@@ -30,7 +30,7 @@ env        optional .env is absent
 
 Two lines of verdict under the command mise echoes before running it, and neither is a blessing. The first says the pinned tools this repository shells out to are all on your `PATH`. The second says no `.env` file exists, which is not a warning: the required path needs no credentials at all, and the deterministic checks deliberately never read that file even when it does exist.
 
-**By the end of [1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}}) a language model will be answering on your own hardware — and by the end of [1.1. Go]({{< relref "/1. Setup/1.1. Go.md" >}}) you will have watched a 1,759-test suite pass without one.**
+**By the end of [1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}}) a language model will be answering on your own hardware — and by the end of [1.1. Go]({{< relref "/1. Setup/1.1. Go.md" >}}) you will have watched a 1,815-test suite pass without one.**
 
 ## Four required pages, two you should skip today
 
@@ -41,7 +41,7 @@ Read the four in order; together they take about ninety minutes, most of it wait
 - **[1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}})** _(hands-on)_: Ollama, the Qwen3 pull, the model doctor, and the deadline that trips first-hour learners.
 - **[1.5. Workspace]({{< relref "/1. Setup/1.5. Workspace.md" >}})** _(hands-on)_: what is source, what is disposable, and which check runs at which moment.
 
-Two more sit in this chapter but belong to later ones. **[1.2. Containers]({{< relref "/1. Setup/1.2. Containers.md" >}})** _(hands-on)_ prepares a Docker-compatible engine and is reached from [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}); **[1.3. Kubernetes]({{< relref "/1. Setup/1.3. Kubernetes.md" >}})** _(reference)_ prepares the local platform tier and is reached from [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}}). Open them early only if you enjoy installing things you will not use for several hours.
+Two more sit in this chapter but belong to later ones. **[1.2. Container Engine]({{< relref "/1. Setup/1.2. Container Engine.md" >}})** _(hands-on)_ prepares a Docker-compatible engine and is reached from [5.1. Gateway Setup]({{< relref "/5. Gateway/5.1. Gateway Setup.md" >}}); **[1.3. Kubernetes]({{< relref "/1. Setup/1.3. Kubernetes.md" >}})** _(reference)_ prepares the local platform tier and is reached from [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}}). Open them early only if you enjoy installing things you will not use for several hours.
 
 ## Each tier has its own doctor, and none of them implies the next
 

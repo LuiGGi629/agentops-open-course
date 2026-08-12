@@ -82,7 +82,10 @@ func Run(ctx context.Context, config Config) (resultErr error) {
 			return err
 		}
 	}
-	densePage := docs.URL + "/0-overview/0-4-ecosystem/"
+	// 6.0 rather than 0.4: contentControlsSmoke needs a page carrying more than one
+	// diagram as well as a header-bearing table and a code-copy control, and 0.4 has
+	// exactly one diagram. 0.4 stays in documentSurfaces above for its tree.
+	densePage := docs.URL + "/6-platform/6-0-platform/"
 	if err := contentControlsSmoke(page, densePage); err != nil {
 		return err
 	}
@@ -104,6 +107,10 @@ func Run(ctx context.Context, config Config) (resultErr error) {
 		if err := contrastSmoke(page, check.Selector, check.Label); err != nil {
 			return err
 		}
+	}
+
+	if err := darkContrastSmoke(browser, docs.URL); err != nil {
+		return err
 	}
 
 	webClient := client.URL + "/index.html"

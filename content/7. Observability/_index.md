@@ -14,7 +14,7 @@ slug: "7-observability"
 
 Ana's agent produced a paragraph about INC-002 and a restart recommendation. It looked right. Six hours later someone asks the three questions nobody can answer from a paragraph: how long did that turn take and where did the time go, what did it cost, and who approved the restart that followed.
 
-Every chapter so far made the agent do more. This one makes the agent _answerable_ — for one turn, for a fleet of turns, and for the night it breaks. The nine pages below each own one signal, and they all read from a single Docker Compose stack you are about to start.
+Every chapter so far made the agent do more. This one makes the agent _answerable_ — for one turn, for a fleet of turns, and for the night it breaks. The ten pages below each own one signal, and they all read from a single Docker Compose stack you are about to start.
 
 ## Start the stack before you read further
 
@@ -63,6 +63,7 @@ Traces, metrics, logs, assessments, and audit rows each answer a different opera
 | Is the service healthy right now?          | RED metrics, sanitized logs, dashboards   | Prometheus `:9090`, Grafana `:3002` | [7.2. Monitoring]({{< relref "/7. Observability/7.2. Monitoring.md" >}}) _(hands-on)_                    |
 | When should this wake someone up?          | SLO burn, shipped alert rules             | Prometheus rules, Alertmanager      | [7.2b. Alerting]({{< relref "/7. Observability/7.2b. Alerting.md" >}}) _(hands-on)_                      |
 | What did the work cost?                    | token counters plus stated assumptions    | Prometheus, trace attributes        | [7.3. Costs]({{< relref "/7. Observability/7.3. Costs.md" >}}) _(hands-on)_                              |
+| What stops a caller spending the budget?   | gateway token bucket and cost ledger      | Prometheus, agentgateway rules      | [7.3b. Cost Governance]({{< relref "/7. Observability/7.3b. Cost Governance.md" >}}) _(hands-on)_        |
 | Was this answer any good?                  | sanitized deterministic or judge verdict  | JSON artifact and optional OTLP     | [7.4. Feedback]({{< relref "/7. Observability/7.4. Feedback.md" >}}) _(hands-on)_                        |
 | Are answers drifting at scale?             | sampled trace scoring (design only)       | a Tempo sample                      | [7.5. Online Evaluation]({{< relref "/7. Observability/7.5. Online Evaluation.md" >}}) _(concept)_       |
 | Who approved this write, and what changed? | append-only audit row                     | SQLite audit table                  | [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) _(hands-on, needs the cluster)_ |
@@ -122,7 +123,7 @@ This table is the canonical deployment-profile split; sibling pages link back in
 
 ## What this chapter proved
 
-Only the first three lines are true the moment you finish this page. The fourth is what the other nine pages are for, and you should be able to say it out loud by the end of [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}).
+Only the first three lines are true the moment you finish this page. The fourth is what the other ten pages are for, and you should be able to say it out loud by the end of [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}).
 
 - `mise run observability:up` finished green, which means a real span crossed the agent path into Tempo and came back out by id.
 - Grafana at `http://localhost:3002` opens without a login and lists Prometheus, Loki, and Tempo as datasources.

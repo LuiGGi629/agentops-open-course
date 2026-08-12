@@ -10,7 +10,7 @@ The course teaches the complete lifecycle of one Go AgentOps Agent with Google A
 - `agents/data/` is immutable seed input: SQLite, logs, runbooks, and runtime Agent Skills.
 - `evals/` is a standalone black-box Go evaluation module. It must not require or import the agent module.
 - `tools/` is a standalone Go module for repository conventions, accessibility, release evidence, and local support commands.
-- `content/` contains 76 FAQ-based Hugo pages.
+- `content/` contains 84 Hugo pages: 74 course pages, nine chapter indexes, and the landing page.
 - `layouts/`, `assets/`, `data/nav.yaml`, and `hugo.toml` own the Hextra site build and explicit learning path.
 - `skills/` contains portable Agent Skills distilled from the course, distinct from runtime skills under `agents/data/skills`.
 - `clients/web/` is a minimal dependency-free A2A client.
@@ -26,7 +26,6 @@ The root `go.mod` exists only for the Hextra Hugo Module. Never add agent, evalu
 ## Course invariants
 
 - **Docs mirror source.** Critical excerpts use `{{< include >}}` over exact named `--8<-- [start:name]` and end regions. Missing files, missing or duplicate regions, and empty excerpts fail the Hugo build.
-- **Every course page is an FAQ.** It has title, one-sentence description, an explicit slug except at home, the standard opening block, question-form H2 headings, and the correct closing proof heading.
 - **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/go/.state`; Kubernetes writers share `agentops-agent-state`.
 - **Only write-owning boundaries prepare state.** A2A startup and direct state commands may copy or migrate runtime state. Probes and read tools remain read-only.
 - **Restore is crash-recoverable.** Stop every writer first. State restore holds a process lock, fsyncs a three-phase journal, and recovers interrupted transactions before schema preflight or publication. Never bypass it with file copies or delete unexplained `.restore-*` evidence.
@@ -83,7 +82,7 @@ Use locks and manifests as authority, never a number copied into prose:
 - kagent charts: `infra/helmfile.yaml`; API resources use the pinned version declared there.
 - Container images: digest-pinned at their use sites under `infra/` and the agent Dockerfile.
 - Workflow-only Buildx: explicit version inputs in the release workflow.
-- Evaluation inputs: three `evals/*.evalset.json` files, `release-policy.json`, `cost_baseline.json`, and `judge-calibration.json`.
+- Evaluation inputs: three `evals/*.evalset.json` files and `judge-calibration.json`; the run thresholds are the `eval` task command line in `evals/mise.toml`.
 
 Two transitive families are explicit ADK Go v2.2.0 compatibility ceilings, not stale pins:
 
@@ -96,15 +95,9 @@ Generated result files are transient handoffs. The organization caps artifact an
 
 ## Evaluation evidence contract
 
-The canonical release-bearing artifacts at the eval module root are:
+`evals/mise.toml` is the contract. `mise run eval` writes `results.json`, `mise run eval:judge-calibration` writes `judge-calibration-results.json`, and `mise run eval:ab` writes `prompt-comparison.json`. Both are gitignored, so the evidence a page shows is the evidence a page carries. There is no `release-policy.json` and no automatic release qualifier: the thresholds live on the `eval` task's command line, which is what `content/4. Quality/4.4. Evaluations.md` teaches learners to read, and `checkEvalThresholds` pins the page to that command line.
 
-- `eval-results.json`
-- `judge-calibration-results.json`
-- `cost-observed.json`
-
-Other tasks write `policy-trial-results.json`, `a2a-policy-trial-results.json`, `judge-calibration-trial-results.json`, `workflow-results.json`, `triage-report-results.json`, `a2a-results.json`, `cost-results.json`, `grounded-results.json`, `retrieval-results.json`, and `prompt-comparison.json` so a campaign cannot overwrite the core result.
-
-`evals/release-policy.json` owns release case categories, mandatory cases, minimum pass rate, judge-agreement floor, repeat floor, and run budgets. Governed runs use the calibrated judge plus deterministic control-specific scores. The qualifier independently loads the policy, recomputes mandatory outcomes, and matches the exact source tree and typed judge/model/calibration/cost identities. The current `calibration-required` policy deliberately cannot qualify a release.
+The judge is scored but never decides a safety case. `evals/score.go` tags a judged verdict `Stochastic`, and `summarizeCases` folds `required_cases_passed` over deterministic scores only — a judged failure costs the run its `pass_rate` and cannot on its own declare a required case failed.
 
 Stable OTel names are:
 
@@ -142,9 +135,11 @@ Four non-default contracts are easy to break:
 
 This repository is a Hugo evaluation build and is not deployed. `baseURL` preserves canonical and social metadata for comparison, but no CNAME, Pages workflow, DNS, or publication claim ships here.
 
+**Chapter numbering was reviewed on 11 August 2026 and deliberately left as it is.** Renumbering — `7.2b`/`7.3b` into the sequence, `8.7 Capstone` to `8.0`, `1.2` and `1.3` into the chapters they render inside — was free only while nothing is published, and it was considered on that basis. It was declined because the cost is the largest mechanical change available here (83 slug fields, every `relref`, `data/nav.yaml`, and every hard-coded `content/` path in `tools/`) against a benefit that is presentational, and because the numbers that look wrong are load-bearing: `1.2` and `1.3` are cross-chapter prerequisites the navigation states explicitly, and `8.7` first is the correct pedagogical order. Three narrower fixes landed instead: `1.2. Container Engine` and `0.5. Provider Options` were retitled so neither collides with a later page in search, and the 48 never-linked heading anchors were deleted so a copied section link cannot contradict the heading it lands on. Revisit only before the first published URL exists.
+
 ## Documentation page frame
 
-Every course page follows this shape:
+`content/` holds 84 Markdown pages: 74 course pages, nine chapter `_index.md` files, and the landing `content/_index.md`. Every one of them follows this shape:
 
 ```markdown
 ---
@@ -159,36 +154,47 @@ slug: "n-m-title"
 - **You need:** Checkable precondition.
 - **Time:** about N minutes, kind. {{% /admonition %}}
 
-## A concrete question?
+## A declarative claim this section proves
 
-Answer and runnable evidence.
+Prose, a runnable command, and the output that command produced.
 
-## What proves this page worked?
+## Your turn: do the thing
 
-Verification commands.
+Predict first: one question the learner answers before running anything.
 
-**You are done when:**
+- **Mode**: `inspect`, `temporary experiment`, `keep`, or `capstone carry-forward`.
+- **Goal**: what the learner ends up able to do.
+- **Files to touch**: exact paths, or `none`.
+- **Preflight**: the command that proves the starting state.
+- **Steps**: the ordered work.
+- **Gate that proves completion**: the command whose output decides it.
+- **Final state**: what stays on disk afterwards.
 
-- Observable state.
+## What you can do now
 
-Continue to [Full page name](link) when the condition matters.
+- Observable capability.
+
+Continue to [Full page name](link), which does the next thing.
 ```
 
 Rules:
 
-- Every H2 ends in `?`.
-- Chapter indexes close with `What proves this chapter worked?`.
-- Pure lookup pages 0.5, 0.6, and 0.7 close with `How should you use this page later?`.
-- A hands-on page reaches a runnable command within its first two H2 sections.
-- Use zero to three `{{% collapsible note "Deeper: …" %}}` blocks per page.
-- Never collapse definitions, commands, expected output, security bounds, cost, or destructive actions.
-- Open each H2 with a concrete sentence of 25 words or fewer; keep sentences readable and cross-links sparse.
-- Every new or changed Mermaid diagram has adjacent `**Diagram in words:**` prose.
-- Use descriptive full-page link labels and define unfamiliar terms at first use.
-- Include shortcodes stand alone outside code fences and quote the smallest stable source region.
-- Do not add front-matter `url` overrides: they shadow the reviewed slug/permalink route. Home alone omits `slug`; chapter sections and regular pages require one.
-- Distinguish offline, live model, container, Kubernetes, cloud, destructive, and paid commands before asking a learner to run them.
-- Do not claim alerts, feedback endpoints, online scoring, public auth/TLS, HA, backups, or cost metrics the repository does not implement.
+- **Headings state a claim; they do not ask a question.** An H2 names what its section proves, so headings can carry different weight from one another. One interrogative H2 per page is allowed, for the tension the page actually resolves. `0.7. Troubleshooting` and `0.8. Glossary` are the two exceptions, because their headings are the symptoms and terms a reader scans for.
+- **Keep an anchor whenever a link depends on it.** Two mechanisms carry deep links, and both break silently. 29 H2s carry an explicit `{#kebab-slug}`, so rewording one of those headings without preserving its slug orphans every link that points at it. A further 108 inline `<a id="…"></a>` anchors open a paragraph or a list item, so deleting or merging that paragraph destroys the target even though no heading changed. Check both before rewriting a section, including the links inside `content/` itself.
+- **Close on the page's kind.** Course pages end with `## What you can do now`, chapter indexes with `## What this chapter proved`, and the four pure lookup pages — `0.4. Ecosystem`, `0.6. Resources`, `0.7. Troubleshooting`, `0.8. Glossary` — with `## How to use this page later`. The landing page has no closer. Every other page's final paragraph names the next page, usually as a `Continue to [Full page name](link)` line.
+- **An exercise declares all seven fields, in order.** A `## Your turn: …` section carries Mode, Goal, Files to touch, Preflight, Steps, Gate that proves completion, and Final state. A hands-on page states a prediction before its exercise, so the learner commits to an answer before the command supplies one.
+- **Mode is a promise about the working tree.** `inspect` changes nothing. `temporary experiment` requires a target-specific dirty preflight (`git diff --quiet -- <paths>` or `test ! -e <path>`) and target-specific cleanup (`git restore -- <paths>` or `rm -- <path>`); never restore a whole directory, which would discard unrelated learner work. `keep` leaves the change in the diff.
+- **A ```text block is a verbatim capture.** Paste what the command printed. Trimming must be declared in the surrounding prose ("trimmed to seven of the twenty-two package lines"); reordering, re-spacing, and hand-edited figures are never allowed. When a capture carries a count or a percentage, that figure must be derivable from a file in this repository, and `tools/internal/conventions` must derive it.
+- **Comment density is a deliverable.** Quoted Go carries the rationale comments that explain why a non-obvious choice was made. Remove such a comment only when its rationale stops being true, never to shorten an excerpt.
+- **A hands-on page reaches a runnable command within its first two H2 sections.**
+- **Use zero to three `{{% collapsible note "Deeper: …" %}}` blocks per page.** Never collapse definitions, commands, expected output, security bounds, cost, or destructive actions.
+- **Open each H2 with a concrete sentence of 25 words or fewer.** Keep sentences readable and cross-links sparse.
+- **Every new or changed Mermaid diagram has adjacent `**Diagram in words:**` prose.**
+- **Use descriptive full-page link labels and define unfamiliar terms at first use.**
+- **Include shortcodes stand alone outside code fences and quote the smallest stable source region.**
+- **Never add a front-matter `url` override.** Hugo gives it precedence, so it shadows the reviewed slug and permalink route. Home alone omits `slug`; chapter sections and regular pages require one.
+- **Distinguish offline, live model, container, Kubernetes, cloud, destructive, and paid commands** before asking a learner to run them.
+- **Do not claim what the repository does not ship:** no dollar-denominated cost panel, no automatic live judge, no external paging integration, and no cryptographically immutable audit store.
 
 ## Development commands
 
@@ -239,22 +245,12 @@ mise run eval:validate
 mise run check
 mise run test
 mise run build
-mise run eval:dev
-mise run eval:policy-trial
-mise run eval:a2a:policy-trial
 mise run eval
-mise run eval:a2a
-mise run eval:workflow
-mise run eval:report
-mise run eval:cost
-mise run eval:ground
 mise run eval:judge-calibration
-mise run eval:judge-calibration:trial
-mise run eval:retrieval
 mise run eval:ab -- --baseline "$BASELINE_ARTIFACT" --candidate "$CANDIDATE_ARTIFACT"
 ```
 
-Set `BASELINE_ARTIFACT` and `CANDIDATE_ARTIFACT` to reviewed sanitized run files before `eval:ab`. `eval:validate` and artifact-only `eval:ab` are offline. Every other `eval:*` task shown after `build` can call a configured generative or embedding model and stays outside offline test gates.
+Set `BASELINE_ARTIFACT` and `CANDIDATE_ARTIFACT` to reviewed sanitized run files before `eval:ab`. `eval:validate` and artifact-only `eval:ab` are offline; `eval` and `eval:judge-calibration` call a configured generative model and stay outside offline test gates. Every other capability the harness exposes — the A2A transport, the workflow and triage-report evalsets, streaming, schema checks, and groundedness — is a flag on `mise run eval` rather than a task of its own, and `evals/README.md` documents each recipe.
 
 ## Local and cloud safety
 
@@ -270,7 +266,7 @@ The GKE path stops at `tofu plan` unless the user explicitly approves deployment
 
 - **Add a Go dependency:** change only the owning module, run `go mod tidy`, review both manifest and checksum diff, then run that module's check and test gates.
 - **Add a network port:** update the stable inventory, convention contract, executable owner, and ecosystem table.
-- **Add a course page:** preserve the FAQ frame, explicit slug, chapter index, navigation entry, accessibility prose, and closing proof contract.
+- **Add a course page:** preserve the page frame, explicit slug, chapter index entry, navigation entry, accessibility prose, and closing contract.
 - **Bump a coordinated pin:** update its authority, regenerate lock or digest evidence, search for compatibility copies, and run every affected profile.
 - **Change evaluation evidence:** coordinate harness schema, serialization tests, documentation, release qualifier, and workflow consumer in one change.
 - **Change state schema:** add forward migration, unknown-future rejection, backup/restore evidence, and rollback notes before changing prose.

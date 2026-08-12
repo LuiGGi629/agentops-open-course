@@ -73,9 +73,9 @@ func (c *Compose) TriageReportAgent() (agent.Agent, error) {
 // ReportPrompt builds the structured-output request for one incident.
 //
 // The schema travels in the prompt as well as in the request configuration
-// because this function is also the boundary a bare model call uses — the
-// evaluation harness drives [RequestTriageReport] with a prompt-in, text-out
-// function that has no ADK request to attach a schema to.
+// because this function is also the boundary a bare model call uses:
+// [RequestTriageReport] is driven through a prompt-in, text-out [Generator]
+// that has no ADK request to attach a schema to.
 func ReportPrompt(incidentID string) (string, error) {
 	schema, err := TriageReportJSONSchema()
 	if err != nil {
@@ -109,8 +109,7 @@ func ParseTriageReport(text string) (domain.TriageReport, error) {
 	return domain.ParseTriageReport([]byte(cleaned))
 }
 
-// Generator is the model boundary [RequestTriageReport] drives: prompt in, text
-// out.
+// Generator is this package's bare-model report boundary: prompt in, text out.
 //
 // Injecting it is what makes the fallback policy deterministic to test offline
 // with a fake, which is the same reason the Python track took a coroutine here

@@ -62,7 +62,14 @@ flowchart LR
 
 ## Local quickstart
 
-You need a Unix-like shell, Git, and [mise](https://mise.jdx.dev/). Install and activate mise, then run the model-free gates:
+You need a Unix-like shell, Git, a C compiler, and [mise](https://mise.jdx.dev/). Clone the repository first:
+
+```bash
+git clone https://github.com/MLOps-Courses/agentops-open-course-go.git
+cd agentops-open-course-go
+```
+
+Install and activate mise, then run the model-free gates:
 
 ```bash
 mise run install

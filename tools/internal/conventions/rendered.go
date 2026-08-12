@@ -259,7 +259,9 @@ func CheckRendered(root, siteDirectory string) []Problem {
 		problems = append(problems, checkRenderedRoutes(root, siteDirectory, sourcePages)...)
 		problems = append(problems, checkSourceFragments(siteDirectory, sourcePages)...)
 	}
-	const editBase = "https://github.com/MLOps-Courses/agentops-open-course-go/edit/main/content"
+	// Derived from the one place the repository is named, so the edit link and the
+	// slug ban in source.go cannot disagree about which repository this is.
+	editBase := "https://github.com/" + RepositorySlug + "/edit/main/content"
 	for _, path := range pages {
 		where := relative(siteDirectory, path)
 		parsed, parseErr := parseRendered(path)

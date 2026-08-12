@@ -338,6 +338,14 @@ func calibrateCommand(ctx context.Context, arguments []string, stdout io.Writer)
 	); err != nil {
 		return err
 	}
+	// The baseline is what an always-same-answer judge would score on this label
+	// split, so agreement at or below it measures the split rather than the judge.
+	if _, err := fmt.Fprintf(
+		stdout, "majority baseline: %.3f (%d false pass, %d false fail)\n",
+		result.MajorityBaseline, result.FalsePass, result.FalseFail,
+	); err != nil {
+		return err
+	}
 	return writeJSON(stdout, result)
 }
 

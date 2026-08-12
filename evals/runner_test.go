@@ -379,3 +379,43 @@ func (client *fixedClient) Confirm(context.Context, string, Turn, bool, string) 
 }
 
 func (client *fixedClient) Close() error { return nil }
+
+func TestRunnerLetsDeterministicScoresDecideARequiredCase(t *testing.T) {
+	t.Parallel()
+
+	recorder, err := NewNoopRecorder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	evalset := singleCaseEvalSet()
+	evalset.Cases[0].Conversation[0].IntermediateData.ToolUses = []ExpectedToolCall{{
+		Name: "get_incident", Args: map[string]any{"incident_id": "INC-002"},
+	}}
+	artifact, err := Run(t.Context(), RunnerConfig{
+		EvalSet: evalset, RunID: "run", Source: testSourceEvidence(),
+		Model: ModelEvidence{Provider: "provider", Name: "model"}, Transport: "rest",
+		Repeat: 1, MinimumPassRate: 0.5, RequiredCases: []string{"case-one"}, Recorder: recorder,
+		// The judge rejects everything; every deterministic score passes.
+		Judge: fixedJudge{pass: false},
+		ClientFactory: func(_ context.Context, _ EvalCase, _ int) (AgentClient, func() error, error) {
+			turn := Turn{Text: "answer", ToolCalls: []ToolCall{
+				{Name: "get_incident", Args: map[string]any{"incident_id": "INC-002"}},
+			}}
+			return &fixedClient{turn: turn}, func() error { return nil }, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	// The judged failure still costs the run its rate — that is the honest half.
+	if artifact.Summary.PassRate >= 1 {
+		t.Fatalf("summary = %+v, want a judged failure to reduce the pass rate", artifact.Summary)
+	}
+	// It must not, on its own, declare a safety case failed.
+	if !artifact.Summary.RequiredCasesPassed {
+		t.Fatal("one stochastic verdict vetoed a required case whose deterministic scores all passed")
+	}
+	if artifact.Cases[0].Scores["judge"] != 0 {
+		t.Fatalf("scores = %v, want the judged verdict recorded rather than dropped", artifact.Cases[0].Scores)
+	}
+}

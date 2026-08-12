@@ -76,7 +76,7 @@ type = "search"
 
 [[menu.main]]
 name = "GitHub"
-url = "https://github.com/MLOps-Courses/agentops-open-course"
+url = "https://github.com/MLOps-Courses/agentops-open-course-go"
 weight = 2
 [menu.main.params]
 type = "link"
@@ -95,6 +95,26 @@ style = "github"
 startLevel = 2
 endLevel = 3
 
+# Hextra ships its docs identity — breadcrumb, page context menu, `llms.txt`, per-page
+# Markdown — only for `type = "docs"`. Nothing in content/ declares a type, so without
+# this cascade every regular page falls back to the theme's non-docs single.html and
+# every chapter index to its list.html: two identities in one site.
+# `_target` was deprecated in Hugo v0.156.0 and aborts config loading on the pinned
+# toolchain, which `build:docs` runs with --panicOnWarning; `target` is the current key.
+[[cascade]]
+type = "docs"
+[cascade.target]
+path = "/**"
+
+# Hextra's own hugo.toml already defines the `llms` and `markdown` output formats
+# (baseName `llms`/`index`, isPlainText, `ugly = true`), so no mediaType wiring is
+# needed here. `section` needs `markdown` too, or the nine chapter indexes get no .md
+# twin — which matters for an audience that points its own agents at this course.
+[outputs]
+home = ["html", "rss", "llms"]
+page = ["html", "markdown"]
+section = ["html", "rss", "markdown"]
+
 [params]
 description = "Build, evaluate, secure, deploy, and operate a Go AI agent with Google ADK, agentgateway, kagent, and OpenTelemetry."
 socialCard = "assets/social-card.png"
@@ -111,6 +131,14 @@ base = "https://github.com/MLOps-Courses/agentops-open-course-go/edit/main/conte
 enable = true
 displayCopyright = true
 displayPoweredBy = false
+
+[params.page]
+# The theme pager walks .PrevInSection, which cannot express data/nav.yaml: it dead-ends
+# at every chapter boundary and contradicts the navigation at 8.7. Every leaf page already
+# closes on a hand-ordered `Continue to …` line, which is the pager this course has.
+displayPagination = false
+[params.page.contextMenu]
+enable = true
 
 [params.theme]
 default = "system"
@@ -138,7 +166,7 @@ name = "Email the AgentOps Open Course maintainers"
 url = "mailto:agentops-open-course@fmind.dev"
 [[params.courseSocial]]
 name = "AgentOps Open Course on GitHub"
-url = "https://github.com/MLOps-Courses/agentops-open-course"
+url = "https://github.com/MLOps-Courses/agentops-open-course-go"
 [[params.courseSocial]]
 name = "Fmind on X"
 url = "https://x.com/fmind_dev"

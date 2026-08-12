@@ -177,3 +177,11 @@ pre.mermaid {
     padding: 0.5rem;
     overflow-x: auto;
 }
+
+/* Hextra's dark palette puts the current sidebar link at primary-600 on a
+   primary-400/10 surface, which measures 4.44:1 — just under the 4.5:1 floor the
+   accessibility smoke enforces. Lift the foreground one step up the theme's own
+   ramp rather than lowering the threshold. */
+.dark a.course-nav__link[aria-current="page"] {
+    color: var(--color-primary-400);
+}

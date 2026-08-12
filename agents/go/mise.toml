@@ -169,8 +169,14 @@ description = "Run the ADK developer web UI with the configured model on :8002"
 # Chapter 3.3 or 3.6 is running. The two address flags are not decoration —
 # the UI calls the REST API by the address it is given and the API allows CORS
 # for the address it is given, and both default to :8080.
+# `-sse-write-timeout` is not decoration either. ADK defaults it to 2m, and a
+# grounded turn on a CPU-only host takes longer than that — the stream then dies
+# mid-turn and the UI shows `TypeError: network error`, which reads as a broken
+# setup rather than as a deadline. Measured here: the answer arrived after the
+# 2m default had already cut the connection. It bounds the stream, not the model;
+# AGENT_MODEL_TIMEOUT_S still bounds each call.
 env = { AGENT_ENTRYPOINT = "agent", _.file = { path = "../../.env", redact = true } }
-run = "go run ./cmd/agent web -port 8002 webui -api_server_address http://localhost:8002/api api -webui_address localhost:8002"
+run = "go run ./cmd/agent web -port 8002 webui -api_server_address http://localhost:8002/api api -webui_address localhost:8002 -sse-write-timeout 60m"
 
 [tasks.a2a]
 description = "Run the persistent A2A server on :8080"

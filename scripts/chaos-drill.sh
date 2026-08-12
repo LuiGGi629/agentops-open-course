@@ -87,8 +87,16 @@ mcp_drill() {
 	mcp_original_replicas="$(kubectl -n agentops get deployment agentops-mcp -o jsonpath='{.spec.replicas}')"
 	[[ ${mcp_original_replicas} =~ ^[0-9]+$ ]] || fail "agentops-mcp replica count is not an integer"
 	((mcp_original_replicas > 0)) || fail "agentops-mcp already has zero replicas"
+	# `kubectl wait --for=delete` cannot tell "already gone" from "the selector matches
+	# nothing", so a renamed label would silently turn the wait below into a no-op and
+	# the drill would claim a wedge it never created. Prove the selector matches running
+	# pods first, before the scale removes them, so a future rename fails loudly here.
+	local mcp_selector="app.kubernetes.io/name=agentops-mcp"
+	local mcp_pods
+	mcp_pods="$(kubectl -n agentops get pod -l "${mcp_selector}" -o name)"
+	[[ -n ${mcp_pods} ]] || fail "no pod matches ${mcp_selector}; check the label before trusting this drill"
 	kubectl -n agentops scale deployment/agentops-mcp --replicas=0 >/dev/null
-	kubectl -n agentops wait --for=delete pod -l app=agentops-mcp --timeout=120s >/dev/null
+	kubectl -n agentops wait --for=delete pod -l "${mcp_selector}" --timeout=120s >/dev/null
 	log "agentops-mcp wedged for ${hold_seconds}s; inspect the fail-closed gateway and alerts"
 	sleep "${hold_seconds}"
 }

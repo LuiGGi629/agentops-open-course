@@ -50,23 +50,24 @@ Six concerns differ, and the table below is the whole of them. Two smaller asymm
 | Volume storage   | k3d's default local-path provisioner    | `agentops-standard` StorageClass on every claim              |
 | Egress exception | any IPv4 TCP `:11434` (intended Ollama) | any IPv4 `:443` (intended Vertex) plus WIF `:987`/`:988`     |
 
-Two of those rows live in exactly one overlay rather than in both. The model-backend override sits only in `overlays/local`, because `overlays/gke` inherits `gemini-3.5-flash` from the base `infra/kagent/modelconfig.yaml`. The `agentops-standard` storage-class patch sits only in `overlays/gke`, where it selects a persistent disk for every claim carrying the course label; `overlays/local` adds nothing and inherits k3d's default provisioner. [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}}) explains the two egress rows, which `scripts/check-infra.sh` asserts.
+Two of those rows live in exactly one overlay rather than in both. The model-backend override sits only in `overlays/gke`, because the base `infra/kagent/modelconfig.yaml` declares `qwen3:4b-instruct` — the open-weight default the course requires — so the substrate that needs an account is the one that has to ask for it. The `agentops-standard` storage-class patch sits only in `overlays/gke`, where it selects a persistent disk for every claim carrying the course label; `overlays/local` adds nothing and inherits k3d's default provisioner. [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}}) explains the two egress rows, which `scripts/check-infra.sh` asserts.
 
 ## Which page owns which manifest
 
 Every platform concern has one owning manifest, so a broken rollout has one place to look:
 
-| Page                                                                                        | What it adds                                                     | Owning manifest(s)                                             |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------- |
-| [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}})                             | Agents as Kubernetes workloads; the shared base and its overlays | `infra/k8s/base/kustomization.yaml`                            |
-| [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})                         | The multi-stage, digest-pinned agent image                       | `agents/go/Dockerfile`                                         |
-| [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}})             | Cluster, registry, kagent, and the Skaffold development loop     | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml` |
-| [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md" >}})               | The hardened BYO `Agent` and the gateway `ModelConfig`           | `infra/kagent/agent.yaml`, `infra/kagent/modelconfig.yaml`     |
-| [6.4. Platform Tools]({{< relref "/6. Platform/6.4. Platform Tools.md" >}})                 | The read-only MCP server and its governed `RemoteMCPServer`      | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`      |
-| [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}})             | The private data plane, network policy, and workload identity    | `infra/k8s/base/network-policies.yaml` and both overlays       |
-| [6.6. Platform Delivery]({{< relref "/6. Platform/6.6. Platform Delivery.md" >}})           | State backup, the restore drill, teardown, the GKE plan          | `infra/scripts/`, `infra/gcp/`                                 |
-| [6.7. Promotion and Rollback]({{< relref "/6. Platform/6.7. Promotion and Rollback.md" >}}) | Source evidence before the build-and-deploy handoff              | `scripts/promote.sh`                                           |
-| [6.8. Platform Operations]({{< relref "/6. Platform/6.8. Platform Operations.md" >}})       | Keeping the local cluster fed, stopped, and removable            | `infra/k3d.yaml`, `infra/helmfile.yaml`                        |
+| Page                                                                                        | What it adds                                                     | Owning manifest(s)                                                  |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}})                             | Agents as Kubernetes workloads; the shared base and its overlays | `infra/k8s/base/kustomization.yaml`                                 |
+| [6.1. Containers]({{< relref "/6. Platform/6.1. Containers.md" >}})                         | The multi-stage, digest-pinned agent image                       | `agents/go/Dockerfile`                                              |
+| [6.2. Platform Install]({{< relref "/6. Platform/6.2. Platform Install.md" >}})             | Cluster, registry, kagent, and the Skaffold development loop     | `infra/k3d.yaml`, `infra/helmfile.yaml`, `infra/skaffold.yaml`      |
+| [6.3. Platform Agents]({{< relref "/6. Platform/6.3. Platform Agents.md" >}})               | The hardened BYO `Agent` and the gateway `ModelConfig`           | `infra/kagent/agent.yaml`, `infra/kagent/modelconfig.yaml`          |
+| [6.4. Platform Tools]({{< relref "/6. Platform/6.4. Platform Tools.md" >}})                 | The read-only MCP server and its governed `RemoteMCPServer`      | `infra/k8s/base/mcp.yaml`, `infra/kagent/toolserver.yaml`           |
+| [6.5. Platform Gateway]({{< relref "/6. Platform/6.5. Platform Gateway.md" >}})             | The private data plane, network policy, and workload identity    | `infra/k8s/base/network-policies.yaml` and both overlays            |
+| [6.6. Platform Delivery]({{< relref "/6. Platform/6.6. Platform Delivery.md" >}})           | State backup, the restore drill, teardown, the GKE plan          | `infra/scripts/`, `infra/gcp/`                                      |
+| [6.7. Promotion and Rollback]({{< relref "/6. Platform/6.7. Promotion and Rollback.md" >}}) | Source evidence before the build-and-deploy handoff              | `scripts/promote.sh`                                                |
+| [6.8. Platform Operations]({{< relref "/6. Platform/6.8. Platform Operations.md" >}})       | Keeping the local cluster fed, stopped, and removable            | `infra/k3d.yaml`, `infra/helmfile.yaml`                             |
+| [6.9. Scale Out]({{< relref "/6. Platform/6.9. Scale Out.md" >}})                           | Shared sessions and a scaled read plane                          | `infra/k8s/overlays/scale/`, `agents/go/cmd/agent/session_store.go` |
 
 Read them in order, and read each one for what it actually is:
 
@@ -79,6 +80,7 @@ Read them in order, and read each one for what it actually is:
 - **[6.6. Platform Delivery]({{< relref "/6. Platform/6.6. Platform Delivery.md" >}})** _(hands-on)_: Back up the state, drill a restore, tear down safely, and plan the optional GKE lab.
 - **[6.7. Promotion and Rollback]({{< relref "/6. Platform/6.7. Promotion and Rollback.md" >}})** _(hands-on)_: Make a broken evaluation stop a rollout before any image is built.
 - **[6.8. Platform Operations]({{< relref "/6. Platform/6.8. Platform Operations.md" >}})** _(reference)_: The four things that go wrong on a laptop cluster, and what to run when they do.
+- **[6.9. Scale Out]({{< relref "/6. Platform/6.9. Scale Out.md" >}})** _(hands-on)_: Move sessions to PostgreSQL, run one conversation across two processes, and scale the read plane behind an autoscaler.
 
 ## One command proves the chapter, with no cluster at all
 
@@ -105,13 +107,13 @@ The chapter's required outcome is entirely local. GCP stops at `tofu plan`, and 
 
 ## What this chapter proved
 
-Only the first item is true when you finish this page; come back to the rest at the end of [6.8. Platform Operations]({{< relref "/6. Platform/6.8. Platform Operations.md" >}}), which is where they land.
+Only the first item is true when you finish this page; come back to the rest at the end of [6.9. Scale Out]({{< relref "/6. Platform/6.9. Scale Out.md" >}}), which is where they land.
 
 - `mise run check:infra` exits 0, having rendered and validated both the `local` and the `gke` overlay without a cluster.
 - You can name, for any symptom in this chapter, the single manifest and page that own it.
 - Your base edit in [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}}) reached both renders, your overlay edit reached one, and `check:infra` refused the value that was pinned.
 - Without reopening Chapter 5, you can name the three protocols agentgateway fronts and say why no cluster Service publishes any of them.
 
-An hour ago, "deployed" meant a process you had started and were still responsible for. By the end of this chapter it means a set of files a cluster reads, argues with, and keeps true while you sleep.
+By the end of this chapter, "deployed" means a set of files a cluster reads, argues with, and keeps true while you sleep — rather than a process you started and are still personally responsible for.
 
 Continue to [6.0. Platform]({{< relref "/6. Platform/6.0. Platform.md" >}}) once `check:infra` passes without a cluster, a GCP project, or a model.

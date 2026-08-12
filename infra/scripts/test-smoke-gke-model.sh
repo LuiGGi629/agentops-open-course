@@ -72,6 +72,23 @@ elif [[ ${arguments} == *' get deployment/agentgateway '* ]]; then
             }
           }
         }'
+elif [[ ${arguments} == ' kustomize infra/k8s/overlays/gke ' ]]; then
+	# The smoke reads the GKE model owners from the render rather than from the base
+	# files, because the base carries the open-weight default and the overlay patches
+	# the proprietary one in. Emit the two documents it selects from that stream.
+	jq -cn --arg model "${FAKE_SOURCE_MODEL:?}" '{
+      apiVersion: "kagent.dev/v1alpha2", kind: "Agent",
+      metadata: {name: "agentops-agent"},
+      spec: {byo: {deployment: {env: [
+        {name: "AGENT_MODEL", value: $model},
+        {name: "AGENT_A2A_MAX_LLM_CALLS", value: env.FAKE_SOURCE_A2A_MAX_LLM_CALLS}
+      ]}}}
+    }'
+	printf -- '---\n'
+	jq -cn --arg model "${FAKE_SOURCE_MODEL:?}" '{
+      apiVersion: "kagent.dev/v1alpha2", kind: "ModelConfig",
+      metadata: {name: "agentgateway"}, spec: {model: $model}
+    }'
 elif [[ ${arguments} == *' get configmap/agentgateway-config-test '* ]]; then
 	jq -cn --arg config "${FAKE_GATEWAY_CONFIG:?}" '{data: {"config.yaml": $config}}'
 elif [[ ${arguments} == *' get agent.kagent.dev/agentops-agent '* ]]; then
@@ -267,7 +284,17 @@ FAKE_GATEWAY_CONFIG="$(<"${repo_dir}/infra/agentgateway/gke/config.yaml")"
 export FAKE_GATEWAY_CONFIG
 FAKE_SOURCE_TAG="$(git -C "${repo_dir}" rev-parse HEAD)"
 export FAKE_SOURCE_TAG
-FAKE_SOURCE_MODEL="$(yq -er '.spec.model' "${repo_dir}/infra/kagent/modelconfig.yaml")"
+# The GKE plane's model is the overlay patch value, not the base default: the base
+# declares the open-weight model so an overlay-free apply cannot select a paid one.
+FAKE_SOURCE_MODEL="$(
+	yq -er '
+      .patches[]
+      | select(.target.kind == "ModelConfig")
+      | .patch
+      | from_yaml
+      | .[0].value
+    ' "${repo_dir}/infra/k8s/overlays/gke/kustomization.yaml"
+)"
 export FAKE_SOURCE_MODEL
 FAKE_SOURCE_A2A_MAX_LLM_CALLS="$(
 	yq -er '

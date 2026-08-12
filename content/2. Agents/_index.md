@@ -22,30 +22,7 @@ Every chapter after this one adds to that same value rather than replacing it. C
 
 ## Check it assembles before you ask it anything
 
-One command decides whether the agent is wired correctly, and it never starts a model:
-
-```bash
-cd agents/go
-mise run test
-```
-
-```text
-✓  a2aserver (18.74s) (coverage: 84.6% of statements)
-✓  memory (21.607s) (coverage: 87.7% of statements)
-
-DONE 1759 tests in 21.845s
-[test] $ ../../scripts/check-coverage.sh coverage.out 80 agents/go
-  ok      84.6%  agents/go/a2aserver
-  ok      91.7%  agents/go/compose
-  ok      90.2%  agents/go/config
-  ok     100.0%  agents/go/model
-  ok      90.4%  agents/go/policy
-  ok      82.7%  agents/go/state
-  ok      98.5%  agents/go/tools
-agents/go meets the 80% per-package coverage floor
-```
-
-That is the tail of one run under the race detector, and both halves of it are trimmed. Above the `DONE` line `gotestsum` prints a `✓` for each of the twenty-two packages as it finishes; the two slowest survive here. Below it the coverage script prints twenty lines and you are looking at seven. The floor is checked per package rather than as a module total, because a total lets a large well-tested package pay for a small untested one — and the small untested one is always the interesting package. `cmd/` is excluded by kind: its behavior is exercised through subprocess tests that Go attributes to the test binary rather than to the package.
+You proved this in [1.1. Go]({{< relref "/1. Setup/1.1. Go.md" >}}) — if `mise run test` was green there, the agent assembles.
 
 **Before you have run a single turn, the composition, the configuration, the persistence, and the policy plane have all been exercised on your machine — in well under a minute, with no account, no API key, and no network.**
 

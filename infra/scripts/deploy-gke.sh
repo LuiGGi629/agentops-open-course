@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 for command_name in docker git helmfile jq kubeconform kubectl skaffold tofu; do
 	require_cmd "${command_name}" platform
 done
-require_cmd gcloud gcp
+require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_dir}" || exit

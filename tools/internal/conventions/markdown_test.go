@@ -190,6 +190,7 @@ func TestCheckExercisesPreservesTemporaryAndProbabilisticFailures(t *testing.T) 
 - **Goal**: Change one thing.
 - **Files to touch**: example.go.
 - **Preflight**: Start clean.
+- **Steps**: Change it, then run the gate.
 - **Gate that proves completion**: The test is red.
 - **Final state**: Restore it.
 `
@@ -202,6 +203,7 @@ func TestCheckExercisesPreservesTemporaryAndProbabilisticFailures(t *testing.T) 
 - **Goal**: Observe.
 - **Files to touch**: None.
 - **Preflight**: None.
+- **Steps**: Read it.
 - **Gate that proves completion**: It fails without the rule, but may pass.
 - **Final state**: Clean.
 `
@@ -210,12 +212,19 @@ func TestCheckExercisesPreservesTemporaryAndProbabilisticFailures(t *testing.T) 
 	}
 }
 
-func TestCheckDiagramAlternativesRatchetsChangedDiagram(t *testing.T) {
-	legacy := map[string]bool{digestLines([]string{"flowchart LR", "A --> B"}): true}
-	problems, _ := checkDiagramAlternatives("content/example.md", "```mermaid\nflowchart LR\nA --> C\n```\n", legacy)
-	if len(problems) != 1 {
-		t.Fatalf("problems = %#v", problems)
-	}
+func TestCheckDiagramAlternatives(t *testing.T) {
+	diagram := "```mermaid\nflowchart LR\nA --> B\n```\n"
+	runPageRuleCases(t, checkDiagramAlternatives, []pageRuleCase{
+		{name: "prose below", text: diagram + "\n**Diagram in words:** A leads to B.\n"},
+		{name: "prose above", text: "**Diagram in words:** A leads to B.\n\n" + diagram},
+		{name: "no prose", text: diagram, want: "needs adjacent `**Diagram in words:**` prose"},
+		{
+			// The rule is unconditional now; there is no allowlist to inherit from.
+			name: "prose too far away",
+			text: diagram + strings.Repeat("\nfiller\n", 6) + "**Diagram in words:** A leads to B.\n",
+			want: "needs adjacent `**Diagram in words:**` prose",
+		},
+	})
 }
 
 func TestExactCountClaimsIgnoreFences(t *testing.T) {

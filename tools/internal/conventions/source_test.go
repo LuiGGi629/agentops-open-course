@@ -602,3 +602,317 @@ func TestCheckNoPagesDeploymentRejectsPagesActionsAndAuthority(t *testing.T) {
 		t.Fatalf("validation-only docs workflow problems = %#v", problems)
 	}
 }
+
+func writeDerivedFigureFixture(t *testing.T, root string) {
+	t.Helper()
+	files := map[string]string{
+		"agents/go/config/config.go": "type Config struct {\n" +
+			"\tA string `env:\"A\"`\n\tB string `env:\"B\"`\n\tC string `env:\"C\"`\n}\n",
+		"infra/k8s/overlays/local/prometheus-rules.yaml": `groups:
+  - name: example
+    rules:
+      - record: agentops:one
+      - alert: AgentOne
+        annotations:
+          runbook: https://github.com/` + RepositorySlug + `/blob/main/content/7.%20Observability/7.2b.%20Alerting.md
+      - alert: AgentTwo
+        annotations:
+          runbook: https://github.com/` + RepositorySlug + `/blob/main/content/7.%20Observability/7.2b.%20Alerting.md
+`,
+		"data/captures.yaml": "suites:\n  \"agents/go\":\n    tests: 1806\n    skipped: 1\n" +
+			"  \"evals\":\n    tests: 394\n    skipped: 0\n" +
+			"coverage:\n  \"agents/go/a2aserver\": 84.2\n",
+		"content/7. Observability/7.2b. Alerting.md": "",
+	}
+	for name, content := range files {
+		path := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func derivedFigurePages(alerting string) pageSet {
+	return pageSet{"content/7. Observability/7.2b. Alerting.md": alerting}
+}
+
+const acceptedAlertingPage = "`AgentOne` and `AgentTwo` both ship.\n" +
+	"  SUCCESS: 3 rules found\n" +
+	"That is both commands run back to back — one recording rules and two alerts.\n"
+
+func TestCheckDerivedFiguresAcceptsFiguresItsSourcesSettle(t *testing.T) {
+	root := t.TempDir()
+	writeDerivedFigureFixture(t, root)
+	pages := derivedFigurePages(acceptedAlertingPage)
+	pages["content/0. Overview/0.5. Provider Options.md"] = "prints three resolved settings, and\n"
+	pages["content/1. Setup/1.0. System.md"] = "DONE 1806 tests, 1 skipped in 4.826s\n  ok      84.2%  agents/go/a2aserver\n"
+	if problems := checkDerivedFigures(root, pages); len(problems) != 0 {
+		t.Fatalf("problems = %#v", problems)
+	}
+}
+
+func TestCheckDerivedFiguresRejectsDriftedFigures(t *testing.T) {
+	tests := []struct {
+		name string
+		page string
+		text string
+		want string
+	}{
+		{
+			name: "settings total",
+			page: "content/0. Overview/0.5. Provider Options.md",
+			text: "prints forty-five resolved settings, and\n",
+			want: "states forty-five settings",
+		},
+		{
+			name: "suite total",
+			page: "content/1. Setup/1.0. System.md",
+			text: "DONE 1759 tests in 4.826s\n",
+			want: "no suite in data/captures.yaml reports",
+		},
+		{
+			name: "skip count",
+			page: "content/1. Setup/1.0. System.md",
+			text: "DONE 1806 tests in 4.826s\n",
+			want: "no suite in data/captures.yaml reports",
+		},
+		{
+			name: "package coverage",
+			page: "content/1. Setup/1.0. System.md",
+			text: "  ok      84.6%  agents/go/a2aserver\n",
+			want: "data/captures.yaml records 84.2%",
+		},
+		{
+			name: "gotestsum coverage",
+			page: "content/4. Quality/4.2. Testing.md",
+			text: "✓  a2aserver (cached) (coverage: 84.6% of statements)\n",
+			want: "data/captures.yaml records 84.2%",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeDerivedFigureFixture(t, root)
+			pages := derivedFigurePages(acceptedAlertingPage)
+			pages[test.page] = test.text
+			if !strings.Contains(problemMessages(checkDerivedFigures(root, pages)), test.want) {
+				t.Fatalf("problems = %#v", checkDerivedFigures(root, pages))
+			}
+		})
+	}
+}
+
+func TestCheckDerivedFiguresRejectsAlertInventoryDrift(t *testing.T) {
+	tests := []struct {
+		name string
+		page string
+		want string
+	}{
+		{
+			name: "rule total",
+			page: "`AgentOne` `AgentTwo`\n  SUCCESS: 8 rules found\n" +
+				"That is both commands run back to back — one recording rules and two alerts.\n",
+			want: `source contract is missing "SUCCESS: 3 rules found"`,
+		},
+		{
+			name: "spelled halves",
+			page: "`AgentOne` `AgentTwo`\n  SUCCESS: 3 rules found\n" +
+				"That is both commands run back to back — two recording rules and six alerts.\n",
+			want: "the rules-run sentence must state",
+		},
+		{
+			name: "unnamed alert",
+			page: "`AgentOne` only\n  SUCCESS: 3 rules found\n" +
+				"That is both commands run back to back — one recording rules and two alerts.\n",
+			want: "chapter 7 never names these shipped alerts: AgentTwo",
+		},
+		{
+			// Rewording the anchor used to disarm the count assertion silently, which
+			// left the page free to state any two halves it liked.
+			name: "reworded anchor sentence",
+			page: "`AgentOne` `AgentTwo`\n  SUCCESS: 3 rules found\n" +
+				"Both commands, run back to back, report six recording rules and nine alerts.\n",
+			want: `expected the sentence starting "That is both commands run back to back"`,
+		},
+		{
+			name: "deleted anchor sentence",
+			page: "`AgentOne` `AgentTwo`\n  SUCCESS: 3 rules found\n",
+			want: "which states the recording-rule and alert counts derived from infra/k8s/overlays/local/prometheus-rules.yaml",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeDerivedFigureFixture(t, root)
+			problems := checkDerivedFigures(root, derivedFigurePages(test.page))
+			if !strings.Contains(problemMessages(problems), test.want) {
+				t.Fatalf("problems = %#v", problems)
+			}
+		})
+	}
+}
+
+func TestCheckRepositorySlug(t *testing.T) {
+	retired := "https://github.com/" + retiredRepositorySlug
+	current := "https://github.com/" + RepositorySlug
+	tests := []struct {
+		name    string
+		files   map[string]string
+		want    string
+		accepts bool
+	}{
+		{
+			name:    "current slug and a resolvable runbook",
+			files:   map[string]string{"hugo.toml": "url = \"" + current + "\"\n"},
+			accepts: true,
+		},
+		{
+			// GitHub resolves owner and repository names case-insensitively, so the
+			// lowercase spelling of the live slug is still the live repository.
+			name:    "current slug in lowercase",
+			files:   map[string]string{"hugo.toml": "url = \"" + strings.ToLower(current) + "\"\n"},
+			accepts: true,
+		},
+		{
+			name:  "retired slug",
+			files: map[string]string{"hugo.toml": "url = \"" + retired + "\"\n"},
+			want:  "names the retired repository",
+		},
+		{
+			// The same reasoning in the other direction: a lowercase copy of the retired
+			// slug resolves to the same dead repository, so it is the same dead link.
+			name:  "retired slug in lowercase",
+			files: map[string]string{"hugo.toml": "url = \"" + strings.ToLower(retired) + "\"\n"},
+			want:  "names the retired repository",
+		},
+		{
+			name:  "history keeps the retired slug",
+			files: map[string]string{"CHANGELOG.md": retired + "\n"},
+			// The changelog records what the repository was called at the time.
+			accepts: true,
+		},
+		{
+			name:    "history keeps the retired slug in any casing",
+			files:   map[string]string{"CHANGELOG.md": strings.ToLower(retired) + "\n"},
+			accepts: true,
+		},
+		{
+			name: "runbook pointing at a page that does not exist",
+			files: map[string]string{
+				"infra/k8s/overlays/local/prometheus-rules.yaml": "      - alert: A\n        annotations:\n" +
+					"          runbook: " + current + "/blob/main/docs/7.%20Observability/7.2.%20Monitoring.md\n",
+			},
+			want: "points at a page this repository does not hold",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeDerivedFigureFixture(t, root)
+			for name, content := range test.files {
+				path := filepath.Join(root, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			problems := checkRepositorySlug(root)
+			if test.accepts {
+				if len(problems) != 0 {
+					t.Fatalf("problems = %#v", problems)
+				}
+				return
+			}
+			if !strings.Contains(problemMessages(problems), test.want) {
+				t.Fatalf("problems = %#v", problems)
+			}
+		})
+	}
+}
+
+func TestEnglishNumberSpellsEveryCountAPageStates(t *testing.T) {
+	for value, want := range map[int]string{0: "zero", 9: "nine", 13: "thirteen", 20: "twenty", 48: "forty-eight", 99: "ninety-nine"} {
+		if got := englishNumber(value); got != want {
+			t.Errorf("englishNumber(%d) = %q, want %q", value, got, want)
+		}
+		parsed, ok := parseCountedNumber(want)
+		if !ok || parsed != value {
+			t.Errorf("parseCountedNumber(%q) = %d, %v, want %d", want, parsed, ok, value)
+		}
+	}
+	if _, ok := parseCountedNumber("umpteen"); ok {
+		t.Error("parseCountedNumber accepted a word that is not a number")
+	}
+}
+
+func TestCheckQuickstartsRequiresTheCloneAndTheCompiler(t *testing.T) {
+	clone := "git clone https://github.com/" + RepositorySlug + ".git\n"
+	green := "mise run install\nmise run doctor\nmise run check:core\nmise run test\n"
+	compiler := "build-essential\ndevelopment-tools\nxcode-select --install\n"
+	landing := "<!-- quickstart: unverified-preview -->\nunverified preview\n"
+	ci := "run: mise run install:validation\nrun: mise run doctor\nrun: mise run check\nrun: mise run test\n"
+	linting := "install:validation\ndocumentation workflow installs only its pinned documentation and browser toolchains\n"
+	tests := []struct {
+		name   string
+		system string
+		readme string
+		want   string
+	}{
+		{name: "complete", system: clone + compiler + green, readme: clone + green},
+		{
+			name:   "page never says to clone",
+			system: compiler + green,
+			readme: clone + green,
+			want:   "canonical clone → install → doctor → check → test sequence",
+		},
+		{
+			name:   "readme never says to clone",
+			system: clone + compiler + green,
+			readme: green,
+			want:   "canonical clone → install → doctor → check → test sequence",
+		},
+		{
+			name:   "compiler prerequisite is not actionable",
+			system: clone + green,
+			readme: clone + green,
+			want:   `must name the "build-essential" host command`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, content := range map[string]string{
+				"README.md":                test.readme,
+				".github/workflows/ci.yml": ci,
+			} {
+				path := filepath.Join(root, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pages := pageSet{
+				"content/1. Setup/1.0. System.md":    test.system,
+				landingPage:                          landing,
+				"content/4. Quality/4.1. Linting.md": linting,
+			}
+			problems := checkQuickstarts(root, pages)
+			if test.want == "" {
+				if len(problems) != 0 {
+					t.Fatalf("problems = %#v", problems)
+				}
+				return
+			}
+			if !strings.Contains(problemMessages(problems), test.want) {
+				t.Fatalf("problems = %#v", problems)
+			}
+		})
+	}
+}

@@ -17,7 +17,10 @@ spec:
       serviceAccountName: agentops-agent
       env:
         - name: AGENT_MODEL
-          value: gemini-3.5-flash
+          # The base carries the open-weight default, so `kubectl apply -k infra/kagent`
+          # with no overlay runs the same account-free model the course requires. The
+          # GKE overlay patches the proprietary one in; see infra/k8s/overlays/gke.
+          value: qwen3:4b-instruct
         - name: AGENT_MODEL_PROVIDER
           value: openai-compatible
         - name: AGENT_MCP_URL

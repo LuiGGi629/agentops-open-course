@@ -494,4 +494,8 @@ func collapseNullable(schema *jsonschema.Schema) {
 		collapseNullable(property)
 	}
 	collapseNullable(schema.Items)
+	// Map-typed fields land in AdditionalProperties rather than Properties, so the
+	// recursion is incomplete without this line. No struct here declares one today;
+	// this completes the walk rather than fixing an observed break.
+	collapseNullable(schema.AdditionalProperties)
 }

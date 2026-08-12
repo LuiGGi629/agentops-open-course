@@ -3,10 +3,12 @@ package courseevidence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -92,4 +94,79 @@ func initializeRepository(t *testing.T) string {
 		}
 	}
 	return root
+}
+
+// TestCreateChecksArtifactsBeforeSpendingTheGates keeps a missing file from
+// costing a learner a full check:core plus test run before it is reported.
+func TestCreateChecksArtifactsBeforeSpendingTheGates(t *testing.T) {
+	root := initializeRepository(t)
+	runs := 0
+	config := Config{
+		Root:      root,
+		Gates:     [][]string{{"mise", "run", "check:core"}},
+		Artifacts: []string{"never-written.txt"},
+		Now:       func() time.Time { return time.Unix(0, 0).UTC() },
+		Run: func(context.Context, string, []string, io.Writer, io.Writer) error {
+			runs++
+			return nil
+		},
+	}
+	err := Create(t.Context(), config, filepath.Join(root, "manifest.json"))
+	if !errors.Is(err, ErrMissingArtifact) {
+		t.Fatalf("Create() error = %v, want %v", err, ErrMissingArtifact)
+	}
+	if !strings.Contains(err.Error(), "never-written.txt") {
+		t.Errorf("Create() error = %v, want it to name the missing artifact", err)
+	}
+	if runs != 0 {
+		t.Errorf("gates ran %d times before the missing artifact was reported, want 0", runs)
+	}
+}
+
+func TestDefaultArtifactsReadsTheCommittedInventory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, filepath.FromSlash(artifactListPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("# a comment\n\nmise.lock\n  tools/go.sum  \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := DefaultArtifacts(root)
+	if err != nil {
+		t.Fatalf("DefaultArtifacts() error = %v", err)
+	}
+	if !slices.Equal(paths, []string{"mise.lock", "tools/go.sum"}) {
+		t.Fatalf("DefaultArtifacts() = %v, want the two listed paths", paths)
+	}
+	if err := os.WriteFile(path, []byte("# only comments\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DefaultArtifacts(root); err == nil {
+		t.Error("DefaultArtifacts() accepted an inventory with no artifacts")
+	}
+}
+
+func TestCreateWritesAReadableSummaryBesideTheManifest(t *testing.T) {
+	root := initializeRepository(t)
+	output := filepath.Join(root, ".evidence", "course-completion.json")
+	config := Config{
+		Root:      root,
+		Gates:     [][]string{{"mise", "run", "test"}},
+		Artifacts: []string{"input.txt"},
+		Now:       func() time.Time { return time.Unix(0, 0).UTC() },
+		Run:       func(context.Context, string, []string, io.Writer, io.Writer) error { return nil },
+	}
+	if err := Create(t.Context(), config, output); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	summary, err := os.ReadFile(SummaryPath(output))
+	if err != nil {
+		t.Fatalf("reading the summary: %v", err)
+	}
+	for _, wanted := range []string{"# Course completion", "`mise run test`", "`input.txt`", "Tree digest"} {
+		if !strings.Contains(string(summary), wanted) {
+			t.Errorf("summary is missing %q:\n%s", wanted, summary)
+		}
+	}
 }

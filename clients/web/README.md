@@ -15,12 +15,26 @@ A single-file A2A browser client for the course's AgentOps Agent: one `index.htm
 
 ## How to run it
 
-1. In a first terminal, start the A2A server: `cd agents/go && mise run a2a` (raw `:8080`).
-1. In a second terminal, start the digest-pinned host gateway wrapper: `mise run gateway:host` from the repository root (loopback A2A route on `:3001`).
-1. In a third terminal, serve this directory: `mise run client:web` from the repository root.
+1. With Ollama already running, start the MCP server in a first terminal: `cd agents/go && mise run mcp:http` (raw `:8000`).
+1. In a second terminal, start the digest-pinned host gateway wrapper: `mise run gateway:host` from the repository root (loopback MCP route on `:3000`, A2A route on `:3001`, model route on `:4000`).
+1. In a third terminal, start the A2A server (raw `:8080`) with the gateway environment, so its tools and its model both go through the gateway:
+
+   ```bash
+   cd agents/go
+   AGENT_MODEL_PROVIDER=openai-compatible \
+   AGENT_MODEL=qwen3:4b-instruct \
+   AGENT_MCP_URL=http://127.0.0.1:3000/mcp \
+   OPENAI_BASE_URL=http://127.0.0.1:4000/v1 \
+   OPENAI_API_KEY=local-ollama \
+   mise run a2a
+   ```
+
+1. In a fourth terminal, serve this directory: `mise run client:web` from the repository root.
 1. Open `http://localhost:8001`, keep the base URL `http://localhost:3001`, and press Connect.
 
 Point the client at agentgateway `:3001` — the governed data plane — not the raw application port `:8080`.
+
+Those variables are not optional decoration. A bare `mise run a2a` falls back to `OPENAI_BASE_URL=http://127.0.0.1:11434/v1` and in-process tools, so the page still works while the agent talks to Ollama and its own tools directly and no gateway policy sits on either path.
 
 ## CORS: why the browser needs a gateway policy
 

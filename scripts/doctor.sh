@@ -51,7 +51,7 @@ add_base_tier() {
 # the demo TLS material and JWTs with it.
 add_gateway_tier() {
 	add_tier "mise run install:platform" "${gateway_managed_tools[@]}"
-	add_tier "follow 1.2. Containers to install a supported container engine" "${gateway_host_tools[0]}"
+	add_tier "follow 1.2. Container Engine to install a supported container engine" "${gateway_host_tools[0]}"
 	add_tier "install OpenSSL from a reviewed host package source" "${gateway_host_tools[1]}"
 }
 
@@ -195,6 +195,24 @@ if [[ ${profile} == model ]]; then
 		fail 'ollama     start Ollama and run: ollama pull qwen3:4b-instruct'
 	fi
 	printf 'ollama     %s with qwen3:4b-instruct ready on 127.0.0.1:11434\n' "${ollama_version}"
+
+	# A tag list is not an inference. A stale `ollama serve` whose install tree had
+	# been deleted answered /api/version and /api/tags correctly while every model
+	# call failed in under a second, and this profile reported `ready`. So ask the
+	# provider to actually infer, and print how long the smallest possible call
+	# took: that number is what a learner needs before starting Chapter 2, because
+	# one grounded turn costs several calls of this size or larger.
+	inference_started="${SECONDS}"
+	if ! curl --fail --silent --show-error \
+		--max-time "${DOCTOR_MODEL_PROBE_TIMEOUT_S:-120}" \
+		--header 'content-type: application/json' \
+		--data '{"model":"qwen3:4b-instruct","input":"Reply with exactly: NONE","max_output_tokens":16}' \
+		http://127.0.0.1:11434/v1/responses |
+		jq -e '.status == "completed"' >/dev/null; then
+		fail 'ollama     answers /api/tags but cannot infer; restart Ollama and re-pull qwen3:4b-instruct'
+	fi
+	printf 'inference  ok in %ss (a full turn needs several calls of this size or larger)\n' \
+		"$((SECONDS - inference_started))"
 fi
 
 case "${profile}" in

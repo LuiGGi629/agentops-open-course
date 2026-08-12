@@ -826,7 +826,7 @@ prepare_lifecycle() {
 	local approval_canonical
 	local ledger_mode
 
-	require_cmd gcloud gcp
+	require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 	require_cmd jq base
 	require_cmd tofu gcp
 	[[ -f ${approval_path} && ! -L ${approval_path} ]] ||
@@ -893,7 +893,7 @@ preflight_lifecycle() {
 	prepared) ;;
 	*) fail "plan preflight requires phase prepared; current phase is ${phase}" ;;
 	esac
-	require_cmd gcloud gcp
+	require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 	require_cmd jq base
 	require_cmd tofu gcp
 	verify_source_agreement
@@ -945,7 +945,7 @@ apply_lifecycle() {
 	apply_started) fail "apply was interrupted; resume with the destroy command" ;;
 	*) fail "apply requires phase preflighted; current phase is ${phase}" ;;
 	esac
-	require_cmd gcloud gcp
+	require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 	require_cmd jq base
 	require_cmd tofu gcp
 	verify_source_agreement
@@ -985,7 +985,7 @@ record_lifecycle() {
 	apply_started) fail "apply was interrupted; resume with the destroy command" ;;
 	*) fail "record requires phase applied; current phase is ${phase}" ;;
 	esac
-	require_cmd gcloud gcp
+	require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 	require_cmd jq base
 	require_cmd kubectl gcp
 	require_cmd tofu gcp
@@ -1038,7 +1038,7 @@ destroy_lifecycle() {
 		fail "destroy approval token must equal ${expected_token}"
 	[[ ${phase} != preparing ]] ||
 		fail "preparation is incomplete; rerun prepare before cleanup"
-	require_cmd gcloud gcp
+	require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 	require_cmd jq base
 	require_cmd tofu gcp
 	verify_project_agreement

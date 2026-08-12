@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"google.golang.org/adk/v2/tool"
@@ -830,6 +832,66 @@ func TestHandleToolErrorWithoutAClassifierStaysOpaque(t *testing.T) {
 	}
 }
 
+// TestHandleToolErrorSeparatesAConfirmationFromAFailure is the honesty contract
+// for the guarded writes: a pause and a refusal both reach the handler as
+// errors, and neither may be reported as a failure.
+//
+// Both halves matter. The model must not be told a write "failed safely" while
+// a human is still deciding, because the next reasonable move after a failure
+// is to try again. And an approval pause is a normal turn, so it must not write
+// the ERROR record that the shipped error-budget alert counts.
+func TestHandleToolErrorSeparatesAConfirmationFromAFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, confirmation := range []struct {
+		err    error
+		name   string
+		status string
+		want   string
+	}{
+		{
+			name:   "a pause is not a failure",
+			err:    fmt.Errorf("error tool %q %w", "restart_service", tool.ErrConfirmationRequired),
+			status: "awaiting_approval",
+			want:   "paused until a named human",
+		},
+		{
+			name:   "a refusal is not a failure",
+			err:    fmt.Errorf("error tool %q %w", "restart_service", tool.ErrConfirmationRejected),
+			status: "rejected",
+			want:   "A human rejected",
+		},
+	} {
+		t.Run(confirmation.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &recordingHandler{}
+			policy := newPolicy(t, Config{Logger: slog.New(handler)})
+			called := &namedTool{name: tools.RestartServiceToolName}
+
+			result, err := policy.HandleToolError(newContext(), called, nil, confirmation.err)
+			if err != nil {
+				t.Fatalf("HandleToolError() error = %v, want nil", err)
+			}
+			if _, isError := result["error"]; isError {
+				t.Errorf("HandleToolError() = %v, want no error key for a confirmation signal", result)
+			}
+			if status, _ := result["status"].(string); status != confirmation.status {
+				t.Errorf("HandleToolError() status = %q, want %q", status, confirmation.status)
+			}
+			detail, _ := result["detail"].(string)
+			if !strings.Contains(detail, confirmation.want) {
+				t.Errorf("HandleToolError() detail = %q, want it to contain %q", detail, confirmation.want)
+			}
+			for _, record := range handler.records {
+				if record.Level >= slog.LevelError {
+					t.Errorf("HandleToolError() logged %q at %s, want below error level", record.Message, record.Level)
+				}
+			}
+		})
+	}
+}
+
 // TestHandleModelErrorAnswersActionably keeps a provider outage from surfacing
 // as a stack trace.
 func TestHandleModelErrorAnswersActionably(t *testing.T) {
@@ -858,6 +920,96 @@ func TestHandleModelErrorAnswersActionably(t *testing.T) {
 		t.Errorf("the log does not carry the provider failure type:\n%s", handler.rendered())
 	}
 }
+
+// TestHandleModelErrorNamesTheFailureClass proves a learner can act on the
+// answer. The class is not sensitive; the provider's body is, so every case here
+// also asserts that nothing from the error text reached the caller or the log.
+func TestHandleModelErrorNamesTheFailureClass(t *testing.T) {
+	t.Parallel()
+
+	// A provider body carrying a prompt, a credential, and an endpoint. None of
+	// it may appear in any rendered message, whichever class the error falls in.
+	const secretBody = `{"prompt":"restart inventory-api","key":"sk-live-secret","url":"http://10.1.2.3:11434"}`
+	statusErr := &fakeStatusError{code: 503, message: "status 503: " + secretBody}
+	tests := []struct {
+		name  string
+		err   error
+		want  string
+		frame string
+	}{
+		{
+			name:  "deadline",
+			err:   fmt.Errorf("call model: %w", context.DeadlineExceeded),
+			want:  modelDeadlineMessage,
+			frame: "AGENT_MODEL_TIMEOUT_S",
+		},
+		{
+			name:  "connection refused",
+			err:   fmt.Errorf("dial: %w", syscall.ECONNREFUSED),
+			want:  modelUnreachableMessage,
+			frame: "Nothing is listening",
+		},
+		{
+			name:  "unresolvable host",
+			err:   fmt.Errorf("dial: %w", &net.DNSError{Err: "no such host", Name: "ollama.invalid"}),
+			want:  modelUnreachableMessage,
+			frame: "Nothing is listening",
+		},
+		{
+			name:  "provider status",
+			err:   statusErr,
+			want:  modelRejectedMessage,
+			frame: "rejected the request",
+		},
+		{
+			name:  "unclassified",
+			err:   errors.New("something else went wrong: " + secretBody),
+			want:  modelUnavailableMessage,
+			frame: "provider is unavailable",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := &recordingHandler{}
+			policy := newPolicy(t, Config{Logger: slog.New(handler)})
+			response, err := policy.HandleModelError(newContext(), nil, test.err)
+			if err != nil || response == nil {
+				t.Fatalf("HandleModelError() = %v, %v, want a response and no error", response, err)
+			}
+			if response.ErrorCode != modelUnavailableCode {
+				t.Errorf("ErrorCode = %q, want %q", response.ErrorCode, modelUnavailableCode)
+			}
+			if response.ErrorMessage != test.want {
+				t.Errorf("ErrorMessage = %q, want %q", response.ErrorMessage, test.want)
+			}
+			text := response.Content.Parts[0].Text
+			if !strings.Contains(text, test.frame) {
+				t.Errorf("response text = %q, want it to mention %q", text, test.frame)
+			}
+			rendered := handler.rendered() + text
+			for _, leaked := range []string{"restart inventory-api", "sk-live-secret", "10.1.2.3", "11434", "ollama.invalid"} {
+				if strings.Contains(rendered, leaked) {
+					t.Errorf("the provider body leaked %q into the caller or the log:\n%s", leaked, rendered)
+				}
+			}
+			if !strings.Contains(handler.rendered(), "error_type=") {
+				t.Errorf("the log does not carry the provider failure type:\n%s", handler.rendered())
+			}
+		})
+	}
+}
+
+// fakeStatusError stands in for a provider error carrying an HTTP status. ADK
+// wraps statuses per provider, so the shared signal is the StatusCode method.
+type fakeStatusError struct {
+	message string
+	code    int
+}
+
+func (e *fakeStatusError) Error() string   { return e.message }
+func (e *fakeStatusError) StatusCode() int { return e.code }
 
 func TestPolicyResolvesTheDefaultLoggerWhenItEmits(t *testing.T) {
 	previous := slog.Default()

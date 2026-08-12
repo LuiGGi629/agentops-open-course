@@ -35,6 +35,10 @@ type AgentProcessConfig struct {
 	ShutdownTimeout time.Duration
 }
 
+// adkAPIBasePath is where ADK's `web … api` mounts every REST route. It is one
+// constant because the process and container runtimes must not disagree about it.
+const adkAPIBasePath = "/api"
+
 type AgentProcess struct {
 	closeErr        error
 	command         *exec.Cmd
@@ -59,9 +63,15 @@ func StartAgentProcess(ctx context.Context, config AgentProcessConfig) (*AgentPr
 	}
 	arguments := []string{"a2a"}
 	readinessPath := "/healthz"
+	// ADK's `web … api` mounts every REST route under /api — its own startup banner
+	// says so — while the A2A server serves /healthz at the root. Without this
+	// prefix the readiness probe and every later request 404 against a server that
+	// is running perfectly, which reads as a startup timeout.
+	basePath := ""
 	if config.Transport == "rest" {
 		arguments = []string{"web", "-port", strconv.Itoa(config.Port), "api"}
 		readinessPath = "/list-apps"
+		basePath = adkAPIBasePath
 	}
 	command := exec.Command(config.Binary, arguments...)
 	command.Env = processEnvironment(config)
@@ -73,7 +83,7 @@ func StartAgentProcess(ctx context.Context, config AgentProcessConfig) (*AgentPr
 	process := &AgentProcess{
 		command:         command,
 		done:            make(chan error, 1),
-		baseURL:         "http://127.0.0.1:" + strconv.Itoa(config.Port),
+		baseURL:         "http://127.0.0.1:" + strconv.Itoa(config.Port) + basePath,
 		shutdownTimeout: config.ShutdownTimeout,
 	}
 	go func() {

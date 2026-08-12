@@ -24,8 +24,10 @@ coverage.out
 .hugo_build.lock
 /.cache/
 
-# Scratch. Agent working material stays local: prompts under .agents/prompts/ are the
-# tracked work orders, while reports and temporary trees are per-session output.
+# Scratch. All agent working material stays local and none of it is tracked: reports and
+# temporary trees are per-session output, and .agents/prompts/ — where the work orders live
+# — is excluded by a contributor's global ignore rather than by this file. Git is therefore
+# not a backup for a work order; copy one somewhere durable before you rely on it.
 .agents/reports/
 .agents/tmp/
 tmp/
@@ -48,6 +50,9 @@ tmp/
 # Chapter 6.9's two-replica exercise runs each agent from its own state directory;
 # a learner who stops halfway should not be left with untracked files to explain.
 **/.state-[a-z]/
+# Chapter 5's config-authoring exercise: the learner writes this file from scratch
+# and it is deliberately outside every profile contract in scripts/check-infra.sh.
+infra/agentgateway/lab/
 evals/results.json
 evals/*-results.json
 evals/*-comparison.json

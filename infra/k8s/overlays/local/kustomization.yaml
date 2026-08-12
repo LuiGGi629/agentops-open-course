@@ -24,15 +24,9 @@ configMapGenerator:
       - alertmanager.yml=alertmanager-config.yaml
 
 patches:
-  - target:
-      group: kagent.dev
-      version: v1alpha2
-      kind: ModelConfig
-      name: agentgateway
-    patch: |-
-      - op: replace
-        path: /spec/model
-        value: qwen3:4b-instruct
+  # No ModelConfig patch here: the base already declares qwen3:4b-instruct, and the
+  # replacements block below carries that base value into AGENT_MODEL. The GKE
+  # overlay owns the override, because it is the one that changes the model.
   # Host Ollama exception: host.k3d.internal resolves to the Docker bridge
   # gateway outside any pod/namespace selector, so the rule must be IP-based.
   # It stays scoped to the Ollama port instead of pinning a bridge CIDR that
