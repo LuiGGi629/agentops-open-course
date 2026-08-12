@@ -56,21 +56,41 @@ spec:
           # database through a read-only integrity/schema probe, not merely
           # that a port is open. Startup covers slow first boot so liveness can
           # stay tight.
+          #
+          # Every probe sets Host explicitly, and it is not optional. The kubelet
+          # dials a pod by its address, so an unset Host arrives as `<podIP>:8000`
+          # — and the MCP server's DNS-rebinding guard refuses any authority not
+          # on MCP_ALLOWED_HOSTS with 421, probes included and on purpose (see
+          # Server.guardAuthority: a probe that answered on any authority would
+          # confirm to an attacker's page that this server exists and is healthy).
+          # A pod IP cannot be allowlisted in advance, so the probe names an
+          # authority that can be: the Service FQDN already on the list. Without
+          # these three headers every probe fails 421 and the container restarts
+          # forever, on any cluster.
           startupProbe:
             httpGet:
               path: /livez
               port: mcp
+              httpHeaders:
+                - name: Host
+                  value: agentops-mcp.agentops.svc.cluster.local
             periodSeconds: 2
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /healthz
               port: mcp
+              httpHeaders:
+                - name: Host
+                  value: agentops-mcp.agentops.svc.cluster.local
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /livez
               port: mcp
+              httpHeaders:
+                - name: Host
+                  value: agentops-mcp.agentops.svc.cluster.local
             periodSeconds: 10
           resources:
             requests:
