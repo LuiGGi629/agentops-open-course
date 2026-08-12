@@ -101,6 +101,15 @@ routes:
           fillInterval: 60s
           type: tokens
       ai:
+        # Same override, and for the same reason, as the host profile: the client
+        # route type is what agentgateway parses the body with, and without it the
+        # listener assumes chat-completions and answers every agent request with
+        # 503 "missing field `messages`". ADK Go's openaimodel has no
+        # chat-completions code path, so the agent speaks only /v1/responses. The
+        # guards below depend on this too — they would otherwise inspect a shape
+        # that never arrives.
+        routes:
+          /v1/responses: responses
         promptGuard:
           request:
             - regex:
