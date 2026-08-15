@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/courseevidence"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/courseevidence"
 )
 
 func main() {

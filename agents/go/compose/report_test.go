@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // validReport is the payload the Python suite uses, built from the vocabulary

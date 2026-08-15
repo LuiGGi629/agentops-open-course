@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/evals"
+	"github.com/MLOps-Courses/agentops-open-course/evals"
 )
 
 func TestCompareCommandRequiresExplicitArtifacts(t *testing.T) {

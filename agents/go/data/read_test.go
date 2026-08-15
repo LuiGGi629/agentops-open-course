@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // incidentIDs renders a listing as its identifiers, which is what the ordering

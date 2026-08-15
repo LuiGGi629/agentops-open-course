@@ -11,13 +11,13 @@ import (
 
 	"google.golang.org/adk/v2/plugin"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/mcpserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/piiwebhook"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/mcpserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/piiwebhook"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/state"
 )
 
 // serveA2A runs the deployed Agent2Agent contract until the context is

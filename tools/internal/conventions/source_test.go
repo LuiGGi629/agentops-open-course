@@ -559,18 +559,25 @@ func TestCheckDocumentedGoPackagesUsesTheBlockWorkingDirectory(t *testing.T) {
 	}
 }
 
-func TestCheckNoPagesDeploymentRejectsPagesActionsAndAuthority(t *testing.T) {
+func TestCheckPagesDeploymentPinsAuthorityToOneJob(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, ".github", "workflows", "ci.yml")
+	path := filepath.Join(root, ".github", "workflows", "docs.yml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	pages := `jobs:
+
+	// The conventional shape: a build job that only prepares the artifact, and one
+	// deploy job that holds the environment. This is what the repository ships.
+	canonical := `jobs:
   build:
+    permissions:
+      contents: read
     steps:
+      - run: mise run check:docs
       - uses: actions/configure-pages@0123456789abcdef
       - uses: actions/upload-pages-artifact@0123456789abcdef
   deploy:
+    needs: build
     permissions:
       pages: write
       id-token: write
@@ -579,31 +586,44 @@ func TestCheckNoPagesDeploymentRejectsPagesActionsAndAuthority(t *testing.T) {
     steps:
       - uses: actions/deploy-pages@0123456789abcdef
 `
-	if err := os.WriteFile(path, []byte(pages), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(canonical), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	messages := problemMessages(checkNoPagesDeployment(root))
-	for _, want := range []string{"build", "deploy", "Pages deployment"} {
-		if !strings.Contains(messages, want) {
-			t.Errorf("Pages deployment problems = %s, want %q", messages, want)
-		}
+	if problems := checkPagesDeployment(root); len(problems) != 0 {
+		t.Fatalf("canonical Pages workflow problems = %#v", problems)
 	}
 
-	validationOnly := `jobs:
-  build:
-    permissions:
-      contents: read
-    steps:
-      - run: mise run check:docs
-  accessibility:
-    steps:
-      - run: mise run check:accessibility
-`
-	if err := os.WriteFile(path, []byte(validationOnly), 0o600); err != nil {
+	// No deployer at all: the site would silently freeze on its last good build, which
+	// is the failure this check exists to make loud.
+	if err := os.WriteFile(path, []byte("jobs:\n  build:\n    steps:\n      - run: mise run check:docs\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if problems := checkNoPagesDeployment(root); len(problems) != 0 {
-		t.Fatalf("validation-only docs workflow problems = %#v", problems)
+	if messages := problemMessages(checkPagesDeployment(root)); !strings.Contains(messages, "no job holds Pages deployment authority") {
+		t.Errorf("missing-deployer problems = %s", messages)
+	}
+
+	// Two deployers race each other for the same environment.
+	split := canonical + `  deploy-again:
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/deploy-pages@0123456789abcdef
+`
+	if err := os.WriteFile(path, []byte(split), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if messages := problemMessages(checkPagesDeployment(root)); !strings.Contains(messages, "split across") {
+		t.Errorf("split-authority problems = %s", messages)
+	}
+
+	// The ruleset requires a check named `deploy`; a renamed job would satisfy CI while
+	// the required status check never reports.
+	renamed := strings.Replace(canonical, "  deploy:\n", "  publish:\n", 1)
+	if err := os.WriteFile(path, []byte(renamed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if messages := problemMessages(checkPagesDeployment(root)); !strings.Contains(messages, "must be named") {
+		t.Errorf("renamed-job problems = %s", messages)
 	}
 }
 
@@ -760,7 +780,7 @@ func TestCheckDerivedFiguresRejectsAlertInventoryDrift(t *testing.T) {
 }
 
 func TestCheckRepositorySlug(t *testing.T) {
-	retired := "https://github.com/" + retiredRepositorySlug
+	stale := "https://github.com/" + staleRepositorySlug
 	current := "https://github.com/" + RepositorySlug
 	tests := []struct {
 		name    string
@@ -781,27 +801,28 @@ func TestCheckRepositorySlug(t *testing.T) {
 			accepts: true,
 		},
 		{
-			name:  "retired slug",
-			files: map[string]string{"hugo.toml": "url = \"" + retired + "\"\n"},
-			want:  "names the retired repository",
+			name:  "staging slug",
+			files: map[string]string{"hugo.toml": "url = \"" + stale + "\"\n"},
+			want:  "names the staging repository",
 		},
 		{
-			// The same reasoning in the other direction: a lowercase copy of the retired
+			// The same reasoning in the other direction: a lowercase copy of the staging
 			// slug resolves to the same dead repository, so it is the same dead link.
-			name:  "retired slug in lowercase",
-			files: map[string]string{"hugo.toml": "url = \"" + strings.ToLower(retired) + "\"\n"},
-			want:  "names the retired repository",
+			name:  "staging slug in lowercase",
+			files: map[string]string{"hugo.toml": "url = \"" + strings.ToLower(stale) + "\"\n"},
+			want:  "names the staging repository",
 		},
 		{
-			name:  "history keeps the retired slug",
-			files: map[string]string{"CHANGELOG.md": retired + "\n"},
-			// The changelog records what the repository was called at the time.
-			accepts: true,
+			// The changelog is no longer exempt. The staging repository was never created,
+			// so a link to it in the release history is as dead as one in the course.
+			name:  "the changelog does not get to keep the staging slug",
+			files: map[string]string{"CHANGELOG.md": stale + "\n"},
+			want:  "names the staging repository",
 		},
 		{
-			name:    "history keeps the retired slug in any casing",
-			files:   map[string]string{"CHANGELOG.md": strings.ToLower(retired) + "\n"},
-			accepts: true,
+			name:  "the changelog does not get to keep it in any casing",
+			files: map[string]string{"CHANGELOG.md": strings.ToLower(stale) + "\n"},
+			want:  "names the staging repository",
 		},
 		{
 			name: "runbook pointing at a page that does not exist",

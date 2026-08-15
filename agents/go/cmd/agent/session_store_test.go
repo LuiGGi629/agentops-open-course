@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // postgresTestDSN carries a password on purpose. Every assertion below reads it

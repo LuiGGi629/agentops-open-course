@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/staticserver"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/staticserver"
 )
 
 func main() {

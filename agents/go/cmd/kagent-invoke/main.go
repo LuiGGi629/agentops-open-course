@@ -19,9 +19,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 	adktelemetry "google.golang.org/adk/v2/telemetry"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/kagentinterop"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/kagentinterop"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
 )
 
 const (

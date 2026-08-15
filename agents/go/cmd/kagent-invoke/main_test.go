@@ -8,9 +8,9 @@ import (
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/kagentinterop"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/kagentinterop"
 )
 
 type fakeInvoker struct {

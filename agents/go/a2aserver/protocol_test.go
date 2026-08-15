@@ -23,11 +23,11 @@ import (
 	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
-	agenttools "github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
+	agenttools "github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // The native a2a-go wire contract, exercised over net/http/httptest against the

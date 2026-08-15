@@ -99,7 +99,7 @@ tests:
             exp_annotations:
               summary: Agent span p95 latency exceeds 15s
               description: The 95th percentile span duration stayed above 15s for 5 minutes. Check for model reloads, CPU contention, or oversized contexts.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
       # A full [10m] window after recovery, so the slow turns have aged out.
       - eval_time: 145m
         alertname: AgentTurnLatencyP95High

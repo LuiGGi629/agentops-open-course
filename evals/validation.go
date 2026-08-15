@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const forbiddenAgentImportPrefix = "github.com/MLOps-Courses/agentops-open-course-go/agents/go"
+const forbiddenAgentImportPrefix = "github.com/MLOps-Courses/agentops-open-course/agents/go"
 
 type AssetPaths struct {
 	ModuleDir   string

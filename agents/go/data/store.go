@@ -23,7 +23,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/safefile"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/safefile"
 )
 
 // databaseName is the file name the committed seed and its runtime copy share.

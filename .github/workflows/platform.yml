@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Guard forks and mirrors: a 60-minute cluster acceptance run only makes
     # sense on the canonical repository. Elsewhere the job is skipped, not failed.
-    if: github.repository == 'MLOps-Courses/agentops-open-course-go'
+    if: github.repository == 'MLOps-Courses/agentops-open-course'
     timeout-minutes: 60
     env:
       BACKUP_EVIDENCE_MARKER: platform-backup-canary

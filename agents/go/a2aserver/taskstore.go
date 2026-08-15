@@ -15,7 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // TaskDatabaseName is the A2A task store file inside AGENT_STATE_DIR.

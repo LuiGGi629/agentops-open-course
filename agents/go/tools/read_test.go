@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/adk/v2/agent"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // seededIncidents is the floor the committed dataset guarantees. The suite

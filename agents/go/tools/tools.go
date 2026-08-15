@@ -37,8 +37,8 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // The names the model calls, and the names everything else keys on: the

@@ -27,7 +27,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/courseevidence"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/courseevidence"
 )
 
 // Tier is the capstone tier a holder claims. It is a closed set because a free

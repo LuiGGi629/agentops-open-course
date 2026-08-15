@@ -12,8 +12,8 @@ import (
 	adkmodel "google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/plugin"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/principal"
 )
 
 // The trusted identity contract. Two things depend on the value reaching the

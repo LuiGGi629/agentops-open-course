@@ -86,7 +86,7 @@ var corpusChecks = []namedCheck{
 	docsCheck("nested mise trust", pagesOnly(checkNestedMiseTrust)),
 	docsCheck("Hugo extended tool", rootOnly(checkHugoExtendedTool)),
 	docsCheck("local action checkouts", rootOnly(checkLocalActionCheckouts)),
-	docsCheck("no Pages deployment", rootOnly(checkNoPagesDeployment)),
+	docsCheck("Pages deployment", rootOnly(checkPagesDeployment)),
 	docsCheck("workflow shell expressions", rootOnly(checkWorkflowShellExpressions)),
 	copiedSourceCheck("task expansions", "task expansions", checkTaskExpansions),
 	docsCheck("eval thresholds", checkEvalThresholds),

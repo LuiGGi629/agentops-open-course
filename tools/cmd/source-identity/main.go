@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/sourceidentity"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/sourceidentity"
 )
 
 func main() {

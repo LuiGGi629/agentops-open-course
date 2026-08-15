@@ -8,7 +8,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/piiwebhook"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/piiwebhook"
 )
 
 // health is the body both probes return.

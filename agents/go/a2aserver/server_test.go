@@ -14,9 +14,9 @@ import (
 
 	"google.golang.org/adk/v2/session"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // TestStartupRunsRecoveryBeforePreflightAndPublication pins the course

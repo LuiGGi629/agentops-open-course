@@ -19,7 +19,7 @@ import (
 	"google.golang.org/adk/v2/model/openaimodel"
 	"google.golang.org/genai"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/httpguard"
 )
 
 const (

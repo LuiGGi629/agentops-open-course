@@ -10,7 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"google.golang.org/genai"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // TestTriageReportSchemaDescribesEveryPayloadField pins the derivation: the

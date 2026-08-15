@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // Command is the subcommand name the agent binary dispatches to [Main].

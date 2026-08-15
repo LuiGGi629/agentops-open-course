@@ -18,7 +18,7 @@ import (
 	"google.golang.org/adk/v2/session/database"
 	gormpostgres "gorm.io/driver/postgres"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // envIntegrationDSN names a throwaway PostgreSQL database for the one test that

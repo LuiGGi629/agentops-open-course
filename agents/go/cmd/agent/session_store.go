@@ -18,8 +18,8 @@ import (
 	"google.golang.org/adk/v2/session/database"
 	"gorm.io/driver/postgres"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // postgresDriverName is the database/sql name that pgx/v5's stdlib shim

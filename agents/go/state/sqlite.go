@@ -19,7 +19,7 @@ import (
 	// implementation and no cgo.
 	_ "github.com/glebarez/go-sqlite"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // sqliteDriver is the database/sql name github.com/glebarez/go-sqlite registers.

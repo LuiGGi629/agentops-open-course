@@ -33,7 +33,7 @@ description = "Sort imports and format with goimports and gofumpt"
 # Flags mirror .golangci.yml: local-prefixes and extra-rules are format policy,
 # so without them `format` writes a style that `check` then rejects.
 run = [
-  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course-go/agents/go -w .",
+  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course/agents/go -w .",
   "go tool gofumpt -extra -w .",
 ]
 
@@ -126,7 +126,7 @@ if [ -n "${AGENT_SOURCE_COMMIT:-}" ] && [ "$AGENT_SOURCE_COMMIT" != "$source_ide
   exit 1
 fi
 created="$(git -C ../.. show -s --format=%cI HEAD)"
-buildinfo=github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo
+buildinfo=github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo
 ldflags="-s -w \
   -X ${buildinfo}.buildMode=${build_mode} \
   -X ${buildinfo}.version=${build_version} \

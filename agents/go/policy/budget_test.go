@@ -11,7 +11,7 @@ import (
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // This file is the Go port of tests/test_budget.py.

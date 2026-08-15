@@ -24,7 +24,7 @@ check_repository_licenses() {
 
 	test -f LICENSE
 	test -f static/LICENSE.txt
-	for software_license in agents/LICENSE clients/LICENSE infra/LICENSE load/LICENSE; do
+	for software_license in agents/LICENSE clients/LICENSE evals/LICENSE infra/LICENSE load/LICENSE tools/LICENSE; do
 		if ! cmp -s LICENSE "${software_license}"; then
 			printf '%s: software license differs from the root MIT license\n' "${software_license}" >&2
 			return 1

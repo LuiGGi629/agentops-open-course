@@ -255,14 +255,29 @@ func CheckRendered(root, siteDirectory string) []Problem {
 		return []Problem{problem(filepath.ToSlash(siteDirectory), "rendered site contains no HTML pages")}
 	}
 	var problems []Problem
+	// Alias stubs are Hugo's meta-refresh redirects for the routes the course published
+	// before the Hugo permalink scheme. They are two lines of head and carry no <main>,
+	// no navigation, and no content, so the per-page semantics below do not apply to
+	// them; checkReleasedRoutes is what proves each one exists and points somewhere real.
+	aliasStubs := make(map[string]bool)
 	if sourcePages, loadErr := loadPages(root); loadErr == nil && len(sourcePages) > 0 {
 		problems = append(problems, checkRenderedRoutes(root, siteDirectory, sourcePages)...)
 		problems = append(problems, checkSourceFragments(siteDirectory, sourcePages)...)
+		problems = append(problems, checkReleasedRoutes(root, siteDirectory, sourcePages)...)
+		for _, text := range sourcePages {
+			for _, alias := range frontMatterAliases(text) {
+				absolute, _ := filepath.Abs(filepath.Join(siteDirectory, filepath.FromSlash(alias)))
+				aliasStubs[absolute] = true
+			}
+		}
 	}
 	// Derived from the one place the repository is named, so the edit link and the
 	// slug ban in source.go cannot disagree about which repository this is.
 	editBase := "https://github.com/" + RepositorySlug + "/edit/main/content"
 	for _, path := range pages {
+		if absolute, _ := filepath.Abs(path); aliasStubs[absolute] {
+			continue
+		}
 		where := relative(siteDirectory, path)
 		parsed, parseErr := parseRendered(path)
 		if parseErr != nil {

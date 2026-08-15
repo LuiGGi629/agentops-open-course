@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
 )
 
 // The custom instrument names. They are a published contract, not labels: the

@@ -1,6 +1,6 @@
-module github.com/MLOps-Courses/agentops-open-course-go/agents/go
+module github.com/MLOps-Courses/agentops-open-course/agents/go
 
-go 1.26.5
+go 1.26.6
 
 // --8<-- [start:runtime-dependencies]
 require (

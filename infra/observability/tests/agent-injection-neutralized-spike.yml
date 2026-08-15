@@ -47,7 +47,7 @@ tests:
             exp_annotations:
               summary: Guardrails neutralized an unusual number of injections
               description: More than 3 injection markers were neutralized in tool output within 15 minutes. Inspect the offending traces and the incident seed data feeding the tools.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
       # The probe stopped at minute 61 and the whole [15m] window is quiet
       # again, so the ticket clears without anyone touching the counter.
       - eval_time: 80m

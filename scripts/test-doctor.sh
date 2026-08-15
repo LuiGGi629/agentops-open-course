@@ -69,7 +69,15 @@ case "$*" in
 	;;
 esac
 EOF
-chmod +x "${tmp_dir}/bin/docker" "${tmp_dir}/bin/helm" "${tmp_dir}/bin/gcloud"
+# The GKE auth plugin ships with the Cloud SDK, not with this repository, so a host
+# without it would otherwise fail this test rather than the GCP path it is meant to
+# exercise. doctor.sh only probes for the binary's presence, so an exit-0 stub is a
+# faithful stand-in and keeps the pre-push gate hermetic.
+cat >"${tmp_dir}/bin/gke-gcloud-auth-plugin" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "${tmp_dir}/bin/docker" "${tmp_dir}/bin/helm" "${tmp_dir}/bin/gcloud" "${tmp_dir}/bin/gke-gcloud-auth-plugin"
 export FAKE_GCLOUD_LOG="${tmp_dir}/gcloud.log"
 
 doctor_path="$(realpath "${doctor}")"

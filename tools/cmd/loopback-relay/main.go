@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/relay"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/relay"
 )
 
 type ports []int

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/principal"
 )
 
 func TestNetworkAuthenticationStatesAreExplicit(t *testing.T) {

@@ -26,7 +26,7 @@ source_dirty="$(json_flag '.dirty' "${source_json}")"
 build_timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 readonly source_identity source_revision source_tree_digest source_dirty build_timestamp
 
-buildinfo_package="github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
+buildinfo_package="github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
 link_flags="-X ${buildinfo_package}.buildMode=development \
 -X ${buildinfo_package}.version=development \
 -X ${buildinfo_package}.sourceIdentity=${source_identity} \

@@ -12,7 +12,7 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // Token budgets and per-session cost attribution (Chapter 7.3).

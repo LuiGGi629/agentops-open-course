@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/accessibility"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/accessibility"
 )
 
 const acceptanceTimeout = 2 * time.Minute

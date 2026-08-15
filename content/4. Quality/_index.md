@@ -2,6 +2,8 @@
 title: "4. Quality"
 description: "Prove the agent behaves under adversarial pressure: types, linting, tests, metrics, evaluations, guardrails, and security."
 slug: "4-quality"
+aliases:
+  - "/4. Quality/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

@@ -13,9 +13,9 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/httpguard"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // Consume the AgentOps Agent MCP server as a client toolset (Chapter 3.3).
@@ -38,7 +38,7 @@ var ErrMCP = errors.New("building the MCP toolset")
 // never offered to the model at all. The skill toolset applies the same rule,
 // and the infrastructure gate asserts the gateway's allowlist matches this one.
 //
-// It is a function rather than a variable for the reason [github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain.Reference]
+// It is a function rather than a variable for the reason [github.com/MLOps-Courses/agentops-open-course/agents/go/domain.Reference]
 // is: a package-level slice could be reordered or truncated in place by any
 // importer, and an allowlist an importer can edit is not an allowlist.
 func MCPReadToolNames() []string {

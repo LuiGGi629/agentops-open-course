@@ -13,7 +13,7 @@ import (
 
 	adkmodel "google.golang.org/adk/v2/model"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
 )
 
 // Concurrency and shutdown, over the real handler and — for the drain — a real

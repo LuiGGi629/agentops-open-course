@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0] - 2026-08-15
+
+The course is now taught in Go. The complete Python course is preserved on the `python` branch and every URL it published still resolves.
+
+### 🚀 Features
+
+- Rewrite the course, the reference agent, and the evaluation harness in Go on ADK Go
+- _(evals)_ Add a standalone wire-only evaluator that reaches the agent over REST and A2A
+- _(observability)_ Replace MLflow with Grafana Tempo, Loki, and Alertmanager
+- _(content)_ Add streaming, incident run, platform operations, scale out, alerting, cost governance, and a Python-to-Go bridge
+- _(docs)_ Publish with Hugo and Hextra, with dark mode and no external asset hosts
+
+### 🐛 Bug Fixes
+
+- _(docs)_ Preserve all 76 previously published URLs as aliases, gated by a released-URL ledger
+
+### ♻️ Refactor
+
+- _(ci)_ Pin Pages deployment authority to exactly one job
+
 ## [0.7.0] - 2026-08-06
 
 ### 🚀 Features
@@ -163,11 +183,12 @@ All notable changes to this project are documented in this file.
 
 - Publish AgentOps Open Course
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course-go/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.7.0
-[0.6.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.6.0
-[0.5.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.5.0
-[0.3.5]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.3.5
-[0.2.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.2.0
-[0.1.1]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.1.1
-[0.1.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.1.0
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.8.0
+[0.7.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.7.0
+[0.6.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.6.0
+[0.5.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.5.0
+[0.3.5]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.3.5
+[0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
+[0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
+[0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0

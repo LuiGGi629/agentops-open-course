@@ -12,10 +12,10 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/resilience"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/compose"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/resilience"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
 )
 
 // reader is the package's single manual metric reader.

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/conventions"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/conventions"
 )
 
 func main() {

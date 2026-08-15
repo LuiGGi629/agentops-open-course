@@ -58,7 +58,7 @@ const rootInstruction = "You are the AgentOps Agent, an on-call assistant for a 
 // Instruction returns the committed root instruction.
 //
 // It is a function rather than an exported constant so the text has exactly one
-// spelling and callers cannot shadow it, matching how [github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain.Reference]
+// spelling and callers cannot shadow it, matching how [github.com/MLOps-Courses/agentops-open-course/agents/go/domain.Reference]
 // owns the vocabulary.
 func Instruction() string { return rootInstruction }
 

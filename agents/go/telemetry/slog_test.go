@@ -11,7 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
 )
 
 // capture is a slog.Handler that keeps every record it is given, so a test can

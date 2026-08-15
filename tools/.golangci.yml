@@ -16,7 +16,7 @@ formatters:
     gofumpt:
       extra-rules: true
     goimports:
-      local-prefixes: ["github.com/MLOps-Courses/agentops-open-course-go/tools"]
+      local-prefixes: ["github.com/MLOps-Courses/agentops-open-course/tools"]
 linters:
   default: standard
   enable:

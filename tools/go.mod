@@ -1,6 +1,6 @@
-module github.com/MLOps-Courses/agentops-open-course-go/tools
+module github.com/MLOps-Courses/agentops-open-course/tools
 
-go 1.26.5
+go 1.26.6
 
 tool (
 	golang.org/x/tools/cmd/goimports

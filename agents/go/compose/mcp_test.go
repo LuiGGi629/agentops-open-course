@@ -15,8 +15,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // TestMCPAllowlistMatchesTheLocalReadSurface is the anti-drift assertion.

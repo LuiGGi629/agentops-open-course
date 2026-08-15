@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/httpguard"
 )
 
 // The two Ollama endpoints this package speaks. /api/embed produces the

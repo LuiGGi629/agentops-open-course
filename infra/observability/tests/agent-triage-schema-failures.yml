@@ -51,7 +51,7 @@ tests:
             exp_annotations:
               summary: Triage reports are failing schema validation
               description: At least one triage report failed schema validation after retry in the last 15 minutes. Re-run the offline evaluation and check the pinned model and prompt.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
       # A full [15m] window with no further failure clears the ticket.
       - eval_time: 50m
         alertname: AgentTriageSchemaFailures

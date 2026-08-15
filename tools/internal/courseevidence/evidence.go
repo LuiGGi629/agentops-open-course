@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/sourceidentity"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/sourceidentity"
 )
 
 const (
 	formatVersion = 2
-	courseID      = "MLOps-Courses/agentops-open-course-go"
+	courseID      = "MLOps-Courses/agentops-open-course"
 	claim         = "deterministic offline course gates at the recorded source revision"
 )
 

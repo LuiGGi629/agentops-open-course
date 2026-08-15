@@ -27,17 +27,17 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/mcpserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/memory"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/resilience"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
-	agenttools "github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/compose"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/mcpserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/memory"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/resilience"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/state"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
+	agenttools "github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 type failingSubLauncher struct{ failure error }

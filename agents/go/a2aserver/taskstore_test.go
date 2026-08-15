@@ -12,7 +12,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/a2aserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/a2aserver"
 )
 
 // The G-4 contract. a2a-go ships no reusable conformance suite — its own store

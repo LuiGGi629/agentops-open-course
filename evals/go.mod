@@ -1,6 +1,6 @@
-module github.com/MLOps-Courses/agentops-open-course-go/evals
+module github.com/MLOps-Courses/agentops-open-course/evals
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0

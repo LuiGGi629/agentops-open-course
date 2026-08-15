@@ -2,6 +2,8 @@
 title: "7. Observability"
 description: "Gain insight into the agent in production: reproducibility, tracing, monitoring, alerting, cost, feedback, online evaluation, governance, and incident response."
 slug: "7-observability"
+aliases:
+  - "/7. Observability/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

@@ -47,7 +47,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
 )
 
 // ScopeName is the OpenTelemetry instrumentation scope every signal this agent

@@ -10,8 +10,8 @@ import (
 
 	"google.golang.org/adk/v2/agent"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
 )
 
 // This file is the Go port of tests/test_longterm.py: the durable, per-user

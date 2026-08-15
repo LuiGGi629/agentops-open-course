@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
 )
 
 // This file covers the package's own wiring: what [New] refuses, and what a

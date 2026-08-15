@@ -2,6 +2,8 @@
 title: "1. Setup"
 description: Take a clean clone to a green offline suite and a local model, installing each heavier dependency only on the page that actually needs it.
 slug: "1-setup"
+aliases:
+  - "/1. Setup/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

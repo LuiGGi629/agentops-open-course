@@ -21,4 +21,4 @@ tests:
             exp_annotations:
               summary: Prometheus cannot scrape the OpenTelemetry Collector
               description: The otel-collector scrape target has been down for 2 minutes. All traces, metrics, and logs are being dropped in the meantime.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising

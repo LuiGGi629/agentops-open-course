@@ -141,7 +141,7 @@ jobs:
   freshness-report:
     if: >-
       (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 7 1 1,4,7,10 *') &&
-      github.repository == 'MLOps-Courses/agentops-open-course-go'
+      github.repository == 'MLOps-Courses/agentops-open-course'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -201,7 +201,7 @@ jobs:
   # reads upstream releases stays read-only.
   freshness-issue:
     needs: freshness-report
-    if: needs.freshness-report.result == 'success' && github.repository == 'MLOps-Courses/agentops-open-course-go'
+    if: needs.freshness-report.result == 'success' && github.repository == 'MLOps-Courses/agentops-open-course'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

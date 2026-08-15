@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // SessionDatabaseName is ADK's session store inside AGENT_STATE_DIR. It shares

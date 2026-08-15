@@ -10,7 +10,7 @@ import (
 
 	adkmodel "google.golang.org/adk/v2/model"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // TestModelNamesDoNotResolveThroughTheADKRegistry pins the finding that decides

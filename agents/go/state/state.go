@@ -56,7 +56,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/safefile"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/safefile"
 )
 
 // SnapshotFormatVersion is the on-disk snapshot format this binary writes and

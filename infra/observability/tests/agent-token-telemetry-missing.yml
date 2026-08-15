@@ -42,7 +42,7 @@ tests:
             exp_annotations:
               summary: Spans are flowing but no token counters are recorded
               description: Agent spans were observed in the last 15m without any agentops_tokens_token_total increase. The token budget callback or the OTLP metrics pipeline is likely broken.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
       # The pipeline is fixed at minute 121 and the ticket clears itself.
       - eval_time: 140m
         alertname: AgentTokenTelemetryMissing

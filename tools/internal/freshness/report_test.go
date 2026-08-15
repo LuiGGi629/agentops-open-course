@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/conventions"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/conventions"
 )
 
 type fakeFetcher struct{}

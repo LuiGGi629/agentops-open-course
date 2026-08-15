@@ -212,7 +212,7 @@ func checkHandsOnAction(where, text string) []Problem {
 // exerciseOpeners are the three ways this course starts an exercise: a headed
 // "## Your turn:" section, and the two inline forms for exercises deliberately kept
 // out of the sidebar because they are optional. Each inline form is listed both bare
-// and bolded, so emphasising a label can never silently remove its block from checking.
+// and bolded, so emphasizing a label can never silently remove its block from checking.
 var exerciseOpeners = []string{
 	"## Your turn:",
 	"Exercise:", "**Exercise:**",

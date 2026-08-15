@@ -2,6 +2,8 @@
 title: "8. Community"
 description: Complete the capstone, then use the optional maintenance references when you publish or sustain an open-source agent project.
 slug: "8-community"
+aliases:
+  - "/8. Community/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

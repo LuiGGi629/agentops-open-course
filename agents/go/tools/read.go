@@ -10,8 +10,8 @@ import (
 
 	"google.golang.org/adk/v2/agent"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // The bounds of one log search. The lower bound is what makes limit=0 a

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
 )
 
 // manifestEntry is one validated database record from a snapshot manifest.

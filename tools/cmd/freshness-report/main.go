@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/freshness"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/freshness"
 )
 
 func main() {

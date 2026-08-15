@@ -2,6 +2,8 @@
 title: "5. Gateway"
 description: Route and govern the agent's MCP, A2A, and model traffic through a local-first agentgateway data plane.
 slug: "5-gateway"
+aliases:
+  - "/5. Gateway/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

@@ -13,10 +13,10 @@ import (
 	adktool "google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/mcpserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/compose"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/mcpserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // repositoryDataset is the committed dataset, relative to this package. Every

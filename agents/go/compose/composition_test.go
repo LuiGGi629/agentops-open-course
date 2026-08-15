@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/adk/v2/tool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // TestRootInstructionPromptContract pins behavior rather than migration parity.

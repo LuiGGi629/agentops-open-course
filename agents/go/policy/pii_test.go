@@ -8,7 +8,7 @@ import (
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
 )
 
 // These tests pin the always-on deterministic floor. Named-entity behavior is

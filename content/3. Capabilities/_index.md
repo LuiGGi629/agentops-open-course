@@ -2,6 +2,8 @@
 title: "3. Capabilities"
 description: Grow the agent from one grounded read into tools, skills, MCP, retrieval, bounded workflows, A2A, and least-privilege delegation.
 slug: "3-capabilities"
+aliases:
+  - "/3. Capabilities/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

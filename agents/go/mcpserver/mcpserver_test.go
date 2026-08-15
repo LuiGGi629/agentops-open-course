@@ -11,9 +11,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	adktool "google.golang.org/adk/v2/tool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/mcpserver"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/compose"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/mcpserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // TestServerExposesExactlyTheAllowlistedReadTools is the port of the Python

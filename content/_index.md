@@ -1,6 +1,8 @@
 ---
 title: "AgentOps Open Course"
 description: Build, evaluate, secure, deploy, and operate one production-shaped AI agent with an open-source AgentOps stack.
+aliases:
+  - "/index.html"
 ---
 
 **AgentOps** is the practice of building, evaluating, securing, deploying, and operating AI agents as production software. It exists because a model that can call your functions may take a different route on the same input and change real state: a clean build and a good demo stop proving the system works. This course teaches it through one finished reference, the **AgentOps Agent**, which you inspect and run in every chapter, from its first local model call to an observable Kubernetes workload, before a capstone replaces its domain with your own.
@@ -36,8 +38,8 @@ You need [mise](https://mise.jdx.dev/), the task runner and tool-version manager
 This shortest path omits the five `mise trust` commands, `mise run doctor`, `mise run check:core`, and `mise run test`. Use the guarded sequence in [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}) when any command fails or before trusting the checkout. {{% /admonition %}}
 
 ```bash
-git clone https://github.com/MLOps-Courses/agentops-open-course-go.git
-cd agentops-open-course-go
+git clone https://github.com/MLOps-Courses/agentops-open-course.git
+cd agentops-open-course
 mise run install
 ollama pull qwen3:4b-instruct
 cd agents/go
@@ -133,4 +135,4 @@ Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertm
 
 Start at [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), or at the later stage your setup already matches. Every chapter ends with a checkpoint, and Chapters 5-7 add explicit verification and teardown steps, because those stages leave processes and clusters running once you stop reading. Finish by adapting the reference through [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}).
 
-The source repository is public at [MLOps-Courses/agentops-open-course-go](https://github.com/MLOps-Courses/agentops-open-course-go). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.
+The source repository is public at [MLOps-Courses/agentops-open-course](https://github.com/MLOps-Courses/agentops-open-course). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.

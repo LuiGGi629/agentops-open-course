@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/mcpserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/mcpserver"
 )
 
 // TestTransportDefaultsToStdio is the port of test_mcp_main_runs_stdio_transport.

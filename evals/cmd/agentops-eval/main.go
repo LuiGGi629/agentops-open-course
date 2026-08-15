@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/evals"
+	"github.com/MLOps-Courses/agentops-open-course/evals"
 )
 
 const usage = `agentops-eval validates assets and runs black-box agent evaluations.

@@ -29,8 +29,8 @@ import (
 	// the production connection could not contradict it.
 	_ "github.com/glebarez/go-sqlite"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // repositoryDataset is the committed dataset, relative to this package. Every

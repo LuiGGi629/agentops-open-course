@@ -24,7 +24,7 @@ depends = ["format:go"]
 [tasks."format:go"]
 description = "Sort imports and format Go sources"
 run = [
-  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course-go/tools -w .",
+  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course/tools -w .",
   "go tool gofumpt -extra -w .",
 ]
 

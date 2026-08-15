@@ -1,10 +1,14 @@
 # AgentOps Open Course
 
+[![CI](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/ci.yml) [![Docs](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/docs.yml) [![Security](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml/badge.svg)](https://github.com/MLOps-Courses/agentops-open-course/actions/workflows/scan.yml) [![GitHub stars](https://img.shields.io/github/stars/MLOps-Courses/agentops-open-course?style=flat)](https://github.com/MLOps-Courses/agentops-open-course/stargazers) [![Course license: CC BY 4.0](https://img.shields.io/badge/course-CC_BY_4.0-blue.svg)](./static/LICENSE.txt) [![Software license: MIT](https://img.shields.io/badge/software-MIT-green.svg)](./LICENSE)
+
 Learn the complete lifecycle of a production-shaped AI agent in Go: build it with Google ADK, govern traffic with agentgateway, run it with kagent, and collect OpenTelemetry traces, logs, metrics, and evaluation evidence.
 
 It is the only end-to-end open-source AgentOps curriculum a search on 11 August 2026 turned up: one application taken from a first local model call to a monitored Kubernetes workload with no SaaS, no cloud account, and no fee on the required path. [0.0. Course](./content/0.%20Overview/0.0.%20Course.md) compares it row by row against six adjacent courses and states what each of them does better; that claim is the result of a search, not a proof, and a correction is a welcome issue.
 
-This checkout is a complete local reference and Hugo evaluation build. It is not published from this repository; release, repository identity, DNS, and documentation publication remain owner-gated.
+The course is published from this repository to <https://agentops-open-course.fmind.dev/> by `.github/workflows/docs.yml`. Every URL the course has ever served still resolves: `data/released-urls.json` records them and the build fails if one loses its redirect.
+
+**[Read the course](https://agentops-open-course.fmind.dev/)** | **[Start locally](#local-quickstart)** | **[Build your capstone](https://agentops-open-course.fmind.dev/8-community/8-7-capstone/)** | **[Contribute](./CONTRIBUTING.md)**
 
 ## What makes the course practical?
 
@@ -23,7 +27,7 @@ The required path is open source and uses open-weight model artifacts. Gemini, V
 
 The defensible difference is scope: one Go application and one wire-only Go evaluator cover typed tools, safety, gateway policy, Kubernetes, recovery, telemetry, and release evidence without requiring hosted evaluation. Adjacent courses go deeper than this one on framework breadth, hosted evaluation loops, and the internals of individual projects, and the comparison table in [0.0. Course](./content/0.%20Overview/0.0.%20Course.md) names which.
 
-If Python is where your team prototypes, the sibling [AgentOps Open Course](https://agentops-open-course.fmind.dev/) teaches the same lifecycle in Python, and [8.8. From Python](./content/8.%20Community/8.8.%20From%20Python.md) maps LangGraph and Python-agent concepts onto their Go equivalents here.
+This course was taught in Python through v0.7.0. That version is archived, complete and readable, on the [`python` branch](https://github.com/MLOps-Courses/agentops-open-course/tree/python), and [8.8. From Python](./content/8.%20Community/8.8.%20From%20Python.md) maps LangGraph and Python-agent concepts onto their Go equivalents here.
 
 ## What will you build?
 
@@ -65,8 +69,8 @@ flowchart LR
 You need a Unix-like shell, Git, a C compiler, and [mise](https://mise.jdx.dev/). Clone the repository first:
 
 ```bash
-git clone https://github.com/MLOps-Courses/agentops-open-course-go.git
-cd agentops-open-course-go
+git clone https://github.com/MLOps-Courses/agentops-open-course.git
+cd agentops-open-course
 ```
 
 Install and activate mise, then run the model-free gates:
@@ -212,4 +216,4 @@ This checkout does not publish the site. A successful local build proves renderi
 
 The top-level [`skills/`](./skills/) directory packages telemetry, guardrails, resilience, token budgets, least privilege, evaluation, and incident-response patterns in the portable Agent Skills format.
 
-Course prose is [CC BY 4.0](./static/LICENSE.txt); software and repository automation are [MIT](./LICENSE). Read [SUPPORT.md](./SUPPORT.md), [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), and [SECURITY.md](./SECURITY.md) before proposing a change.
+Course prose is [CC BY 4.0](./static/LICENSE.txt); software and repository automation are [MIT](./LICENSE). Release history is in [CHANGELOG.md](./CHANGELOG.md) and citation metadata in [CITATION.cff](./CITATION.cff). Read [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md), [SUPPORT.md](./SUPPORT.md), [CONTRIBUTING.md](./CONTRIBUTING.md), [GOVERNANCE.md](./GOVERNANCE.md), [ACCESSIBILITY.md](./ACCESSIBILITY.md), and [SECURITY.md](./SECURITY.md) before proposing a change.

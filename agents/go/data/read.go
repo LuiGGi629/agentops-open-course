@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // RunbooksDir returns the directory holding the runbook knowledge base.

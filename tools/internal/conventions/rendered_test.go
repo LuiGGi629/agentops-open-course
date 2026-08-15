@@ -135,12 +135,32 @@ kind = "section"
 	if problems := checkRenderedRoutes(root, site, pages); len(problems) != 0 {
 		t.Fatalf("valid rendered routes problems = %#v", problems)
 	}
+	// An undeclared rendered page is still unaccounted for: nothing in content/ claims
+	// it, so nothing keeps it correct.
 	legacy := filepath.Join(site, "legacy.html")
 	if err := os.WriteFile(legacy, []byte(renderedRouteFixture("https://example.test/legacy.html")), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if messages := problemMessages(checkRenderedRoutes(root, site, pages)); !strings.Contains(messages, "no source slug authority") {
-		t.Fatalf("legacy alias was accepted: %s", messages)
+	if messages := problemMessages(checkRenderedRoutes(root, site, pages)); !strings.Contains(messages, "neither a source permalink nor a declared alias") {
+		t.Fatalf("undeclared rendered page was accepted: %s", messages)
+	}
+
+	// The same file becomes legitimate the moment a page declares it — that declaration
+	// is what binds the historical route to the page responsible for still serving it.
+	declared := make(pageSet, len(pages))
+	for where, text := range pages {
+		declared[where] = text
+	}
+	for where, text := range declared {
+		if strings.HasSuffix(where, "2.1. First Agent.md") {
+			// The opening delimiter has no newline before it, so this lands on the
+			// closing one and leaves the front matter well formed.
+			declared[where] = strings.Replace(text, "\n---\n", "\naliases:\n  - \"/legacy.html\"\n---\n", 1)
+			break
+		}
+	}
+	if problems := checkRenderedRoutes(root, site, declared); len(problems) != 0 {
+		t.Fatalf("declared alias was rejected: %#v", problems)
 	}
 	if err := os.Remove(legacy); err != nil {
 		t.Fatal(err)

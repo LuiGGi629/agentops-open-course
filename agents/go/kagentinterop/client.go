@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/httpguard"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/httpguard"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/state"
 )
 
 // seedDataDir is the immutable seed data the agent ships beside the module. The

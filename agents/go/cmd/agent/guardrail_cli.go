@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
 )
 
 const guardrailFixtureLimit = 1 << 20

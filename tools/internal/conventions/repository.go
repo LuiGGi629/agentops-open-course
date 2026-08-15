@@ -15,12 +15,14 @@ import (
 
 // RepositorySlug is the one place the published repository is named. The rendered
 // edit link, the runbook annotations, and the site navbar all resolve to it, and
-// checkRepositorySlug rejects the retired Python repository this one replaced.
-const RepositorySlug = "MLOps-Courses/agentops-open-course-go"
+// checkRepositorySlug rejects the staging slug this course was written under.
+const RepositorySlug = "MLOps-Courses/agentops-open-course"
 
-// retiredRepositorySlug is derived rather than spelled, so this file does not itself
-// contain the string the check bans and then flag its own source.
-var retiredRepositorySlug = strings.TrimSuffix(RepositorySlug, "-go")
+// staleRepositorySlug is the address the Go rewrite carried while it lived in its own
+// checkout, before it replaced the Python course at RepositorySlug. That repository was
+// never created, so any surviving reference is a dead link. It is derived rather than
+// spelled so this file does not contain the string the check bans and flag its own source.
+var staleRepositorySlug = RepositorySlug + "-go"
 
 // Build output, agent scratch space, and git internals legitimately carry the retired
 // name — site/ is a rebuild of whatever content said at the time, and .agents/ holds
@@ -66,13 +68,6 @@ func checkRepositorySlug(root string) []Problem {
 			}
 			return nil
 		}
-		// CHANGELOG.md's narrative entries legitimately name the repository this one
-		// replaced; rewriting them would falsify the record they exist to keep. Its
-		// link-reference block is not history but addresses, and ValidateReleaseMetadata
-		// already pins the newest one to CITATION.cff's repository-code.
-		if where == "CHANGELOG.md" {
-			return nil
-		}
 		info, err := entry.Info()
 		if err != nil || info.Size() > slugScanLimit {
 			return nil
@@ -92,24 +87,16 @@ func checkRepositorySlug(root string) []Problem {
 
 func retiredSlugProblems(where, content string) []Problem {
 	// GitHub resolves owner and repository names case-insensitively, so an all-lowercase
-	// copy of the retired slug addresses the same dead repository as the mixed-case
+	// copy of the stale slug addresses the same dead repository as the mixed-case
 	// spelling. (The lowercase form is not written out here for the same reason the slug
 	// itself is derived above: this file would then flag its own source.) Both the needle
 	// and each line are lowered so the scan catches every casing; only the line number is
 	// reported, so byte offsets never have to survive the fold.
-	needle := strings.ToLower(retiredRepositorySlug)
+	needle := strings.ToLower(staleRepositorySlug)
 	var problems []Problem
 	for index, line := range splitLines(content) {
-		lowered := strings.ToLower(line)
-		for offset := 0; ; {
-			found := strings.Index(lowered[offset:], needle)
-			if found < 0 {
-				break
-			}
-			offset += found + len(needle)
-			if !strings.HasPrefix(lowered[offset:], "-go") {
-				problems = append(problems, problem(where, "line %d: names the retired repository; use %s", index+1, RepositorySlug))
-			}
+		if strings.Contains(strings.ToLower(line), needle) {
+			problems = append(problems, problem(where, "line %d: names the staging repository; use %s", index+1, RepositorySlug))
 		}
 	}
 	return problems

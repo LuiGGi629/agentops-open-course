@@ -3,6 +3,7 @@ package conventions
 import (
 	"encoding/json"
 	"encoding/xml"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -272,6 +273,19 @@ func checkRenderedRoutes(root, siteRoot string, pages pageSet) []Problem {
 		}
 	}
 
+	// Aliases are the course's URL-stability contract, not stray output: every one is a
+	// route the site published under a previous release, declared in the front matter of
+	// the page that now serves it and proved against data/released-urls.json by
+	// checkReleasedRoutes. Anything rendered that is neither a permalink nor a declared
+	// alias is still unaccounted for and still fails.
+	aliasFiles := make(map[string]string)
+	for source, text := range pages {
+		for _, alias := range frontMatterAliases(text) {
+			absolute, _ := filepath.Abs(filepath.Join(siteRoot, filepath.FromSlash(alias)))
+			aliasFiles[absolute] = source
+		}
+	}
+
 	_ = filepath.WalkDir(siteRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() || filepath.Ext(path) != ".html" {
 			return nil
@@ -280,7 +294,10 @@ func checkRenderedRoutes(root, siteRoot string, pages pageSet) []Problem {
 		if _, expected := expectedFiles[absolute]; expected || filepath.Base(path) == "404.html" {
 			return nil
 		}
-		problems = append(problems, problem(relative(siteRoot, path), "rendered HTML page has no source slug authority; aliases and legacy routes are not allowed"))
+		if _, aliased := aliasFiles[absolute]; aliased {
+			return nil
+		}
+		problems = append(problems, problem(relative(siteRoot, path), "rendered HTML page is neither a source permalink nor a declared alias"))
 		return nil
 	})
 	if searchRoutes != nil && len(searchRoutes) != len(routes) {
@@ -332,6 +349,94 @@ func checkSourceFragments(siteRoot string, pages pageSet) []Problem {
 					problems = append(problems, problem(where, "line %d: rendered relref target %s has no fragment %q", line.number, route.Path, match[2]))
 				}
 			}
+		}
+	}
+	return problems
+}
+
+// frontMatterAliases returns the historical routes a page declares it still answers for.
+func frontMatterAliases(text string) []string {
+	metadata, _ := parseFrontMatter(text)
+	if metadata == nil {
+		return nil
+	}
+	declared, ok := metadata["aliases"].([]any)
+	if !ok {
+		return nil
+	}
+	aliases := make([]string, 0, len(declared))
+	for _, value := range declared {
+		if alias, isString := value.(string); isString {
+			aliases = append(aliases, alias)
+		}
+	}
+	return aliases
+}
+
+// checkReleasedRoutes is the successor to the Python course's released-URL ratchet.
+//
+// Hugo's permalink scheme shares not one URL with the MkDocs scheme the course published
+// under through v0.7.0, so every one of those addresses would have become a 404. The
+// ledger records them; this check proves each is still claimed by exactly one page and
+// still renders. A page rename that drops an alias fails here rather than in a reader's
+// browser six months later.
+func checkReleasedRoutes(root, siteRoot string, pages pageSet) []Problem {
+	const where = "data/released-urls.json"
+	text, err := readFile(filepath.Join(root, "data", "released-urls.json"))
+	if err != nil {
+		return []Problem{problem(where, "could not read the released-URL ledger: %v", err)}
+	}
+	var ledger struct {
+		Releases   map[string][]string `json:"releases"`
+		Redirects  map[string]string   `json:"redirects"`
+		Successors map[string]string   `json:"successors"`
+	}
+	if err := json.Unmarshal([]byte(text), &ledger); err != nil {
+		return []Problem{problem(where, "could not parse the released-URL ledger: %v", err)}
+	}
+
+	published := make(map[string]bool)
+	for _, routes := range ledger.Releases {
+		for _, route := range routes {
+			published[route] = true
+		}
+	}
+	for route := range ledger.Redirects {
+		published[route] = true
+	}
+
+	claimed := make(map[string]string)
+	var problems []Problem
+	for source, page := range pages {
+		for _, alias := range frontMatterAliases(page) {
+			route := strings.TrimPrefix(alias, "/")
+			if owner, taken := claimed[route]; taken {
+				problems = append(problems, problem(source, "alias %s is already claimed by %s", alias, owner))
+				continue
+			}
+			claimed[route] = source
+			if !published[route] {
+				problems = append(problems, problem(source, "alias %s is not a route the course ever published; remove it or record it in %s", alias, where))
+			}
+		}
+	}
+
+	for _, route := range slices.Sorted(maps.Keys(published)) {
+		successor, recorded := ledger.Successors[route]
+		if !recorded {
+			problems = append(problems, problem(where, "published route %q has no recorded successor", route))
+			continue
+		}
+		if _, served := claimed[route]; !served {
+			problems = append(problems, problem(where, "published route %q is not declared as an alias by any page; readers would get a 404", route))
+			continue
+		}
+		// The home page cannot alias itself: Hugo renders it at / and index.html already.
+		if successor == "/" {
+			continue
+		}
+		if _, statErr := os.Stat(filepath.Join(siteRoot, filepath.FromSlash(route))); statErr != nil {
+			problems = append(problems, problem(where, "published route %q did not render a redirect into the site", route))
 		}
 	}
 	return problems

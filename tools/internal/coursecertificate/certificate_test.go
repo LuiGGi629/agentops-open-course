@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/courseevidence"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/courseevidence"
 )
 
 // update rewrites the golden certificate. A deliberate flag rather than an
@@ -126,7 +126,7 @@ func TestRenderStatesEveryCertifiedFact(t *testing.T) {
 		"2026-08-13 UTC",
 		"mise run check:core",
 		"2 evidence artifacts hashed",
-		"MLOps-Courses/agentops-open-course-go v0.7.0",
+		"MLOps-Courses/agentops-open-course v0.7.0",
 		"Nobody issued, graded, signed, or registered this certificate",
 		"mise run course:evidence:verify",
 	} {

@@ -16,8 +16,8 @@ import (
 	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
 )
 
 // recordingExporter keeps every log record the SDK exports, so a test can read

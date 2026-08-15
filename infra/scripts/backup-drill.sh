@@ -100,7 +100,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/state"
 )
 
 func main() {

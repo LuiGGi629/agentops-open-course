@@ -16,7 +16,7 @@ import (
 	// it here keeps exactly one SQLite implementation in the binary and no cgo.
 	_ "github.com/glebarez/go-sqlite"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/internal/safefile"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/internal/safefile"
 )
 
 // sqliteDriver is the database/sql name github.com/glebarez/go-sqlite registers.

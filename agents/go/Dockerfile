@@ -21,7 +21,7 @@
 
 # --- Stage 1: compile one static, cgo-free binary ----------------------------
 # --8<-- [start:base-images]
-FROM golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build
+FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS build
 # --8<-- [end:base-images]
 
 WORKDIR /src
@@ -62,13 +62,13 @@ ENV CGO_ENABLED=0 GOOS=linux
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -ldflags="-s -w \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.buildMode=${AGENT_BUILD_MODE} \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.version=${OCI_VERSION} \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.sourceIdentity=${AGENT_SOURCE_COMMIT} \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.revision=${AGENT_SOURCE_REVISION} \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.treeDigest=${AGENT_SOURCE_TREE_DIGEST} \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.buildTimestamp=${OCI_CREATED} \
-      -X github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo.dirty=${AGENT_SOURCE_DIRTY}" \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.buildMode=${AGENT_BUILD_MODE} \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.version=${OCI_VERSION} \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.sourceIdentity=${AGENT_SOURCE_COMMIT} \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.revision=${AGENT_SOURCE_REVISION} \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.treeDigest=${AGENT_SOURCE_TREE_DIGEST} \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.buildTimestamp=${OCI_CREATED} \
+      -X github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo.dirty=${AGENT_SOURCE_DIRTY}" \
       -o /out/agent ./cmd/agent && \
     /out/agent version >/dev/null
 # --8<-- [end:static-build]
@@ -94,7 +94,7 @@ LABEL org.opencontainers.image.created="${OCI_CREATED}" \
       org.opencontainers.image.documentation="https://agentops-open-course.fmind.dev/" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.revision="${AGENT_SOURCE_REVISION}" \
-      org.opencontainers.image.source="https://github.com/MLOps-Courses/agentops-open-course-go" \
+      org.opencontainers.image.source="https://github.com/MLOps-Courses/agentops-open-course" \
       org.opencontainers.image.title="AgentOps Agent" \
       org.opencontainers.image.version="${OCI_VERSION}" \
       dev.fmind.agentops.build-mode="${AGENT_BUILD_MODE}" \

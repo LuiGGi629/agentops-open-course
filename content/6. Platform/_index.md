@@ -2,6 +2,8 @@
 title: "6. Platform"
 description: Run the same private AgentOps data plane on local k3d and an optional, explicitly planned GKE lab.
 slug: "6-platform"
+aliases:
+  - "/6. Platform/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

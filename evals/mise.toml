@@ -17,7 +17,7 @@ depends = ["format:dprint", "format:go"]
 [tasks."format:go"]
 description = "Format Go evaluation sources"
 run = [
-  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course-go/evals -w .",
+  "go tool goimports -local github.com/MLOps-Courses/agentops-open-course/evals -w .",
   "go tool gofumpt -extra -w .",
 ]
 

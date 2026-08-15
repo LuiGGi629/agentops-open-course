@@ -11,16 +11,16 @@ import (
 	adktelemetry "google.golang.org/adk/v2/telemetry"
 	"google.golang.org/adk/v2/tool"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/memory"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/model"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/policy"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/resilience"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/compose"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/data"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/memory"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/model"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/policy"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/resilience"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // agentRuntime is every plane a conversational process needs, assembled once.

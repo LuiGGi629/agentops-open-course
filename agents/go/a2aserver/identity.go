@@ -9,7 +9,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/principal"
 )
 
 // The gateway-verified caller identity, carried from the HTTP boundary into the

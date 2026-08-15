@@ -16,7 +16,7 @@ import (
 	"google.golang.org/adk/v2/cmd/launcher/web/triggers/pubsub"
 	"google.golang.org/adk/v2/cmd/launcher/web/webui"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 var errLauncherRuntime = errors.New("agent launcher failed; inspect sanitized logs")

@@ -2,6 +2,8 @@
 title: "2. Agents"
 description: Build, run, and take apart the one agent object every later chapter extends — on a model running on your own hardware.
 slug: "2-agents"
+aliases:
+  - "/2. Agents/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}

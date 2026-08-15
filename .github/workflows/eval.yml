@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   evaluate:
-    if: github.repository == 'MLOps-Courses/agentops-open-course-go'
+    if: github.repository == 'MLOps-Courses/agentops-open-course'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:

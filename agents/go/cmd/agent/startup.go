@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/state"
 )
 
 // recoveredState is the proof every stateful runtime constructor requires.

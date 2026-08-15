@@ -51,11 +51,11 @@ import (
 	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/platformdrill"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/state"
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/telemetry"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/platformdrill"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/state"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/telemetry"
 )
 
 // The subcommands this repository owns. Every other argument list belongs to

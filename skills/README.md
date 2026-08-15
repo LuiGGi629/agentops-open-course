@@ -9,8 +9,8 @@ These are distinct from `agents/data/skills/`, which are runtime skills the refe
 With the [`skills` CLI](https://github.com/vercel-labs/skills) (works with Antigravity, Codex, OpenCode, Claude, and Copilot):
 
 ```bash
-npx skills add MLOps-Courses/agentops-open-course-go --all   # all of them
-npx skills add MLOps-Courses/agentops-open-course-go --skill agent-resilience   # just one
+npx skills add MLOps-Courses/agentops-open-course --all   # all of them
+npx skills add MLOps-Courses/agentops-open-course --skill agent-resilience   # just one
 ```
 
 The CLI auto-discovers every `SKILL.md` under this `skills/` directory. Review a skill's source before installing — skill text runs with your agent's permissions.

@@ -60,16 +60,24 @@ func checkLocalActionCheckouts(root string) []Problem {
 	return problems
 }
 
-// checkNoPagesDeployment refuses Pages deployment authority anywhere in CI. It used to
-// read one workflow by name; that file has since been folded into another, which is
-// exactly how a single-file check goes quietly blind. It now walks every workflow.
-func checkNoPagesDeployment(root string) []Problem {
+// checkPagesDeployment pins Pages deployment authority to exactly one job.
+//
+// This check used to refuse Pages deployment anywhere, from the period when the Go
+// rewrite lived in its own checkout and deliberately published nothing. The course now
+// serves agentops-open-course.fmind.dev, so the risk inverted: the danger is no longer a
+// stray deploy but a second one racing the real one, or the real one disappearing in a
+// refactor and the site silently freezing on its last good build. Exactly one job may
+// hold the authority, and it must be the documentation deploy.
+const pagesDeployJob = "deploy"
+
+func checkPagesDeployment(root string) []Problem {
 	paths, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
 	if err != nil || len(paths) == 0 {
 		return []Problem{problem(".github/workflows", "could not read the workflow directory")}
 	}
 	slices.Sort(paths)
 	var problems []Problem
+	var deployers []string
 	for _, path := range paths {
 		where := ".github/workflows/" + filepath.Base(path)
 		content, readErr := os.ReadFile(path)
@@ -92,21 +100,31 @@ func checkNoPagesDeployment(root string) []Problem {
 		}
 		for _, name := range slices.Sorted(maps.Keys(workflow.Jobs)) {
 			job := workflow.Jobs[name]
-			pagesAuthority := job.Permissions["pages"] != "" || pagesEnvironment(job.Environment)
+			// Deployment authority, not Pages involvement. `configure-pages` and
+			// `upload-pages-artifact` only prepare and hand over an artifact and are
+			// harmless in a build job; what actually publishes is `deploy-pages`, and
+			// what actually grants the right to is the github-pages environment. Keying
+			// on the build-side actions too would make a conventional two-job Pages
+			// workflow look like two deployers.
+			pagesAuthority := pagesEnvironment(job.Environment) || job.Permissions["pages"] != ""
 			for _, step := range job.Steps {
-				for _, action := range []string{
-					"actions/configure-pages@",
-					"actions/upload-pages-artifact@",
-					"actions/deploy-pages@",
-				} {
-					pagesAuthority = pagesAuthority || strings.HasPrefix(step.Uses, action)
-				}
+				pagesAuthority = pagesAuthority || strings.HasPrefix(step.Uses, "actions/deploy-pages@")
 			}
 			if pagesAuthority {
-				problems = append(problems, problem(where,
-					"job %q retains Pages deployment actions or authority; the course site is built, never deployed", name))
+				deployers = append(deployers, where+":"+name)
 			}
 		}
+	}
+	switch {
+	case len(deployers) == 0:
+		problems = append(problems, problem(".github/workflows",
+			"no job holds Pages deployment authority; the course site would never reach %s", RepositorySlug))
+	case len(deployers) > 1:
+		problems = append(problems, problem(".github/workflows",
+			"Pages deployment authority is split across %v; exactly one job may deploy the site", deployers))
+	case !strings.HasSuffix(deployers[0], ":"+pagesDeployJob):
+		problems = append(problems, problem(deployers[0],
+			"the Pages deployment job must be named %q so the branch ruleset can require it", pagesDeployJob))
 	}
 	return problems
 }

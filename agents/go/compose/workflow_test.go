@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/adk/v2/workflow"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/tools"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/tools"
 )
 
 // TestWorkflowChainsFourStagesInOrder is the Go port of

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/mcpserver"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/mcpserver"
 )
 
 // get sends one GET through the server's handler without binding a port.

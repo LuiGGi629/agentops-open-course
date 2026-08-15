@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/domain"
 )
 
 // repositoryDataset is the committed dataset, relative to this package.

@@ -331,7 +331,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/compose"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/compose"
 )
 
 func main() {

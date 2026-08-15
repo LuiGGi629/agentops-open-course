@@ -95,7 +95,7 @@ type = "link"
 
 [[menu.main]]
 name = "GitHub"
-url = "https://github.com/MLOps-Courses/agentops-open-course-go"
+url = "https://github.com/MLOps-Courses/agentops-open-course"
 weight = 4
 [menu.main.params]
 type = "link"
@@ -144,7 +144,7 @@ displayLogo = false
 
 [params.editURL]
 enable = true
-base = "https://github.com/MLOps-Courses/agentops-open-course-go/edit/main/content"
+base = "https://github.com/MLOps-Courses/agentops-open-course/edit/main/content"
 
 [params.footer]
 enable = true
@@ -185,7 +185,7 @@ name = "Email the AgentOps Open Course maintainers"
 url = "mailto:agentops-open-course@fmind.dev"
 [[params.courseSocial]]
 name = "AgentOps Open Course on GitHub"
-url = "https://github.com/MLOps-Courses/agentops-open-course-go"
+url = "https://github.com/MLOps-Courses/agentops-open-course"
 [[params.courseSocial]]
 name = "Fmind on X"
 url = "https://x.com/fmind_dev"

@@ -56,7 +56,7 @@ tests:
             exp_annotations:
               summary: Agent spans are burning the 99% success error budget
               description: At least three agent spans failed in 5m, and more than 14.4% failed over both the last 5m and 1h. The usual causes are a stopped model provider (Ollama), a misconfigured gateway route, or a failing tool backend.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
       # The provider is back. The 5m window clears first and resolves the page
       # on its own, while the 1h ratio is still decaying — a page that needs an
       # hour to clear after the fix is a page nobody trusts.
@@ -111,4 +111,4 @@ tests:
             exp_annotations:
               summary: Agent spans are burning the 99% success error budget
               description: At least three agent spans failed in 5m, and more than 14.4% failed over both the last 5m and 1h. The usual causes are a stopped model provider (Ollama), a misconfigured gateway route, or a failing tool backend.
-              runbook: https://github.com/MLOps-Courses/agentops-open-course-go/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising
+              runbook: https://github.com/MLOps-Courses/agentops-open-course/blob/main/content/7.%20Observability/7.2b.%20Alerting.md#the-four-responses-worth-memorising

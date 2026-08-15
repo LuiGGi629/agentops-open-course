@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/config"
 )
 
 // responsesReply is the smallest OpenAI Responses body ADK's adapter accepts:

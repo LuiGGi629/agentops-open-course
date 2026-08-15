@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/portalloc"
+	"github.com/MLOps-Courses/agentops-open-course/tools/internal/portalloc"
 )
 
 func main() {

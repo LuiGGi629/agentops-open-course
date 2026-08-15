@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/buildinfo"
+	"github.com/MLOps-Courses/agentops-open-course/agents/go/buildinfo"
 )
 
 // BackupOptions carries the settings a snapshot records or is bounded by.

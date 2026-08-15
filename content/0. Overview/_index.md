@@ -2,6 +2,8 @@
 title: "0. Overview"
 description: "Orient before you build: see what the agent is grounded in, decide when an agent is justified, learn what a claim in this course is worth, and pick your path."
 slug: "0-overview"
+aliases:
+  - "/0. Overview/index.html"
 ---
 
 {{% admonition abstract "In one glance" %}}
