@@ -12,7 +12,7 @@ suites:
     tests: 395
     skipped: 0
   "tools":
-    tests: 296
+    tests: 309
     skipped: 0
 coverage:
   "agents/go/a2aserver": 84.2

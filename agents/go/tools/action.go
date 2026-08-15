@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/adk/v2/agent"
 
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/principal"
@@ -44,10 +45,11 @@ const (
 // It carries no trailing period, unlike the Python original: the refusal below
 // appends one, and reproducing that wart would render "…resume approvals.. Ask
 // the approver…" to whoever reads the incident transcript.
-var errWritesDisabled = errors.New(
-	"writes are frozen by the AGENT_WRITES_DISABLED kill-switch; reads still work. " +
-		"Clear the flag once the incident is contained to resume approvals",
-)
+//
+// The wording itself is config's, next to the variable it names, so this refusal
+// and the two in policy and memory cannot drift into three descriptions of one
+// switch. config.WritesDisabledReason is the interpolable form this needs.
+var errWritesDisabled = errors.New(config.WritesDisabledReason)
 
 // RestartServiceArgs are the arguments of the restart_service tool.
 type RestartServiceArgs struct {

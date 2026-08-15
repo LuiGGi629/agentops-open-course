@@ -52,7 +52,7 @@ mise run check:core
 mise run test
 ```
 
-The Go suites use race detection and report measured coverage. No coverage threshold is enforced until the owner selects one. Offline gates call no model or cloud service.
+The Go suites use race detection and enforce measured coverage: `mise run test` fails any package under 80%, with `cmd/` excluded by kind (see `scripts/check-coverage.sh`). Offline gates call no model or cloud service.
 
 ## Run the account-free model path
 

@@ -335,20 +335,26 @@ depends = ["check:licenses:core", "check:source"]
 
 [tasks."tools:built"]
 hide = true # a preflight, not a step a learner chooses
-description = "Assert the repository tool binaries exist before a task shells out to one"
-# tools/bin/ is gitignored and run_auto_install is off, so a task invoked before
-# `mise run install` fails with a bare "No such file or directory" that names neither the
-# cause nor the cure. Checking here turns that into one sentence with the remedy in it.
+description = "Build the repository tool binaries before a task shells out to one"
+# This builds rather than asserts, and the difference is the whole point. Asserting
+# `[ -x tools/bin/conventions ]` passes against yesterday's binary, so every consumer —
+# check:docs first among them — validated the corpus against whichever rules were
+# compiled last. A gate that can pass against rules nobody is running is not a gate,
+# and this exact drift has bitten before.
+#
+# The build is free when nothing changed: tools/mise.toml's build task declares its
+# sources and outputs, so mise skips it and prints "sources up-to-date".
+#
+# tools/bin/ is gitignored and run_auto_install is off, so without a Go toolchain the
+# nested build fails with a bare "command not found" that names neither the cause nor
+# the cure. Checking for `go` first turns that into one sentence with the remedy in it.
 run = """
-missing=""
-for tool in accessibility conventions course-evidence fake-model static-server; do
-  [ -x "tools/bin/${tool}" ] || missing="${missing} ${tool}"
-done
-if [ -n "${missing}" ]; then
-  printf 'missing repository tool binaries:%s\\n' "${missing}" >&2
-  printf "run 'mise run install' to build them into tools/bin, then retry this task\\n" >&2
+if ! command -v go >/dev/null 2>&1; then
+  printf 'the repository tool binaries need the Go toolchain, which is not on PATH\\n' >&2
+  printf "run 'mise run install' to install it and build them into tools/bin, then retry this task\\n" >&2
   exit 1
 fi
+mise run -C tools build
 """
 
 [tasks."check:source"]
@@ -405,6 +411,19 @@ fi
 """,
   "tools/bin/conventions rendered site",
 ]
+
+[tasks."watch:docs"]
+description = "Re-run the authoring contracts whenever a content page changes"
+depends = ["tools:built"]
+# `serve` gates its own startup on the contracts and then never re-checks them, so a
+# preview happily renders a page the docs gate rejects. This is the other half of the
+# authoring loop: run it beside `mise run serve` and an edit that breaks a contract
+# says so while the page is still open. It checks the contracts only — the Hugo build
+# and the rendered-route pass belong to `check:docs`, which is what CI runs.
+#
+# watchexec is fetched on demand rather than pinned in [tools], the same way the load
+# tasks fetch k6: this is an authoring convenience, not a dependency of any gate.
+run = "mise x watchexec@2.5.1 -- watchexec --watch content --watch data --exts md,yaml --restart -- tools/bin/conventions docs"
 
 [tasks."docs:captures"]
 description = "Regenerate data/captures.yaml from one real run of all three test suites"
@@ -554,6 +573,16 @@ run = "tools/bin/course-evidence create"
 description = "Verify a completion manifest from its exact clean source revision"
 run = "tools/bin/course-evidence verify"
 
+[tasks."course:certificate"]
+description = "Render a shareable self-attested certificate from a completion manifest"
+# No `depends`, matching its two siblings: all three read what `create` already
+# wrote, and none of them re-runs a gate to draw a picture of one.
+usage = '''
+flag "--name <name>" help="Name printed on the certificate"
+flag "--tier <tier>" help="Capstone tier claimed: bronze, silver, or gold"
+'''
+run = 'tools/bin/course-certificate --name "$usage_name" --tier "$usage_tier"'
+
 [tasks."gateway:host"]
 description = "Run the loopback-only host agentgateway container in the foreground"
 run = "infra/scripts/gateway-host.sh run"
@@ -608,15 +637,37 @@ run = "mise x k6@2.1.0 -- k6 run load/a2a-send.js"
 description = "Run a deterministic OpenAI-compatible fake model on :11434 for platform-only load tests"
 run = "tools/bin/fake-model"
 
+[tasks."agent:built"]
+hide = true # a preflight, not a step a learner chooses
+description = "Rebuild the agent binary so its stamped identity matches the working tree"
+# The harness refuses a binary whose embedded tree digest is not the tree it is
+# evaluating, which is the guarantee that a run's evidence names the source it ran
+# against. Left to the caller, that guarantee reads as a failure on any tree edited
+# since the last build — so the tasks that need it build it. The agent's own build
+# task deliberately declares no `sources`, because the stamped digest covers content,
+# infrastructure, and evaluation inputs too; it costs a few seconds and is correct.
+run = "mise run -C agents/go build"
+
 [tasks."eval:offline"]
 description = "Run the four required evaluation cases against the scripted fixture: no model, no weights, no wait"
-depends = ["tools:built"]
+depends = ["tools:built", "agent:built"]
 # The scripted fixture walks each required case's exact trajectory, so the harness,
 # the transports, and the trajectory assertions are all exercised — and nothing about
 # the model is. That distinction is the whole point: this is a maintainer- and
 # CI-facing task that proves the harness, the transports, and the trajectory
 # assertions with no model, and it says nothing about the agent's judgement.
 # Port 11435 keeps it clear of a real Ollama on :11434.
+#
+# The transport is A2A because two of the four required cases propose a guarded
+# write, and `agent web` — the REST surface — freezes writes by construction: its
+# caller-supplied user id is not authentication, so an approval taken there would
+# name an approver nobody verified. A2A is the write-owning boundary, so it is the
+# only surface on which "the agent asked before acting" is a question that can be
+# asked at all. See `evals/README.md` for the read-only REST recipe.
+#
+# The named-entity model points at the same fixture: A2A readiness probes the PII
+# model catalog, and the fixture answers it, which keeps that guard's code path live
+# without a second endpoint and without an Ollama on this host.
 shell = "bash -c"
 run = """
 set -euo pipefail
@@ -629,9 +680,10 @@ for _ in $(seq 1 50); do
 done
 cd evals && OPENAI_BASE_URL=http://127.0.0.1:11435/v1 OPENAI_API_KEY=offline \\
   AGENT_MODEL=agentops-fake AGENT_MODEL_PROVIDER=openai-compatible \\
+  AGENT_PII_MODEL_BASE_URL=http://127.0.0.1:11435/v1 \\
   go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent \\
-  --transport rest --repeat 1 --min-pass-rate 0 \\
-  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \\
+  --transport a2a --repeat 1 --min-pass-rate 0 \\
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval,restart-approval-verified \\
   --output offline-results.json
 """
 

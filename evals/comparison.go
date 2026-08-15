@@ -8,7 +8,9 @@ import (
 	"slices"
 )
 
-const ComparisonArtifactSchemaVersion = 1
+// ComparisonArtifactSchemaVersion is 2: schema 1 gained `total_duration_ms_delta`
+// and `newly_flaky_cases`, both derived from the run artifact's own rows.
+const ComparisonArtifactSchemaVersion = 2
 
 type RunReference struct {
 	Model     ModelEvidence   `json:"model"`
@@ -19,16 +21,65 @@ type RunReference struct {
 }
 
 type ComparisonArtifact struct {
-	ScoreDeltas       map[string]float64 `json:"score_deltas"`
-	Baseline          RunReference       `json:"baseline"`
-	Candidate         RunReference       `json:"candidate"`
-	BaselinePassRate  float64            `json:"baseline_pass_rate"`
-	CandidatePassRate float64            `json:"candidate_pass_rate"`
-	PassRateDelta     float64            `json:"pass_rate_delta"`
-	TotalTokensDelta  int64              `json:"total_tokens_delta"`
-	ModelCallsDelta   int64              `json:"model_calls_delta"`
-	SchemaVersion     int                `json:"schema_version"`
-	DeterministicPass bool               `json:"deterministic_pass"`
+	ScoreDeltas map[string]float64 `json:"score_deltas"`
+	// NewlyFlakyCases names cases the candidate passed on some samples and failed on
+	// others while the baseline was consistent about them. A pass rate cannot show
+	// this: a case that went from three-of-three to two-of-three moves the rate by a
+	// third of one case and has changed from a guarantee into a coin toss.
+	NewlyFlakyCases   []string     `json:"newly_flaky_cases"`
+	Baseline          RunReference `json:"baseline"`
+	Candidate         RunReference `json:"candidate"`
+	BaselinePassRate  float64      `json:"baseline_pass_rate"`
+	CandidatePassRate float64      `json:"candidate_pass_rate"`
+	PassRateDelta     float64      `json:"pass_rate_delta"`
+	TotalTokensDelta  int64        `json:"total_tokens_delta"`
+	ModelCallsDelta   int64        `json:"model_calls_delta"`
+	// TotalDurationDelta is the candidate's wall clock minus the baseline's, summed
+	// over every sample. Without it a candidate that answers just as well and twice
+	// as slowly compares clean, which is the regression Chapter 7 budgets exist for.
+	TotalDurationDelta int64 `json:"total_duration_ms_delta"`
+	SchemaVersion      int   `json:"schema_version"`
+	DeterministicPass  bool  `json:"deterministic_pass"`
+}
+
+func totalDuration(cases []CaseResult) int64 {
+	var total int64
+	for _, result := range cases {
+		total += result.DurationMillis
+	}
+	return total
+}
+
+// newlyFlakyCases finds cases the candidate is inconsistent about and the
+// baseline was not.
+//
+// It reads the per-sample rows rather than the serialized summary, for the same
+// reason the score comparison does: an artifact's own summary is a claim, and the
+// rows are the evidence. A case that appears in only one of the two runs is not
+// flaky, it is new or removed, and the score comparison already reports that.
+func newlyFlakyCases(baseline, candidate []CaseResult) []string {
+	count := func(cases []CaseResult) map[string]CaseConsistency {
+		byCase := make(map[string]CaseConsistency, len(cases))
+		for _, result := range cases {
+			record := byCase[result.ID]
+			record.ID, record.Samples = result.ID, record.Samples+1
+			if result.Passed {
+				record.Passed++
+			}
+			byCase[result.ID] = record
+		}
+		return byCase
+	}
+	before, after := count(baseline), count(candidate)
+	var flaky []string
+	for caseID, candidateRecord := range after {
+		baselineRecord, known := before[caseID]
+		if known && !baselineRecord.Flaky() && candidateRecord.Flaky() {
+			flaky = append(flaky, caseID)
+		}
+	}
+	slices.Sort(flaky)
+	return flaky
 }
 
 func LoadRunArtifact(path string) (RunArtifact, error) {
@@ -129,6 +180,13 @@ func CompareRuns(baseline, candidate RunArtifact) (ComparisonArtifact, error) {
 	}
 	result.TotalTokensDelta = candidateUsage.TotalTokens - baselineUsage.TotalTokens
 	result.ModelCallsDelta = candidateUsage.ModelCalls - baselineUsage.ModelCalls
+	result.TotalDurationDelta = totalDuration(candidate.Cases) - totalDuration(baseline.Cases)
+	result.NewlyFlakyCases = newlyFlakyCases(baseline.Cases, candidate.Cases)
+	// A case that became a coin toss is a regression even when the rate held: it is
+	// the same evidence a single run would have shown as a pass.
+	if len(result.NewlyFlakyCases) > 0 {
+		result.DeterministicPass = false
+	}
 	return result, nil
 }
 

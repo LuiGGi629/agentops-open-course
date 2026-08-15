@@ -91,7 +91,7 @@ cd agents/go
 mise run web
 ```
 
-Open the ADK web UI on `http://127.0.0.1:8002/ui/`, ask `List the open incidents`, and inspect the event stream for `list_incidents(status="open")`, its returned seed rows, and the final answer. Matching seed IDs without the observed call and result is only a plausible answer, not grounding evidence. `mise run run` is a faster console preview but cannot prove the trajectory. The first CPU turn can be slow while the model loads; a connection error usually means `ollama serve` is not running.
+Open the ADK web UI on `http://localhost:8002`, ask `List the open incidents`, and inspect the event stream for `list_incidents(status="open")`, its returned seed rows, and the final answer. Matching seed IDs without the observed call and result is only a plausible answer, not grounding evidence. `mise run run` is a faster console preview but cannot prove the trajectory. The first CPU turn can be slow while the model loads; a connection error usually means `ollama serve` is not running.
 
 Model-backed commands are observations, not offline gate proof. They may vary across runs even with temperature zero.
 

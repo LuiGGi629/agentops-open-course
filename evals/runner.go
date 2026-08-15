@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const RunArtifactSchemaVersion = 4
+// RunArtifactSchemaVersion is 5: schema 4 gained per-case `duration_ms` and the
+// summary gained `case_consistency`. Both are counts and durations, so the
+// sanitization boundary is unchanged — see TestRunArtifactCarriesNoContent.
+const RunArtifactSchemaVersion = 5
 
 type ModelEvidence struct {
 	Provider string `json:"provider"`
@@ -26,19 +29,43 @@ type CaseResult struct {
 	Scores map[string]float64 `json:"scores"`
 	ID     string             `json:"id"`
 	Usage  Usage              `json:"usage"`
-	Sample int                `json:"sample"`
-	Passed bool               `json:"passed"`
+	// DurationMillis is wall clock for this sample. Chapter 7 teaches latency
+	// budgets that the evaluation evidence could not corroborate without it, and
+	// `eval:ab` could not flag a candidate that answers correctly and twice as slow.
+	DurationMillis int64 `json:"duration_ms"`
+	Sample         int   `json:"sample"`
+	Passed         bool  `json:"passed"`
 	// DeterministicPassed drops judged verdicts. It never serializes: the artifact
 	// keeps one `passed` per sample, and this decides `required_cases_passed` alone.
 	DeterministicPassed bool `json:"-"`
 }
 
 type RunSummary struct {
-	Passed              int     `json:"passed"`
-	Failed              int     `json:"failed"`
-	PassRate            float64 `json:"pass_rate"`
-	MinimumPassRate     float64 `json:"minimum_pass_rate"`
-	RequiredCasesPassed bool    `json:"required_cases_passed"`
+	// CaseConsistency is how many samples of each case passed, out of how many ran.
+	//
+	// A pass rate flattens the one thing `--repeat` was bought for: a case that
+	// passes two runs in three is not a passing case with a rounding error, it is a
+	// one-in-three case caught on a good day, and the aggregate cannot tell the two
+	// apart. Sorted by case id so two artifacts diff cleanly.
+	CaseConsistency     []CaseConsistency `json:"case_consistency"`
+	Passed              int               `json:"passed"`
+	Failed              int               `json:"failed"`
+	PassRate            float64           `json:"pass_rate"`
+	MinimumPassRate     float64           `json:"minimum_pass_rate"`
+	RequiredCasesPassed bool              `json:"required_cases_passed"`
+}
+
+// CaseConsistency is one case's per-sample record: "2 of 3 samples passed".
+type CaseConsistency struct {
+	ID      string `json:"id"`
+	Passed  int    `json:"passed"`
+	Samples int    `json:"samples"`
+}
+
+// Flaky reports a case that neither always passed nor always failed, which is the
+// only reading of a repeated run that a single rate cannot express.
+func (c CaseConsistency) Flaky() bool {
+	return c.Passed > 0 && c.Passed < c.Samples
 }
 
 // RunArtifact is deliberately content-free: prompts, answers, tool arguments,
@@ -87,10 +114,7 @@ func Run(ctx context.Context, config RunnerConfig) (RunArtifact, error) {
 	if err := validateRunnerConfig(config); err != nil {
 		return RunArtifact{}, err
 	}
-	clock := config.Clock
-	if clock == nil {
-		clock = time.Now
-	}
+	clock := config.clock()
 	repeat := config.Repeat
 	if repeat == 0 {
 		repeat = 1
@@ -157,12 +181,15 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 	questions := make([]string, 0, len(evalCase.Conversation))
 	answers := make([]string, 0, len(evalCase.Conversation))
 	references := make([]string, 0, len(evalCase.Conversation))
+	started := config.clock()()
+	var previous Turn
 	for _, invocation := range evalCase.Conversation {
 		question := invocation.UserContent.Text()
-		turn, err := client.Send(caseCtx, sessionID, question)
+		turn, err := sendInvocation(caseCtx, client, sessionID, invocation, previous)
 		if err != nil {
 			return CaseResult{}, err
 		}
+		previous = turn
 		if turn.Failed() {
 			// Remote error codes are provider-controlled and can contain echoed content.
 			return CaseResult{}, errors.New("provider turn failed")
@@ -198,6 +225,10 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 		ID: evalCase.ID, Sample: sample, Passed: evaluated.passed(),
 		DeterministicPassed: evaluated.deterministicPassed(),
 		Scores:              evaluated.sanitized(), Usage: evaluated.usage,
+		// Wall clock for the whole case, including the judge call when one runs.
+		// It is a duration rather than a rate because that is what Chapter 7's
+		// latency budgets are stated in, and it is content-free by construction.
+		DurationMillis: config.clock()().Sub(started).Milliseconds(),
 	}
 	outcome = CaseOutcome{Passed: result.Passed, Usage: result.Usage}
 	for _, name := range sortedScoreNames(evaluated.values) {
@@ -207,6 +238,38 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 	}
 	return result, nil
 }
+
+// clock returns the configured clock, or the wall clock.
+func (c RunnerConfig) clock() func() time.Time {
+	if c.Clock == nil {
+		return time.Now
+	}
+	return c.Clock
+}
+
+// sendInvocation drives one conversation entry: a question, or a human's answer
+// to the approval the previous entry left pending.
+//
+// The two are different wire messages — user text against an ADK function
+// response — and only the second can carry an approver and a rationale, which is
+// why an evalset says which one it means rather than leaving it to be inferred
+// from whether a turn happens to be awaiting confirmation.
+func sendInvocation(
+	ctx context.Context, client AgentClient, sessionID string, invocation Invocation, previous Turn,
+) (Turn, error) {
+	if invocation.Confirmation == nil {
+		return client.Send(ctx, sessionID, invocation.UserContent.Text())
+	}
+	if previous.AwaitingConfirmation == nil {
+		// Not an infrastructure failure: the agent declined to propose the guarded
+		// action, so there is nothing to approve. Reporting it as a failed case
+		// rather than a crashed run is what keeps a model's refusal scoreable.
+		return Turn{}, errNothingToConfirm
+	}
+	return client.Confirm(ctx, sessionID, previous, invocation.Confirmation.Approved(), invocation.Confirmation.Rationale)
+}
+
+var errNothingToConfirm = errors.New("the case answers a confirmation the agent never asked for")
 
 func validateRunnerConfig(config RunnerConfig) error {
 	var problems []error
@@ -249,23 +312,36 @@ func validateRunnerConfig(config RunnerConfig) error {
 
 func summarizeCases(results []CaseResult, required []string, minimumPassRate float64) RunSummary {
 	summary := RunSummary{MinimumPassRate: minimumPassRate, RequiredCasesPassed: true}
-	casePass := make(map[string]bool)
+	// Folded per case rather than per sample, and with AND rather than OR: a
+	// required case that passed twice and failed once has already shown it can
+	// fail, so a later sample may not restore an earlier one. The judged verdict
+	// is excluded upstream, in CaseResult.DeterministicPassed.
 	deterministicPass := make(map[string]bool)
+	consistency := make(map[string]CaseConsistency)
+	order := make([]string, 0, len(results))
 	for _, result := range results {
-		previous, observed := casePass[result.ID]
 		if result.Passed {
 			summary.Passed++
-			if !observed {
-				casePass[result.ID] = true
-			} else {
-				casePass[result.ID] = previous
-			}
 		} else {
 			summary.Failed++
-			casePass[result.ID] = false
 		}
 		priorDeterministic, seen := deterministicPass[result.ID]
 		deterministicPass[result.ID] = result.DeterministicPassed && (!seen || priorDeterministic)
+		record, counted := consistency[result.ID]
+		if !counted {
+			record.ID = result.ID
+			order = append(order, result.ID)
+		}
+		record.Samples++
+		if result.Passed {
+			record.Passed++
+		}
+		consistency[result.ID] = record
+	}
+	slices.Sort(order)
+	summary.CaseConsistency = make([]CaseConsistency, 0, len(order))
+	for _, caseID := range order {
+		summary.CaseConsistency = append(summary.CaseConsistency, consistency[caseID])
 	}
 	if len(results) > 0 {
 		summary.PassRate = float64(summary.Passed) / float64(len(results))
@@ -280,6 +356,13 @@ func summarizeCases(results []CaseResult, required []string, minimumPassRate flo
 	return summary
 }
 
+// merge keeps the *lowest* score seen under a name, which is a decision rather
+// than an accident.
+//
+// A multi-turn case scores every turn, so one name arrives more than once, and
+// the honest reading of "was this case safe?" is the worst turn rather than the
+// average or the last. Averaging would let a clean second turn pay for a first
+// one that crossed a write boundary, and last-wins would forget it entirely.
 func (s *caseScores) merge(score Score) {
 	if previous, found := s.values[score.Name]; !found || score.Value < previous.Value {
 		s.values[score.Name] = score

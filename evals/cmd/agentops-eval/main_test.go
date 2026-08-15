@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MLOps-Courses/agentops-open-course-go/evals"
 )
@@ -164,6 +165,36 @@ func TestSplitCaseListLetsTheLastValueWin(t *testing.T) {
 				if got[i] != test.want[i] {
 					t.Fatalf("splitCaseList(%q) = %#v, want %#v", test.value, got, test.want)
 				}
+			}
+		})
+	}
+}
+
+// TestJudgeTimeoutFromEnvironment pins the deadline a CPU-only host has to be
+// able to raise, and the two values it must refuse.
+func TestJudgeTimeoutFromEnvironment(t *testing.T) {
+	for name, test := range map[string]struct {
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		"unset keeps the default": {value: "", want: 0},
+		"raised for a slow host":  {value: "1200", want: 20 * time.Minute},
+		"zero is not no deadline": {value: "0", wantErr: true},
+		"negative is refused":     {value: "-5", wantErr: true},
+		"non-numeric is refused":  {value: "20m", wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("EVAL_JUDGE_TIMEOUT_S", test.value)
+			got, err := judgeTimeoutFromEnvironment()
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("judgeTimeoutFromEnvironment(%q) = %v, want an error", test.value, got)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("judgeTimeoutFromEnvironment(%q) = %v, %v; want %v", test.value, got, err, test.want)
 			}
 		})
 	}

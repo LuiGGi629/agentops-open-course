@@ -134,6 +134,7 @@ func (c *Compose) workflowStageConfigs() []llmagent.Config {
 // and each stage's output becomes the next stage's input. The workflow's name
 // is also its persistence namespace inside the session state, which is why it
 // is the constant every entrypoint keys on rather than a local string.
+// --8<-- [start:triage-workflow]
 func (c *Compose) TriageWorkflow() (agent.Agent, error) {
 	configs := c.workflowStageConfigs()
 
@@ -167,3 +168,5 @@ func (c *Compose) TriageWorkflow() (agent.Agent, error) {
 	}
 	return built, nil
 }
+
+// --8<-- [end:triage-workflow]

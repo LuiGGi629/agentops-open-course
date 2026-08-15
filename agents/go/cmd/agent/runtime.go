@@ -55,19 +55,27 @@ type agentRuntime struct {
 // --8<-- [start:runtime-assembly]
 // newAgentRuntime assembles every plane, in dependency order.
 //
-// The order is not incidental. The skill toolset has to exist before the policy
-// plane, because the trust carve-out is keyed on the identity of the load_skill
-// tool that toolset built. The policy plane has to exist before the
-// observability plane, because every durable log path redacts through it — and the
-// observability plane has to come before everything else, because a record
-// written before slog.SetDefault reaches an uncorrelated, unexported handler.
-// The policy plane also has to exist before the tools, because a rationale is
-// redacted by the policy before it reaches the append-only audit trail. And the
-// tools have to exist before the compositions, because least-privilege
-// delegation is a statement about which tool values each agent holds.
+// The order is not incidental, and four constraints fix it.
+//
+// Skills before policy: the trust carve-out is keyed on the identity of the
+// load_skill tool value that toolset built, never on its name.
+//
+// Policy before observability: installTelemetry redacts every durable log path
+// through the policy, so the plane cannot be installed until the redactor
+// exists. It is installed at the first line where that is true and no later,
+// because a record written before slog.SetDefault reaches a handler that is
+// neither correlated nor exported — nothing above installTelemetry may write a
+// durable record.
+//
+// Policy before tools: a rationale is redacted by the policy before it reaches
+// the append-only audit trail.
+//
+// Tools before compositions: least-privilege delegation is a statement about
+// which tool values each agent holds.
 //
 // ownsProviders selects who installs the OpenTelemetry tracer and logger
 // providers; see [processInstallsProviders].
+// --8<-- [end:runtime-assembly]
 func newAgentRuntime(
 	ctx context.Context,
 	cfg config.Config,
@@ -75,7 +83,6 @@ func newAgentRuntime(
 	console io.Writer,
 	ownsProviders bool,
 ) (assembled *agentRuntime, err error) {
-	// --8<-- [end:runtime-assembly]
 	if recoveryErr := recovered.require(cfg.StateDir); recoveryErr != nil {
 		return nil, recoveryErr
 	}

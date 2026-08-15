@@ -213,7 +213,7 @@ func TestSuccessResponseReadFailuresOmitProviderDetails(t *testing.T) {
 				_, err = a2a.Send(t.Context(), "session", "status")
 				return err
 			},
-			want: "decode A2A response",
+			want: "read A2A stream response",
 		},
 		"judge": {
 			call: func() error {

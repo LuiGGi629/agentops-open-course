@@ -158,19 +158,82 @@ func renderSummary(manifest Manifest) string {
 	return out.String()
 }
 
+// RepositoryRoot walks up from the working directory to the checkout that owns
+// this course. Both completion commands need it before they can resolve their
+// default manifest path, so it lives here rather than being copied into each
+// `package main`: the two are a pair, and a root one of them disagreed about
+// would silently point them at different manifests.
+func RepositoryRoot() (string, error) {
+	root, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("reading working directory: %w", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(root, "mise.toml")); err == nil {
+			if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err == nil {
+				return root, nil
+			}
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			return "", errors.New("could not find the repository root")
+		}
+		root = parent
+	}
+}
+
+// DefaultManifestPath is gitignored on purpose: the manifest attests to a
+// checkout, not to a commit, so committing one would be attesting to the wrong
+// thing.
+func DefaultManifestPath(root string) string {
+	return filepath.Join(root, ".agents/tmp/course-completion.json")
+}
+
+// DisplayPath shortens a path to the working directory when it sits inside it.
+// The default output paths are absolute because the commands resolve them from
+// the repository root rather than from wherever they were invoked, but an
+// absolute path is the wrong thing to print: it is noise a learner has to read
+// past, and pasting the line into an issue or a course page leaks a home
+// directory. Anything outside the working directory is printed unchanged, since
+// shortening that would hide where the file actually went.
+func DisplayPath(path string) string {
+	working, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+	relative, err := filepath.Rel(working, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return path
+	}
+	return relative
+}
+
+// Decode parses a manifest and rejects one this repository did not produce. It
+// is strict about unknown fields because a manifest is evidence: a field this
+// build does not understand means the file was written by a different contract,
+// and silently ignoring it would let a certificate quote figures nothing here
+// checked.
+func Decode(content []byte) (Manifest, error) {
+	var manifest Manifest
+	decoder := json.NewDecoder(strings.NewReader(string(content)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		return Manifest{}, fmt.Errorf("decoding course evidence: %w", err)
+	}
+	if manifest.Format != formatVersion || manifest.Course != courseID || manifest.Claim != claim {
+		return Manifest{}, errors.New("manifest format, course, or claim does not match this repository")
+	}
+	return manifest, nil
+}
+
 func Verify(ctx context.Context, config Config, manifestPath string) (string, error) {
 	content, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return "", fmt.Errorf("reading course evidence %s: %w", manifestPath, err)
 	}
-	var manifest Manifest
-	decoder := json.NewDecoder(strings.NewReader(string(content)))
-	decoder.DisallowUnknownFields()
-	if decodeErr := decoder.Decode(&manifest); decodeErr != nil {
-		return "", fmt.Errorf("decoding course evidence: %w", decodeErr)
-	}
-	if manifest.Format != formatVersion || manifest.Course != courseID || manifest.Claim != claim {
-		return "", errors.New("manifest format, course, or claim does not match this repository")
+	manifest, err := Decode(content)
+	if err != nil {
+		return "", err
 	}
 	identity, err := sourceidentity.Resolve(ctx, config.Root, sourceidentity.Release)
 	if err != nil {

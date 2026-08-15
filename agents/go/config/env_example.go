@@ -35,6 +35,8 @@ var externalExampleVariables = map[string]struct{}{
 	"EVAL_JUDGE_API_KEY":                   {},
 	"EVAL_JUDGE_BASE_URL":                  {},
 	"EVAL_JUDGE_MODEL":                     {},
+	"EVAL_JUDGE_TIMEOUT_S":                 {},
+	"EVAL_TURN_TIMEOUT_S":                  {},
 	"GRAFANA_PORT":                         {},
 	"LOKI_PORT":                            {},
 	"OTEL_EXPORTER_OTLP_ENDPOINT":          {},

@@ -823,3 +823,27 @@ func TestEveryFieldCarriesAnEnvironmentTag(t *testing.T) {
 		}
 	}
 }
+
+// TestWritesDisabledFormsAgree pins the two exported spellings of the kill-switch
+// refusal to each other.
+//
+// Three packages return this sentence — the policy guard, the two guarded write
+// tools, and the notes writer — and before they shared it they had drifted into
+// two capitalizations and two endings, which left an operator unable to tell
+// whether three refusals meant one switch. Sharing the text fixed that; this test
+// is what keeps the clause form and the sentence form from drifting apart again,
+// and it names the variable, because the person reading the refusal is the person
+// who can clear it.
+func TestWritesDisabledFormsAgree(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(WritesDisabledReason, EnvWritesDisabled) {
+		t.Fatalf("the refusal must name %s: %q", EnvWritesDisabled, WritesDisabledReason)
+	}
+	if strings.HasSuffix(WritesDisabledReason, ".") {
+		t.Fatalf("the reason clause must not end in a period, so callers can embed it: %q", WritesDisabledReason)
+	}
+	want := strings.ToUpper(WritesDisabledReason[:1]) + WritesDisabledReason[1:] + "."
+	if WritesDisabledRefusal != want {
+		t.Fatalf("WritesDisabledRefusal = %q, want the capitalized reason %q", WritesDisabledRefusal, want)
+	}
+}

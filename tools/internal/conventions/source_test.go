@@ -148,7 +148,7 @@ run = "go run ./cmd/agentops-eval validate"
 env = { _.file = { path = "../.env", redact = true } }
 run = """
 go run ./cmd/agentops-eval run --repeat 3 --min-pass-rate 0.33 \
-  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \\
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval,restart-approval-verified \\
   --judge --output results.json
 """
 
@@ -204,9 +204,13 @@ mise run eval:ab -- \
 	for name, mutation := range map[string]struct{ old, new, want string }{
 		"dropped floor":         {"--min-pass-rate 0.33", "--min-pass-rate 0.9", "--min-pass-rate 0.33"},
 		"dropped required case": {",restart-needs-approval", "", "restart-needs-approval"},
-		"dropped judge":         {"--judge ", "", "--judge"},
-		"renamed artifact":      {"--output results.json", "--output eval-results.json", "--output results.json"},
-		"dropped repeats":       {"--repeat 3 ", "", "--repeat 3"},
+		// The regression the old assertion could not see: this check used to count a
+		// substring, so appending a case left the four-name literal matching as a prefix
+		// and the gate stayed green while every page quoting the command went stale.
+		"appended required case": {",restart-approval-verified", ",restart-approval-verified,restart-audited", "restart-approval-verified"},
+		"dropped judge":          {"--judge ", "", "--judge"},
+		"renamed artifact":       {"--output results.json", "--output eval-results.json", "--output results.json"},
+		"dropped repeats":        {"--repeat 3 ", "", "--repeat 3"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			files := maps.Clone(valid)
@@ -914,5 +918,29 @@ func TestCheckQuickstartsRequiresTheCloneAndTheCompiler(t *testing.T) {
 				t.Fatalf("problems = %#v", problems)
 			}
 		})
+	}
+}
+
+// A contract check that reads its evidence from a section cut on literal heading
+// text fails open when that heading is reworded: the cut returns nothing and every
+// "the section must mention X" assertion under it passes against an empty string.
+// One check died that way unnoticed, so the cut now reports the missing heading.
+func TestSectionAfterHeadingRefusesAMissingHeading(t *testing.T) {
+	t.Parallel()
+	const page = "content/4. Quality/4.3. Metrics.md"
+	const heading = "## Which application metrics ship?"
+	body := "intro\n\n" + heading + "\n\n`agentops.tokens`\n\n## Next\n\nunrelated\n"
+
+	section, problems := sectionAfterHeading(page, body, heading)
+	if len(problems) != 0 {
+		t.Fatalf("problems = %#v, want none when the heading is present", problems)
+	}
+	if !strings.Contains(section, "`agentops.tokens`") || strings.Contains(section, "unrelated") {
+		t.Fatalf("section = %q, want only the body under the heading", section)
+	}
+
+	_, problems = sectionAfterHeading(page, strings.Replace(body, heading, "## Which metrics ship?", 1), heading)
+	if !strings.Contains(problemMessages(problems), "expected the heading") {
+		t.Fatalf("problems = %#v, want a refusal naming the missing heading", problems)
 	}
 }

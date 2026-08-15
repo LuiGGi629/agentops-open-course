@@ -209,11 +209,33 @@ func checkHandsOnAction(where, text string) []Problem {
 	return []Problem{problem(where, "hands-on page must reach a bash/shell/console command within its first two H2 sections")}
 }
 
+// exerciseOpeners are the three ways this course starts an exercise: a headed
+// "## Your turn:" section, and the two inline forms for exercises deliberately kept
+// out of the sidebar because they are optional. Each inline form is listed both bare
+// and bolded, so emphasising a label can never silently remove its block from checking.
+var exerciseOpeners = []string{
+	"## Your turn:",
+	"Exercise:", "**Exercise:**",
+	"Optional exercise:", "**Optional exercise:**",
+}
+
+func isExerciseOpener(line string) bool {
+	for _, opener := range exerciseOpeners {
+		if strings.HasPrefix(line, opener) {
+			return true
+		}
+	}
+	return false
+}
+
 func exerciseSections(text string) []fencedBlock {
 	lines := splitLines(text)
 	var result []fencedBlock
 	for index, line := range lines {
-		if !strings.HasPrefix(line, "## Your turn:") && !strings.HasPrefix(line, "Exercise:") && !strings.HasPrefix(line, "Optional exercise:") {
+		// The inline forms carry a bold label so a reader skimming for what they may
+		// skip sees it without reading the sentence. Match both, because an unbolded
+		// line would otherwise drop out of validation entirely and pass vacuously.
+		if !isExerciseOpener(line) {
 			continue
 		}
 		end := len(lines)
@@ -412,6 +434,52 @@ func closesOnTimeMarker(text string) bool {
 	return false
 }
 
+// clockTime matches a time of day, which is the shape of the scene-setting headings the
+// teaching frame retired ("Ana gets paged at 02:14", "The 03:00 restart you keep doing by
+// hand"). Ports are written `:8000` with no leading digits, and latency figures carry a
+// unit, so neither matches.
+var clockTime = regexp.MustCompile(`\b\d{1,2}:\d{2}\b`)
+
+// checkSceneHeadings keeps a time of day out of a heading.
+//
+// An H2 names its technical subject and what the section does with it, so it reads as a
+// claim in a sidebar. A clock time names a moment in the worked example instead, which is
+// exactly the framing the course moved away from: the incident domain illustrates the
+// mechanics and is not what anyone is here to learn.
+func checkSceneHeadings(where, text string) []Problem {
+	var problems []Problem
+	for _, line := range linesOutsideFences(text) {
+		if strings.HasPrefix(line.text, "## ") && clockTime.MatchString(line.text) {
+			problems = append(problems, problem(where, "line %d: heading names a moment in the worked example rather than what the section teaches", line.number))
+		}
+	}
+	return problems
+}
+
+// retiredNarrative are the fictional on-call engineer and retailer the course used to tell
+// its story through. The seed data stays — it is the measuring device that makes grounding
+// checkable — but the narrative around it is gone, because a reader is here to learn how to
+// build and operate an agent, not to follow a character through a night shift.
+//
+// Where a human role carries the teaching, name the role: "the approving engineer".
+var retiredNarrative = []*regexp.Regexp{
+	regexp.MustCompile(`\bAna\b`),
+	regexp.MustCompile(`\bNorthwind\b`),
+}
+
+func checkRetiredNarrative(where, text string) []Problem {
+	var problems []Problem
+	for _, line := range linesOutsideFences(text) {
+		for _, pattern := range retiredNarrative {
+			if pattern.MatchString(line.text) {
+				problems = append(problems, problem(where, "line %d: reintroduces the retired narrative persona or brand; name the role the teaching needs instead", line.number))
+				break
+			}
+		}
+	}
+	return problems
+}
+
 // markdownImage matches an image with its alt text and destination, so both can be
 // judged. The negative lookbehind Go lacks is unnecessary here: a link is `[text](…)`
 // while an image is `![text](…)`, and the leading `!` is what this anchors on.
@@ -437,4 +505,91 @@ func checkImages(where, text string) []Problem {
 		}
 	}
 	return problems
+}
+
+// openerWordLimit is the course's own rule: an H2 opens with a concrete sentence of 25
+// words or fewer. It exists because a reader arriving mid-page from search or a cross-link
+// lands on that sentence first, and the habit that breaks it is systematic rather than
+// sloppy — the definition, its appositive gloss, and the enumerated consequences all stack
+// before the first full stop. Breaking at the dash or colon costs no words and puts the
+// definition first, which is why this is worth a checker rather than a style note.
+const openerWordLimit = 25
+
+// openerNoise is markup that renders as fewer words than it is written with: shortcodes
+// disappear, a link keeps only its label, and emphasis marks are not words at all.
+var (
+	openerShortcode = regexp.MustCompile(`\{\{[<%].*?[>%]\}\}`)
+	openerLink      = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	openerHTMLTag   = regexp.MustCompile(`<[^>]*>`)
+	openerSentence  = regexp.MustCompile(`[.!?](?:\s|$)`)
+)
+
+// checkHeadingOpeners fails an H2 whose first prose sentence runs past openerWordLimit.
+//
+// Only prose counts. A section that opens on a list, a table, a fence, a shortcode block,
+// or a raw HTML anchor is measuring something the rule was never about, so those are
+// skipped rather than guessed at.
+func checkHeadingOpeners(where, text string) []Problem {
+	var problems []Problem
+	lines := linesOutsideFences(text)
+	for index, line := range lines {
+		if !strings.HasPrefix(line.text, "## ") {
+			continue
+		}
+		paragraph, ok := openingParagraph(lines[index+1:])
+		if !ok {
+			continue
+		}
+		if words := openerWords(paragraph); words > openerWordLimit {
+			problems = append(problems, problem(where, "line %d: H2 opens on a %d-word sentence; the rule is %d — split it in two at the dash or colon, so the definition lands first and its consequences follow", line.number, words, openerWordLimit))
+		}
+	}
+	return problems
+}
+
+// openingParagraph returns the first prose paragraph after a heading, and false when the
+// section opens on anything that is not prose.
+func openingParagraph(rest []numberedLine) (string, bool) {
+	var collected []string
+	for _, line := range rest {
+		trimmed := strings.TrimSpace(line.text)
+		if trimmed == "" {
+			if len(collected) > 0 {
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			return "", false
+		}
+		if len(collected) == 0 && !prose(trimmed) {
+			return "", false
+		}
+		collected = append(collected, trimmed)
+	}
+	if len(collected) == 0 {
+		return "", false
+	}
+	return strings.Join(collected, " "), true
+}
+
+func prose(trimmed string) bool {
+	for _, prefix := range []string{"- ", "* ", "|", ">", "{{", "<", "1. ", "!["} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// openerWords counts the words a reader actually reads in the paragraph's first sentence.
+func openerWords(paragraph string) int {
+	cleaned := openerShortcode.ReplaceAllString(paragraph, "")
+	cleaned = openerLink.ReplaceAllString(cleaned, "$1")
+	cleaned = openerHTMLTag.ReplaceAllString(cleaned, "")
+	cleaned = strings.NewReplacer("`", "", "*", "", "_", "").Replace(cleaned)
+	if bound := openerSentence.FindStringIndex(cleaned); bound != nil {
+		cleaned = cleaned[:bound[0]]
+	}
+	return len(strings.Fields(cleaned))
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,17 +222,22 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 		*binary = filepath.Join(*moduleDir, "..", "agents", "go", "bin", "agent")
 	}
 	environment := agentRuntimeEnvironment()
+	turnTimeout, err := secondsFromEnvironment("EVAL_TURN_TIMEOUT_S")
+	if err != nil {
+		return err
+	}
 	factory, err := selectClientFactory(clientFactoryConfig{
 		Runtime: *agentRuntime,
 		Process: evals.ProcessClientFactoryConfig{
 			Source: source, Binary: *binary, DataDir: paths.DataDir, Transport: *transport,
 			Entrypoint: *entrypoint, AppName: *appName, Streaming: *streaming,
-			Environment: environment, Output: stderr,
+			Environment: environment, Output: stderr, Timeout: turnTimeout,
 		},
 		Container: evals.ContainerClientFactoryConfig{
 			Source: source, Engine: *containerEngine, Image: *image,
 			Transport: *transport, Entrypoint: *entrypoint,
-			AppName: *appName, Streaming: *streaming, Environment: environment, Output: stderr,
+			AppName: *appName, Streaming: *streaming, Environment: environment,
+			Output: stderr, Timeout: turnTimeout,
 		},
 	}, defaultClientFactoryConstructors(ctx))
 	if err != nil {
@@ -373,11 +379,57 @@ func recorder(ctx context.Context, endpoint string) (evals.EvidenceRecorder, err
 }
 
 func gatewayJudgeFromEnvironment() (*evals.GatewayJudge, error) {
+	timeout, err := judgeTimeoutFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
 	return evals.NewGatewayJudge(evals.GatewayJudgeConfig{
 		BaseURL: os.Getenv("EVAL_JUDGE_BASE_URL"),
 		Model:   os.Getenv("EVAL_JUDGE_MODEL"),
 		APIKey:  os.Getenv("EVAL_JUDGE_API_KEY"),
+		Timeout: timeout,
 	})
+}
+
+// secondsFromEnvironment reads one optional deadline, in whole seconds.
+//
+// Two deadlines bound a model-backed run and both were hard-coded before this:
+// EVAL_TURN_TIMEOUT_S for one agent turn, EVAL_JUDGE_TIMEOUT_S for one judge
+// call. Neither default is wrong — they are wrong *for a host*, and the host is
+// the thing the harness cannot know. A CPU-only machine answering a five-tool
+// trajectory can spend longer on one turn than the thirty minutes the client
+// allowed, and the run then fails on a case that was working.
+//
+// Unset returns zero, which every caller reads as "keep the built-in default".
+// Zero and negative are refused rather than treated as "no deadline": a turn that
+// cannot time out cannot be told apart from one that hung.
+func secondsFromEnvironment(name string) (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0, nil
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return 0, fmt.Errorf("%s must be a positive whole number of seconds, got %q", name, raw)
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+// judgeTimeoutFromEnvironment reads EVAL_JUDGE_TIMEOUT_S, in seconds.
+//
+// It exists for the same reason AGENT_MODEL_TIMEOUT_S does, and was added after
+// the fixed five-minute default made `--judge` impossible to complete on the
+// hardware this course calls the required path: a judge call carries the
+// question, the answer, and the reference answer, so it is a larger prompt than
+// the turn it is grading, and on a CPU-only host it can take longer than the
+// turn did. A deadline nobody can raise is a deadline that decides which
+// machines may run the evidence.
+//
+// Unset keeps the five-minute default. Zero and negative are refused rather than
+// treated as "no deadline": an unbounded judge call cannot be told apart from a
+// hung one.
+func judgeTimeoutFromEnvironment() (time.Duration, error) {
+	return secondsFromEnvironment("EVAL_JUDGE_TIMEOUT_S")
 }
 
 func detectEvalDir() string {

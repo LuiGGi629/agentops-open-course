@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+// ConfirmationTool is the synthetic tool ADK emits instead of running a guarded
+// action, carrying the original call inside its arguments. Every approval check
+// in this harness keys on this name, because it is the one wire-visible signal
+// that a write was proposed and did not happen.
 const ConfirmationTool = "adk_request_confirmation"
 
 type ToolCall struct {
@@ -46,6 +50,12 @@ func (u Usage) validate() error {
 	return nil
 }
 
+// add sums two usage records and refuses rather than wrapping.
+//
+// Both operands crossed a provider boundary, so neither is trusted: a negative
+// counter or a total that would overflow int64 is a corrupt reading, and a
+// corrupt reading that silently becomes a small number is worse than a run that
+// stops. Callers turn the error into a failed turn.
 func (u Usage) add(other Usage) (Usage, error) {
 	if err := errors.Join(u.validate(), other.validate()); err != nil {
 		return Usage{}, err
@@ -135,6 +145,10 @@ type Turn struct {
 	Usage                Usage          `json:"usage"`
 }
 
+// ToolNames lists the tools the model actually reached for, with ADK's
+// confirmation tool filtered out: it is the framework asking a human a question,
+// not the agent choosing a capability, and counting it would make every guarded
+// proposal look like an extra tool call.
 func (t Turn) ToolNames() []string {
 	names := make([]string, 0, len(t.ToolCalls))
 	for _, call := range t.ToolCalls {
@@ -149,6 +163,12 @@ func (t Turn) Failed() bool {
 	return t.ErrorCode != ""
 }
 
+// Evidence is every tool result this turn saw, encoded as JSON lines.
+//
+// It is what the groundedness scorer reads: an entity the answer names must
+// appear in the question or in here, and "here" is deliberately the tool
+// *results* rather than the model's own text, because an answer cannot be its
+// own evidence.
 func (t Turn) Evidence() string {
 	fragments := make([]string, 0, len(t.ToolResponses))
 	for _, response := range t.ToolResponses {

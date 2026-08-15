@@ -110,6 +110,23 @@ routes:
         # that never arrives.
         routes:
           /v1/responses: responses
+        # Reject-only, unlike host and k3d — and the reason is worth stating rather
+        # than looking like an omission.
+        #
+        # The other two profiles reject, then mask five builtin entity classes, then
+        # ask a private Go webhook for the person, location, and organization spans a
+        # regex cannot see. Both of those extra stages need a model beside the
+        # gateway: masking is cheap only because Ollama is already on the same host,
+        # and the webhook asks that same Ollama for its answer. On GKE there is no
+        # co-hosted model to ask; the backend is Vertex, and a per-request round trip
+        # to a hosted model just to decide whether to rewrite a prompt would double
+        # the cost and the latency of every call to buy a weaker guard.
+        #
+        # So fail-closed means something different here. Where host and k3d rewrite a
+        # request and let it through, this profile refuses it. That is the stricter
+        # behavior, not the looser one, and it is why `scripts/check-infra.sh`
+        # compares this guard by shape (two reject stages, no webhook) instead of
+        # demanding it equal the other two.
         promptGuard:
           request:
             - regex:

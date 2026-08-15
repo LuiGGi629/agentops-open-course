@@ -11,6 +11,7 @@ import (
 
 	"google.golang.org/adk/v2/agent"
 
+	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/config"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/data"
 	"github.com/MLOps-Courses/agentops-open-course-go/agents/go/domain"
 )
@@ -253,8 +254,11 @@ func (n *Notes) save(
 	ctx context.Context, who scope, args SaveIncidentNoteArgs,
 ) (result SaveIncidentNoteResult, err error) {
 	if n.writesDisabled {
-		return SaveIncidentNoteResult{Error: "Refusing to save an incident note: writes are frozen by the " +
-			"AGENT_WRITES_DISABLED kill-switch; reads still work."}, nil
+		// The reason clause comes from config, so this refusal says exactly what
+		// the policy guard and the guarded write tools say about the same switch —
+		// including how to clear it, which this one used to omit.
+		return SaveIncidentNoteResult{Error: "Refusing to save an incident note: " +
+			config.WritesDisabledReason + "."}, nil
 	}
 	incidentID, err := domain.NormalizeIncidentID(args.IncidentID)
 	if err != nil {

@@ -26,6 +26,7 @@ var (
 	errSendRESTRequest     = errors.New("send REST request")
 	errSendRESTSSERequest  = errors.New("send REST SSE request")
 	errSendA2ARequest      = errors.New("send A2A request")
+	errReadA2AStream       = errors.New("read A2A stream response")
 	errReadRESTSSEResponse = errors.New("read REST SSE response")
 	errDecodeRESTSSEEvent  = errors.New("decode REST SSE event")
 	errDecodeRESTResponse  = errors.New("decode REST response")
@@ -232,15 +233,26 @@ func (c *RESTClient) resolve(route string) string {
 }
 
 type A2AClient struct {
-	baseURL *url.URL
-	http    *http.Client
-	tasks   map[string]string
+	baseURL        *url.URL
+	http           *http.Client
+	tasks          map[string]string
+	identityHeader string
+	identity       string
 }
 
 type A2AClientConfig struct {
 	Client  *http.Client
 	BaseURL string
-	Timeout time.Duration
+	// IdentityHeader and Identity make this client stand in for the gateway.
+	//
+	// The agent's A2A boundary grants an authenticated principal only from a header
+	// a trusted proxy set, and a guarded write refuses without one. Evaluating "did
+	// the agent stop and ask, and did the approval carry a named approver?" therefore
+	// needs the harness to be that proxy. Both empty means the client sends no header
+	// and the server grants no principal, which is the read-only shape.
+	IdentityHeader string
+	Identity       string
+	Timeout        time.Duration
 }
 
 func NewA2AClient(config A2AClientConfig) (*A2AClient, error) {
@@ -251,10 +263,15 @@ func NewA2AClient(config A2AClientConfig) (*A2AClient, error) {
 	if config.Timeout <= 0 {
 		config.Timeout = DefaultTurnTimeout
 	}
+	if (config.IdentityHeader == "") != (config.Identity == "") {
+		return nil, errors.New("A2A identity needs both a header name and a subject, or neither")
+	}
 	return &A2AClient{
-		baseURL: baseURL,
-		http:    clientWithoutRedirects(config.Client, config.Timeout),
-		tasks:   make(map[string]string),
+		baseURL:        baseURL,
+		http:           clientWithoutRedirects(config.Client, config.Timeout),
+		tasks:          make(map[string]string),
+		identityHeader: config.IdentityHeader,
+		identity:       config.Identity,
 	}, nil
 }
 
@@ -310,18 +327,56 @@ func (c *A2AClient) send(ctx context.Context, sessionID string, parts []a2aPart)
 	if taskID := c.tasks[sessionID]; taskID != "" {
 		message["taskId"] = taskID
 	}
-	result, err := c.rpc(ctx, "message/send", map[string]any{"message": message})
+	// message/stream rather than message/send, for evidence rather than latency.
+	// A2A's unary reply is a stored Task, and storing a task discards the per-event
+	// metadata ADK attaches on the way — including `adk_usage_metadata`, which is
+	// where every token this run spent is counted. The stream carries one update
+	// per ADK event with that metadata intact, which is the same event boundary the
+	// REST transport folds, so both transports produce the same typed turn.
+	updates, err := c.stream(ctx, "message/stream", map[string]any{"message": message})
 	if err != nil {
 		return Turn{}, err
 	}
-	if result.Kind == "task" && result.ID != "" {
+	result := foldStreamUpdates(updates)
+	// A task id is carried into the next message only while that task can still
+	// accept one. An A2A task that reached a terminal state rejects a follow-up
+	// with "task in a terminal state" — so remembering a completed id turns every
+	// second turn of a conversation into a JSON-RPC error, while forgetting a
+	// paused one abandons the confirmation the agent is waiting on.
+	if result.Kind == "task" && result.ID != "" && acceptsAnotherMessage(result.Status) {
 		c.tasks[sessionID] = result.ID
+	} else {
+		delete(c.tasks, sessionID)
 	}
 	events, err := eventsFromA2A(result)
 	if err != nil {
 		return Turn{}, fmt.Errorf("normalize A2A result: %w", err)
 	}
 	return FoldEvents(events), nil
+}
+
+// acceptsAnotherMessage reports whether an A2A task is still open for input.
+//
+// The spec's terminal states are completed, canceled, failed, and rejected;
+// everything else — submitted, working, input-required, auth-required — can take
+// another message on the same task. This lists the open states rather than the
+// terminal ones so an unrecognized or missing state falls back to a fresh task,
+// which the server always accepts, instead of to an error it always refuses.
+//
+// Both spellings are matched because the wire carries the short form while the
+// server's own diagnostics quote the protobuf enum name.
+func acceptsAnotherMessage(status *a2aStatus) bool {
+	if status == nil {
+		return false
+	}
+	normalized := strings.ToLower(strings.TrimPrefix(strings.ToUpper(status.State), "TASK_STATE_"))
+	normalized = strings.ReplaceAll(normalized, "_", "-")
+	switch normalized {
+	case "submitted", "working", "input-required", "auth-required":
+		return true
+	default:
+		return false
+	}
 }
 
 type rpcEnvelope struct {
@@ -335,10 +390,69 @@ type rpcError struct {
 	Code int `json:"code"`
 }
 
-func (c *A2AClient) rpc(ctx context.Context, method string, params any) (a2aResult, error) {
+// a2aStreamEvent is one frame of a message/stream response: the opening task
+// snapshot, a status change, an artifact the agent produced, or a bare message.
+// The metadata sits on the frame rather than inside the artifact, which is the
+// whole reason this transport is streamed — see [A2AClient.send].
+type a2aStreamEvent struct {
+	Artifact  *a2aArtifact   `json:"artifact,omitempty"`
+	Status    *a2aStatus     `json:"status,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	Kind      string         `json:"kind"`
+	ID        string         `json:"id,omitempty"`
+	ContextID string         `json:"contextId,omitempty"`
+	Parts     []a2aPart      `json:"parts,omitempty"`
+}
+
+type a2aArtifact struct {
+	Parts []a2aPart `json:"parts"`
+}
+
+// foldStreamUpdates collapses a stream back into the task shape the unary reply
+// would have had, so one normalizer serves both and the tests that pin it keep
+// pinning it.
+func foldStreamUpdates(updates []a2aStreamEvent) a2aResult {
+	result := a2aResult{Kind: "task"}
+	for _, update := range updates {
+		switch update.Kind {
+		case "task":
+			// The opening snapshot names the task and repeats the conversation so
+			// far. Its stored artifacts belong to earlier turns, so only the identity
+			// is taken here; folding them would double-count this turn's evidence and
+			// its tokens on the second question of any multi-turn case.
+			result.ID, result.ContextID = update.ID, update.ContextID
+			if update.Status != nil {
+				result.Status = update.Status
+			}
+		case "status-update":
+			result.Status = update.Status
+			if len(update.Metadata) > 0 {
+				result.Metadata = update.Metadata
+			}
+		case "artifact-update":
+			if update.Artifact == nil {
+				continue
+			}
+			result.Artifacts = append(result.Artifacts, a2aContainer{
+				Parts: update.Artifact.Parts, Metadata: update.Metadata,
+			})
+		case "message":
+			result.Artifacts = append(result.Artifacts, a2aContainer{
+				Parts: update.Parts, Metadata: update.Metadata,
+			})
+		}
+	}
+	return result
+}
+
+// stream sends one JSON-RPC request and reads its server-sent event response.
+//
+// Every frame repeats the request's own id, so each is correlated before its
+// payload is trusted, exactly as the unary path did.
+func (c *A2AClient) stream(ctx context.Context, method string, params any) ([]a2aStreamEvent, error) {
 	id, err := randomUUID()
 	if err != nil {
-		return a2aResult{}, fmt.Errorf("mint JSON-RPC id: %w", err)
+		return nil, fmt.Errorf("mint JSON-RPC id: %w", err)
 	}
 	payload, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
@@ -347,48 +461,87 @@ func (c *A2AClient) rpc(ctx context.Context, method string, params any) (a2aResu
 		"params":  params,
 	})
 	if err != nil {
-		return a2aResult{}, fmt.Errorf("encode %s request: %w", method, err)
+		return nil, fmt.Errorf("encode %s request: %w", method, err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL.String(), bytes.NewReader(payload))
 	if err != nil {
-		return a2aResult{}, fmt.Errorf("build %s request: %w", method, err)
+		return nil, fmt.Errorf("build %s request: %w", method, err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", "text/event-stream")
+	if c.identityHeader != "" {
+		request.Header.Set(c.identityHeader, c.identity)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return a2aResult{}, errSendA2ARequest
+		return nil, errSendA2ARequest
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return a2aResult{}, responseStatusError(response)
+		return nil, responseStatusError(response)
 	}
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
+	if err != nil {
+		// The reader error is as untrusted as the body it was reading.
+		return nil, errReadA2AStream
+	}
+
+	var updates []a2aStreamEvent
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 64*1024), maxSSEEventBytes)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		update, frameErr := decodeA2AStreamFrame(strings.TrimSpace(strings.TrimPrefix(line, "data:")), method, id)
+		if frameErr != nil {
+			return nil, frameErr
+		}
+		updates = append(updates, update)
+	}
+	if len(updates) > 0 {
+		return updates, nil
+	}
+	// No frames means the stream never started, which is how a JSON-RPC error to a
+	// streaming request arrives: one ordinary envelope, no event framing. Decoding
+	// the whole body is what turns that into the server's numeric code rather than
+	// into "the response was empty".
+	update, err := decodeA2AStreamFrame(string(body), method, id)
+	if err != nil {
+		return nil, err
+	}
+	return []a2aStreamEvent{update}, nil
+}
+
+func decodeA2AStreamFrame(data, method, requestID string) (a2aStreamEvent, error) {
 	var envelope rpcEnvelope
-	decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes))
+	decoder := json.NewDecoder(strings.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&envelope); err != nil {
-		return a2aResult{}, errDecodeA2AResponse
+		return a2aStreamEvent{}, errDecodeA2AResponse
 	}
-	// Correlate the response before trusting either its result or error payload.
+	// Correlate the frame before trusting either its result or error payload.
 	if envelope.JSONRPC != "2.0" {
-		return a2aResult{}, fmt.Errorf("%s response has invalid JSON-RPC version", method)
+		return a2aStreamEvent{}, fmt.Errorf("%s response has invalid JSON-RPC version", method)
 	}
-	if envelope.ID != id {
-		return a2aResult{}, fmt.Errorf("%s response has JSON-RPC id mismatch", method)
+	if envelope.ID != requestID {
+		return a2aStreamEvent{}, fmt.Errorf("%s response has JSON-RPC id mismatch", method)
 	}
 	if envelope.Error != nil {
 		// The remote message and data fields are provider-controlled response
 		// bodies. The stable numeric code is sufficient for local diagnosis.
-		return a2aResult{}, fmt.Errorf("%s JSON-RPC error %d", method, envelope.Error.Code)
+		return a2aStreamEvent{}, fmt.Errorf("%s JSON-RPC error %d", method, envelope.Error.Code)
 	}
 	if len(envelope.Result) == 0 || bytes.Equal(envelope.Result, []byte("null")) {
-		return a2aResult{}, fmt.Errorf("%s response has no result", method)
+		return a2aStreamEvent{}, fmt.Errorf("%s response has no result", method)
 	}
-	var result a2aResult
-	if err := json.Unmarshal(envelope.Result, &result); err != nil {
-		return a2aResult{}, errDecodeA2AResponse
+	var update a2aStreamEvent
+	if err := json.Unmarshal(envelope.Result, &update); err != nil {
+		return a2aStreamEvent{}, errDecodeA2AResponse
 	}
-	return result, nil
+	return update, nil
 }
 
 type a2aPart struct {

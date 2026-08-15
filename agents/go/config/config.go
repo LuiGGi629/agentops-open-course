@@ -78,6 +78,42 @@ const (
 	EnvOutputPricePer1K         = "AGENT_OUTPUT_PRICE_PER_1K"
 )
 
+// WritesDisabledReason is the one wording of the kill-switch refusal, phrased as
+// a reason so a caller can interpolate it: no leading capital, no trailing
+// period. It says what still works, because freezing writes must not read as
+// "the agent is broken", and it names the variable to clear, because the on-call
+// engineer reading the transcript is the person who can clear it.
+//
+// Three packages refuse a write while this switch is set — the policy guard
+// before ADK builds a confirmation, the two guarded write tools, and the notes
+// writer — and each used to spell the sentence for itself. They drifted into two
+// capitalizations and two endings, which left an operator unable to tell whether
+// the three refusals meant the same switch.
+//
+// The text lives in config rather than in domain, which the work order suggested,
+// for two reasons. Domain is the pivotable vocabulary and owns no runtime
+// configuration, so hosting it there would force domain either to import config
+// or to re-spell AGENT_WRITES_DISABLED — reintroducing the duplication this
+// removes. And config already declares the variable the sentence names, imports
+// nothing else in this module, and is therefore impossible to import into a
+// cycle; policy already depended on it for exactly this sentence.
+const WritesDisabledReason = "w" + writesDisabledReasonTail
+
+// WritesDisabledRefusal is the same reason as a standalone sentence, for callers
+// that return it on its own.
+//
+// It is a const rather than a value derived with strings.ToUpper, because a
+// package-level var is writable at runtime and a refusal an attacker-adjacent
+// code path could rewrite is not a refusal. TestWritesDisabledFormsAgree pins it
+// to the reason it capitalizes, so the two cannot drift apart in a diff either.
+const WritesDisabledRefusal = "W" + writesDisabledReasonTail + "."
+
+// writesDisabledReasonTail is WritesDisabledReason without its leading letter, so
+// both exported forms are spelled once and the test that compares them is
+// comparing construction rather than two literals someone typed twice.
+const writesDisabledReasonTail = "rites are frozen by the " + EnvWritesDisabled +
+	" kill-switch; reads still work. Clear the flag once the incident is contained to resume approvals"
+
 // Config is the resolved agent configuration.
 //
 // Fields are laid out in four regions — optional overrides, then names and

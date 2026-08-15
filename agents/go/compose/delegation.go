@@ -17,9 +17,15 @@ import (
 // remediation specialist holds only the guarded writes, so it cannot read raw
 // logs, and every action still pauses for human confirmation.
 //
-// The same wiring underpins A2A: expose a specialist over A2A and the
-// coordinator can call it across the network as a remote agent instead of an
-// in-process sub-agent.
+// The same wiring has a distributed form this repository does not ship. ADK's
+// agent/remoteagent.NewA2A builds an agent.Agent backed by a remote A2A card, and
+// a coordinator would take it as a sub-agent exactly as it takes these two — the
+// SubAgents assignment below would not change at all. It is left unbuilt on
+// purpose: a network hop between two agents this course starts as one process
+// buys discovery, authentication, versioning, and a second deployment to operate,
+// and 3.6. A2A argues that you should pay for those only when a split has an
+// owner. Naming it here so the option is visible; do not read this comment as a
+// description of code that exists.
 
 // Descriptions the delegation router reads when it decides where to transfer.
 const (
@@ -83,6 +89,7 @@ func (c *Compose) remediationConfig() llmagent.Config {
 // It holds the four incident reads and no knowledge tools, so it can see what
 // is broken but must delegate to read a runbook; and it holds no write tool, so
 // acting requires delegation as well.
+// --8<-- [start:coordinator-wiring]
 func (c *Compose) coordinatorConfig(subAgents []agent.Agent) llmagent.Config {
 	cfg := c.baseConfig(CoordinatorName, coordinatorDescription, coordinatorInstruction)
 	cfg.Tools = concatTools(c.tools.ReadTools())
@@ -108,3 +115,5 @@ func (c *Compose) CoordinatorAgent() (agent.Agent, error) {
 	}
 	return newAgent(c.coordinatorConfig([]agent.Agent{diagnosis, remediation}))
 }
+
+// --8<-- [end:coordinator-wiring]

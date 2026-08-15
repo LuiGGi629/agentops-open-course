@@ -189,6 +189,14 @@ func processEnvironment(config AgentProcessConfig) []string {
 	values["AGENT_STATE_DIR"] = config.StateDir
 	values["AGENT_DATA_DIR"] = config.DataDir
 	values["AGENT_A2A_PORT"] = strconv.Itoa(config.Port)
+	if config.Transport == "a2a" {
+		// Tell the child which header to trust, and have the client send it: without
+		// this pair the A2A boundary grants no principal and every guarded write
+		// refuses, so "the agent asked and a named human approved" is not a claim
+		// this transport could reach. The child listens on loopback and is torn down
+		// with the case, so the harness really is the only thing in front of it.
+		values["AGENT_TRUSTED_IDENTITY_HEADER"] = EvalIdentityHeader
+	}
 	// The harness owns evaluation telemetry. A child agent must never inherit or
 	// receive an override that writes into its production collection pipeline.
 	values["OTEL_SDK_DISABLED"] = "true"

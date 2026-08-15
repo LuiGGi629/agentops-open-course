@@ -13,6 +13,17 @@
 # whose behavior is exercised through subprocess tests that Go attributes to the test
 # binary rather than to the package under test, so their reported number measures the
 # harness more than the code. Every other package is in.
+#
+# A package with no test file is *not* a blind spot here, which is worth writing down
+# because it looks like one. `go test -coverprofile ./...` compiles every package for
+# coverage and emits its blocks at count 0 whether or not a test file exists, so such a
+# package arrives in the profile reading 0.0% and fails the floor by the ordinary path.
+# Verified against Go 1.26.5 on 13 August 2026 by adding a test-free package and running
+# the module's own test task; it was named and it failed. The only package this profile
+# cannot see is one with no executable statement at all — a file of types and constants —
+# and there is nothing to cover there, so its absence is correct rather than missing.
+# Cross-checking against `go list ./...` was considered and rejected for that reason: it
+# would fail exactly the packages that are right to be silent.
 
 lib_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib.sh

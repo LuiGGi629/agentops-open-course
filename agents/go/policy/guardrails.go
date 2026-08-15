@@ -85,11 +85,6 @@ var injectionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\[[^\]]*\]\(https?://[^)]+\)`),
 }
 
-// writesDisabledRefusal is what the kill-switch says. It names the variable to
-// clear, because an on-call engineer reading it is the person who can clear it.
-var writesDisabledRefusal = "Writes are frozen by the " + config.EnvWritesDisabled +
-	" kill-switch; reads still work. Clear the flag once the incident is contained to resume approvals."
-
 // modelUnavailableText is what a caller sees when the provider fails.
 //
 // The class of failure is not sensitive; the provider's body is. These three
@@ -383,9 +378,11 @@ func (p *Policy) ValidateActions(
 	}
 	// Refuse before ADK builds a confirmation request, so the kill-switch never
 	// pages a human for an approval that would be rejected anyway. The action
-	// body repeats this check because a direct call must fail closed too.
+	// body repeats this check because a direct call must fail closed too. The
+	// wording is config's, so this refusal, the tool refusal, and the notes
+	// refusal cannot describe the same switch three different ways.
 	if p.writesDisabled {
-		return map[string]any{"error": writesDisabledRefusal}, nil
+		return map[string]any{"error": config.WritesDisabledRefusal}, nil
 	}
 
 	switch name {

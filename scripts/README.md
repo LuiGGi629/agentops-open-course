@@ -8,29 +8,30 @@ Automation sits behind the `mise run` vocabulary. Contributors normally call the
 
 ## Repository tasks
 
-| Owner                       | Task or caller                                                    | What it does                                                                            |
-| --------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `tools/bin/conventions`     | `check:docs`, `check:skills`, `check:release-metadata`            | Page frames, includes, navigation, rendered HTML, skills, and metadata.                 |
-| `tools/bin/accessibility`   | `check:accessibility`                                             | Real-browser documentation and A2A web-client acceptance.                               |
-| `tools/bin/course-evidence` | `course:evidence*`                                                | Creates and verifies a sanitized learner completion manifest.                           |
-| `tools/bin/fake-model`      | `model:fake`, `smoke:host`                                        | Deterministic OpenAI-compatible model fixture.                                          |
-| `tools/bin/loopback-relay`  | host gateway wrapper                                              | Bounded bridge-to-loopback relay for containerized agentgateway.                        |
-| `check-licenses.sh`         | `check:licenses*`                                                 | Repository and Go dependency licences through Trivy.                                    |
-| `check-infra.sh`            | `check:infra`                                                     | Renders and validates Kubernetes overlays and the OpenTofu module.                      |
-| `check-task-shell.sh`       | `check:shell`                                                     | Parses every inline mise task body with the shell that will run it.                     |
-| `check-coverage.sh`         | `test` in `agents/go` and `evals`                                 | Enforces the 80% line-coverage floor on every package, `cmd/` excluded by kind.         |
-| `check-observability.sh`    | `observability:up`, `observability:down`                          | Asserts the local observability stack is either ready or fully stopped.                 |
-| `doctor.sh`                 | `doctor*`                                                         | Verifies one prerequisite tier and names its installation remedy.                       |
-| `install-helm-diff.sh`      | `install:platform`                                                | Verifies the pinned plugin checkout and executable on every install.                    |
-| `install-sqlite.sh`         | `install:tools:core`                                              | Rebuilds the pinned SQLite CLI from one checksum-verified upstream archive.             |
-| `cluster-start.sh`          | `cluster:start`                                                   | Creates or resumes the local k3d cluster and registry.                                  |
-| `chaos-drill.sh`            | `chaos:collector`, `chaos:database`, `chaos:runbook`, `chaos:mcp` | Injects one recoverable fault for Chapter 7.7 and restores the exact state it observed. |
-| `promote.sh`                | `promote`                                                         | Runs source/eval gates, renders the overlay, and prints guarded commands.               |
-| `smoke-host.sh`             | `smoke:host`                                                      | Proves the account-free host composition, then tears it down.                           |
-| `trivy-repository.sh`       | `secure`, `secure:staged`                                         | Runs the Trivy source, licence, and configuration scans over the checkout.              |
-| `generate-captures.sh`      | `docs:captures`                                                   | Regenerates `data/captures.yaml` from one real run of all three suites.                 |
-| `update-kagent-schemas.sh`  | maintainer, `--check` or `--write`                                | Regenerates the pinned kagent CRD schemas from the helmfile chart digest.               |
-| `vendor-assets.sh`          | maintainer                                                        | Re-pins the self-hosted Mermaid and FlexSearch bundles and their digests.               |
+| Owner                          | Task or caller                                                    | What it does                                                                            |
+| ------------------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `tools/bin/conventions`        | `check:docs`, `check:skills`, `check:release-metadata`            | Page frames, includes, navigation, rendered HTML, skills, and metadata.                 |
+| `tools/bin/accessibility`      | `check:accessibility`                                             | Real-browser documentation and A2A web-client acceptance.                               |
+| `tools/bin/course-evidence`    | `course:evidence*`                                                | Creates and verifies a sanitized learner completion manifest.                           |
+| `tools/bin/course-certificate` | `course:certificate`                                              | Renders one completion manifest into a self-contained, offline SVG certificate.         |
+| `tools/bin/fake-model`         | `model:fake`, `smoke:host`                                        | Deterministic OpenAI-compatible model fixture.                                          |
+| `tools/bin/loopback-relay`     | host gateway wrapper                                              | Bounded bridge-to-loopback relay for containerized agentgateway.                        |
+| `check-licenses.sh`            | `check:licenses*`                                                 | Repository and Go dependency licences through Trivy.                                    |
+| `check-infra.sh`               | `check:infra`                                                     | Renders and validates Kubernetes overlays and the OpenTofu module.                      |
+| `check-task-shell.sh`          | `check:shell`                                                     | Parses every inline mise task body with the shell that will run it.                     |
+| `check-coverage.sh`            | `test` in `agents/go` and `evals`                                 | Enforces the 80% line-coverage floor on every package, `cmd/` excluded by kind.         |
+| `check-observability.sh`       | `observability:up`, `observability:down`                          | Asserts the local observability stack is either ready or fully stopped.                 |
+| `doctor.sh`                    | `doctor*`                                                         | Verifies one prerequisite tier and names its installation remedy.                       |
+| `install-helm-diff.sh`         | `install:platform`                                                | Verifies the pinned plugin checkout and executable on every install.                    |
+| `install-sqlite.sh`            | `install:tools:core`                                              | Rebuilds the pinned SQLite CLI from one checksum-verified upstream archive.             |
+| `cluster-start.sh`             | `cluster:start`                                                   | Creates or resumes the local k3d cluster and registry.                                  |
+| `chaos-drill.sh`               | `chaos:collector`, `chaos:database`, `chaos:runbook`, `chaos:mcp` | Injects one recoverable fault for Chapter 7.7 and restores the exact state it observed. |
+| `promote.sh`                   | `promote`                                                         | Runs source/eval gates, renders the overlay, and prints guarded commands.               |
+| `smoke-host.sh`                | `smoke:host`                                                      | Proves the account-free host composition, then tears it down.                           |
+| `trivy-repository.sh`          | `secure`, `secure:staged`                                         | Runs the Trivy source, licence, and configuration scans over the checkout.              |
+| `generate-captures.sh`         | `docs:captures`                                                   | Regenerates `data/captures.yaml` from one real run of all three suites.                 |
+| `update-kagent-schemas.sh`     | maintainer, `--check` or `--write`                                | Regenerates the pinned kagent CRD schemas from the helmfile chart digest.               |
+| `vendor-assets.sh`             | maintainer                                                        | Re-pins the self-hosted Mermaid and FlexSearch bundles and their digests.               |
 
 ## Runtime orchestration
 

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/MLOps-Courses/agentops-open-course-go/tools/internal/conventions"
 )
 
 type fakeFetcher struct{}
@@ -68,6 +70,13 @@ func TestReportIsDeterministicAndReadOnlyOffline(t *testing.T) {
 		if !strings.Contains(document, wanted) {
 			t.Fatalf("report is missing %q", wanted)
 		}
+	}
+	// The copied-prose gate must describe itself with the checker's own subset. A
+	// literal sentence here would outlive the subset it describes the moment a
+	// source-derived check joins or leaves CheckCopiedSources.
+	summary := conventions.CopiedSourceSummary()
+	if strings.Contains(document, "PASS — ") && !strings.Contains(document, "PASS — "+summary+" match their owners.") {
+		t.Fatalf("copied-prose source gate did not name the checker subset %q", summary)
 	}
 }
 

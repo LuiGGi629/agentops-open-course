@@ -6,36 +6,42 @@ slug: "3-capabilities"
 
 {{% admonition abstract "In one glance" %}}
 
-- **You will:** Give the agent the capabilities Ana's incident actually needs — one at a time, each arriving with a limit you can check offline.
-- **You need:** Chapter 2 finished, with `mise run test` green inside `agents/go`.
+- **You will:** Add ten capabilities one at a time, each with a limit and a check that fails when it is widened.
+- **You need:** `mise run install` done at the repository root. No model, key, or container for the commands here. Assumed, not required: the agent from [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}).
 - **Time:** about 8 minutes, orientation. {{% /admonition %}}
 
-## What the agent still cannot do at 02:14
+## What the agent cannot do yet, and which page adds it
 
-The agent you ran in [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) can look up `INC-002` and tell Ana that inventory is crash-looping. That is where it stops. It cannot find the right runbook from a symptom nobody typed as a slug. It cannot restart anything, and you would not want it to yet. It cannot reach a tool that lives in another process, cannot remember what last night's engineer already tried, cannot be told to always challenge its own evidence before advising, cannot hand the write to a specialist that holds nothing else, and cannot say a word until it has finished thinking.
+A **capability** is an addition that widens the agent's reach: a tool, a reviewed procedure, a memory store, a declared stage order, a specialist. Adding one is easy: anything gets more capable when you hand it more tools. The work is drawing a limit around each addition, so that widening it fails a check instead of surfacing during an incident.
 
-Chapter 3 closes each of those gaps. The interesting part is not that the agent gets more powerful — anything can be made more powerful by handing it more tools. It is that each capability arrives with a limit drawn around it, and most of those limits are decidable without a model. The two that are not — which skill the model loads, and which specialist the coordinator picks — are named plainly on the pages that own them.
+Most of those limits are decidable **offline**: a Go test or a schema comparison settles them in seconds, with no model or network. Two are not, because the model decides them at runtime — which skill it loads, and which specialist the coordinator picks — and their pages say so.
 
-- **[3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}})** _(hands-on)_: One Go module, one binary, and the four surfaces it serves.
-- **[3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}})** _(hands-on)_: Typed reads with deadlines, and writes that fail closed without a named human.
-- **[3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}})** _(hands-on)_: Reviewed procedures the model loads only when they apply.
-- **[3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}})** _(hands-on)_: The six reads moved into their own process, and the allowlist that keeps them six.
-- **[3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}})** _(hands-on)_: Six stores with different lifetimes, and retrieval you can watch rank.
-- **[3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}})** _(hands-on)_: A four-stage investigation the model cannot shortcut.
-- **[3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}})** _(hands-on)_: The agent as a durable network service another team can call.
-- **[3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}})** _(hands-on)_: A coordinator whose specialists cannot borrow each other's authority.
-- **[3.8. Streaming]({{< relref "/3. Capabilities/3.8. Streaming.md" >}})** _(hands-on)_: Token-by-token delivery, and the redaction window it opens.
-- **[3.9. Incident Run]({{< relref "/3. Capabilities/3.9. Incident Run.md" >}})** _(hands-on)_: One session that answers INC-002 with the default composition's tools, skills, and memory.
+The agent you ran in [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) answers from a fixed list of reads it holds in-process, and that is all. It cannot answer a single question in the left column below.
 
-The ten pages below run to about five hours of hands-on work in total. The chapter has a seam in the middle: 3.0 to 3.4 give the agent more that it can do, while 3.5 to 3.9 change what it is. If you are working through this in evenings, [3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}}) is the natural place to stop for the day.
+Ten pages, one capability each. Each tag names the page kind, then what it costs to run:
 
-Every one of those pages adds an element to the same value you already read in Chapter 2 — a config with an instruction, a tool list, and a toolset list:
+| When you ask...                  | What the page hands you                          | Page                                                                                                                         |
+| -------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| What am I actually building?     | one module, one binary, four surfaces            | [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}}) _(hands-on · offline)_                                 |
+| How does it reach a real system? | typed reads, writes that fail closed             | [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md" >}}) _(hands-on · offline; model at the exercise gate)_             |
+| Where do procedures live?        | reviewed procedures, loaded only when they match | [3.2. Skills]({{< relref "/3. Capabilities/3.2. Skills.md" >}}) _(hands-on · offline; model at the exercise gate)_           |
+| Who else can call these tools?   | six reads on the wire, allowlisted               | [3.3. MCP]({{< relref "/3. Capabilities/3.3. MCP.md" >}}) _(hands-on · offline, second terminal)_                            |
+| What should it remember?         | six stores, and ranking you can watch            | [3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}}) _(hands-on · offline, MCP server running)_                   |
+| What stops it skipping a step?   | four stages the model cannot shortcut            | [3.5. Workflows]({{< relref "/3. Capabilities/3.5. Workflows.md" >}}) _(hands-on · offline, except the live run)_            |
+| How does another team call it?   | an address, a card, durable tasks                | [3.6. A2A]({{< relref "/3. Capabilities/3.6. A2A.md" >}}) _(hands-on · offline, except the live task)_                       |
+| Who is allowed to act?           | specialists that cannot borrow authority         | [3.7. Multi-Agent]({{< relref "/3. Capabilities/3.7. Multi-Agent.md" >}}) _(hands-on · offline, except the coordinator run)_ |
+| Why is nothing on screen yet?    | per-token delivery, and its redaction window     | [3.8. Streaming]({{< relref "/3. Capabilities/3.8. Streaming.md" >}}) _(hands-on · needs a model)_                           |
+| Does the whole thing work?       | INC-002, read back call by call                  | [3.9. Incident Run]({{< relref "/3. Capabilities/3.9. Incident Run.md" >}}) _(hands-on · needs a model)_                     |
+
+Those ten pages run to about five hours of hands-on work in total, with a seam in the middle: 3.0 to 3.4 add capabilities the model chooses to use, while 3.5 to 3.9 change who decides the sequence and who is allowed to act. [3.4. Memory]({{< relref "/3. Capabilities/3.4. Memory.md" >}}) closes that first half, a natural stopping point.
+
+Every one of those pages adds an element to the same value you already read in Chapter 2 — a config with an instruction, a tool list, and a toolset list, where a **toolset** supplies its tools per turn rather than at build time:
 
 {{< include path="agents/go/compose/composition.go" region="root-agent" lang="go" >}}
 
-## Which composition should you reach for?
+## How to choose where a new capability lives
 
-Adding a capability is easy. Choosing where it lives is the decision that survives contact with production, and there are only five real answers.
+Placement is the decision that survives contact with production; there are only five answers. Four questions pick between them, in order.
 
 ```mermaid
 flowchart TD
@@ -49,13 +55,13 @@ flowchart TD
     Q4 -->|no| A["single agent"]
 ```
 
-**Diagram in words:** Work needing no model judgment stays plain Go. Model-backed work with a fixed order becomes a workflow. A capability with its own deployment owner becomes an A2A service. Distinct authority inside one runtime becomes delegation. Everything else stays one agent.
+**Diagram in words:** Work needing no model judgment stays plain Go. Model-backed work with a fixed order becomes a workflow. A capability with its own deployment owner becomes an A2A service; distinct authority inside one runtime becomes delegation. Everything else stays one agent.
 
-MCP sits outside that tree on purpose. It moves a tool into another process without deciding the agent's orchestration shape, which is why 3.3 can change where the six reads execute and change nothing the model sees.
+MCP sits outside that tree: it moves a tool into another process without deciding the orchestration shape, which is why 3.3 changes where the six reads execute and changes nothing the model sees.
 
 ## Where each capability lives, and what it deliberately lacks
 
-The module layout is the map you will edit all chapter. Each capability has one owning package, and its authority stops at that package's edge.
+Each capability has one owning package, and its authority stops at that package's edge.
 
 | Capability                 | Source authority                                           | Authority it does not get                      |
 | -------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
@@ -68,7 +74,12 @@ The module layout is the map you will edit all chapter. Each capability has one 
 | A2A runtime                | `agents/go/a2aserver`                                      | no guarded write without a verified principal  |
 | Black-box protocol runs    | `evals`                                                    | no import of the agent implementation          |
 
-Typed configuration owns the switches that move those limits, and `mise run config:check` prints the resolved values with secrets masked: `AGENT_MCP_URL` moves conversational reads to a remote server, `AGENT_ENTRYPOINT` selects the agent, workflow, or coordinator composition, `AGENT_SEMANTIC_RETRIEVAL` swaps the retrieval scorer, `AGENT_MAX_HISTORY_MESSAGES` and `AGENT_MAX_TOKENS_PER_SESSION` bound context work, `AGENT_A2A_MAX_LLM_CALLS` and `AGENT_A2A_STREAMING` bound network execution, and `AGENT_WRITES_DISABLED` freezes actions without touching a read schema.
+Typed configuration owns the switches that move those limits; `mise run config:check` prints the resolved values with secrets masked:
+
+- **Placement**: `AGENT_MCP_URL` moves conversational reads to a remote server; `AGENT_ENTRYPOINT` selects the agent, workflow, or coordinator composition.
+- **Retrieval**: `AGENT_SEMANTIC_RETRIEVAL` swaps the retrieval scorer.
+- **Bounds**: `AGENT_MAX_HISTORY_MESSAGES` and `AGENT_MAX_TOKENS_PER_SESSION` bound context work; `AGENT_A2A_MAX_LLM_CALLS` and `AGENT_A2A_STREAMING` bound network execution.
+- **Writes**: `AGENT_WRITES_DISABLED` freezes actions without touching a read schema.
 
 ## What this chapter proved
 
@@ -96,15 +107,15 @@ DONE 1815 tests, 1 skipped in 1.964s
 agents/go meets the 80% per-package coverage floor
 ```
 
-Two seconds, no model, no network. The floor is applied per package rather than to a repository total, because a total lets a well-tested `domain` package carry an untested `mcpserver` — so a capability added without tests fails the run instead of quietly diluting an average.
+Two seconds, no model, no network. The floor applies per package, not to a repository total, because a total lets a well-tested `domain` package carry an untested `mcpserver`: a capability added without tests fails the run instead of diluting an average.
 
 **You are done when:**
 
 - The tool, skill, MCP, retrieval, workflow, A2A, and delegation tests pass under the race detector, and the evaluation assets validate without importing the agent.
-- You kept the read tool you prototyped in [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}), with parse-at-the-boundary input, bounded output, and an explicit MCP exposure decision.
-- You can pick between plain Go, a workflow, one agent, delegation, and A2A for a new task, and say what each choice costs.
-- You can name, for any capability in this chapter, the authority it deliberately lacks and the test that would fail the moment it gained one.
+- If you took the exercise, you kept the read tool you prototyped in [3.1. Tools]({{< relref "/3. Capabilities/3.1. Tools.md#your-turn-how-do-you-prototype-a-get_oncall_schedule-read-tool" >}}) — parse-at-the-boundary input, bounded output, and an explicit MCP exposure decision.
+- You can pick between plain Go, a workflow, one agent, delegation, and A2A for a new task, and say what each costs.
+- For any capability here, you can name the authority it deliberately lacks and the test that would fail the moment it gained one.
 
-Every capability in this chapter arrives with a limit around it, and every limit is written down as something that runs in seconds.
+Every limit in this chapter is a claim about code, and a claim holds only as long as the suite that pins it — which is what [4. Quality]({{< relref "/4. Quality/_index.md" >}}) establishes next.
 
 Continue to [3.0. Packaging]({{< relref "/3. Capabilities/3.0. Packaging.md" >}}) once `mise run test` is green inside `agents/go`, because every capability in this chapter is added to the one module that page builds.

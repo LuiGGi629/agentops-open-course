@@ -42,6 +42,7 @@ const ReportInstruction = "You produce a machine-consumable triage report for on
 // The tool order is the read order the instruction prescribes — the incident
 // first, then that incident's logs, then that incident's runbook — so the
 // listing a model sees and the sequence it is told to follow agree.
+// --8<-- [start:report-config]
 func (c *Compose) reportConfig() (llmagent.Config, error) {
 	schema, err := TriageReportSchema()
 	if err != nil {
@@ -52,6 +53,8 @@ func (c *Compose) reportConfig() (llmagent.Config, error) {
 	cfg.OutputSchema = schema
 	return cfg, nil
 }
+
+// --8<-- [end:report-config]
 
 // TriageReportAgent builds the structured-report entrypoint.
 //

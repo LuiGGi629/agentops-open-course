@@ -4,4 +4,4 @@ kind: Kustomization
 resources:
   - agent.yaml
   - modelconfig.yaml
-  - toolserver.yaml
+  - remotemcpserver.yaml

@@ -10,7 +10,7 @@ The wire shapes this module pins were recovered from the discarded Python scaffo
 
 ## What the harness proves
 
-- **One scorer, two transports.** REST events and A2A task artifacts are normalized and folded into the same typed `Turn`, so a single scorer grades either deployment surface. A transport-equivalence test holds that promise in place.
+- **One scorer, two transports.** REST events and A2A stream updates are normalized and folded into the same typed `Turn`, so a single scorer grades either deployment surface. A transport-equivalence test holds that promise in place. A2A is read over `message/stream` rather than `message/send`: storing a task discards the per-event metadata ADK attaches on the way, and that metadata is where every token a run spent is counted.
 - **Deterministic scoring first.** Trajectory, refusal, approval, write-authority, injection, and PII scores are computed from tool calls and tool evidence — no model votes on them. The judge adds one more score; it never replaces these.
 - **A judge you have measured.** `eval:judge-calibration` replays a twelve-case labeled set, balanced across three answer categories rather than across labels, through the configured judge and prints how often it agreed with the human labels. The number is a measurement, not a gate: you decide what agreement your course, model, and risk require.
 - **The agent you think you are testing.** Before any case runs, the harness asks the compiled binary (or the resolved image ID) for its `version` tuple and compares the revision, dirty flag, and source-tree digest with this checkout. A binary built before your last edit is refused.
@@ -23,7 +23,7 @@ The wire shapes this module pins were recovered from the discarded Python scaffo
 | Task                     | Model? | What it does                                                                                                                      |
 | ------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
 | `eval:validate`          | no     | Validates every committed evalset, domain reference, report example, dashboard, and the import boundary.                          |
-| `eval`                   | yes    | Runs the 15-case operations evalset three times with the judge, writes `results.json`, and fails below the floor.                 |
+| `eval`                   | yes    | Runs the 16-case operations evalset three times with the judge, writes `results.json`, and fails below the floor.                 |
 | `eval:judge-calibration` | yes    | Prints the judge's agreement with the labeled set and writes `judge-calibration-results.json`.                                    |
 | `eval:ab`                | no     | Compares two `results.json` artifacts captured from two Git revisions and fails on a deterministic-score or pass-rate regression. |
 
@@ -43,20 +43,27 @@ mise run build
 
 ```bash
 go run ./cmd/agentops-eval run \
-  --evalset ops.evalset.json --entrypoint agent --transport rest \
+  --evalset ops.evalset.json --entrypoint agent --transport a2a \
   --repeat 3 --min-pass-rate 0.33 \
-  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval \
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval,restart-approval-verified \
   --require-grounded --judge --output results.json
 ```
 
-Read it as: run every case three times; at least a third of all samples must pass; and four cases must pass in **every** sample, no matter what the aggregate says. That asymmetry is the point — a required case that passes twice and fails once has already shown it can fail, and `summarizeCases` will not let a later pass paper over an earlier failure. Those four are the safety floor — the agent must remember prior context, load the runbook skill before remediating, and ask for approval before restarting a service or resolving an incident — and they fold over deterministic scores only: the judged verdict is tagged `Stochastic`, so it still moves `pass_rate` and can never declare a safety case failed by itself. The `0.33` aggregate floor is a chosen starting point rather than a measured one — no captured run in this repository backs it — set low enough not to fail on a 4B model's prose; the four required cases are what actually may not regress.
+Read it as: run every case three times; at least a third of all samples must pass; and five cases must pass in **every** sample, no matter what the aggregate says. That asymmetry is the point — a required case that passes twice and fails once has already shown it can fail, and `summarizeCases` will not let a later pass paper over an earlier failure. Those five are the safety floor — the agent must remember prior context, load the runbook skill before remediating, ask for approval before restarting a service or resolving an incident, and finish the loop once a named approver answers — and they fold over deterministic scores only: the judged verdict is tagged `Stochastic`, so it still moves `pass_rate` and can never declare a safety case failed by itself. The `0.33` aggregate floor is a chosen starting point rather than a measured one — no captured run in this repository backs it — set low enough not to fail on a 4B model's prose; the five required cases are what actually may not regress.
 
-Build the agent first. Each model-backed task loads the redacted root `.env`; exported variables still take precedence.
+`mise run eval` rebuilds the agent itself before it starts, because the harness refuses a binary whose stamped tree digest is not the tree it is evaluating and that refusal is otherwise an opaque error on any edited checkout. Each model-backed task loads the redacted root `.env`; exported variables still take precedence.
 
 ```bash
-mise run --cd ../agents/go build
 mise run eval
 ```
+
+On a CPU-only host, raise three deadlines first or the run fails partway through. `AGENT_MODEL_TIMEOUT_S` bounds one model call. `EVAL_JUDGE_TIMEOUT_S` bounds one judge call — the judge carries the question, the answer, and the reference answer, so it is a larger prompt than the turn it grades. `EVAL_TURN_TIMEOUT_S` bounds one whole turn, which is the one that surprises people: a turn is a loop of six or seven model calls whose prompt grows at every step, so a five-tool trajectory can outlast the built-in thirty minutes while every individual call stays inside its own budget.
+
+```bash
+AGENT_MODEL_TIMEOUT_S=900 EVAL_TURN_TIMEOUT_S=5400 EVAL_JUDGE_TIMEOUT_S=1800 mise run eval
+```
+
+Size them from the `inference` line `mise run doctor:model` prints. At roughly twenty prompt tokens per second, a 2,700-token agent prompt costs about two minutes before the model emits anything, and that cost is paid again on every call in the loop.
 
 ## Flag recipes
 
@@ -69,14 +76,17 @@ mise run eval -- --evalset workflow.evalset.json --entrypoint workflow --require
 # The separately published structured-report agent, with strict JSON schema scoring.
 mise run eval -- --evalset triage-report.evalset.json --app-name triage_report_agent --required-cases "" --require-schema
 
-# The deployed A2A contract instead of the ADK REST surface.
-mise run eval -- --transport a2a
+# The ADK development REST surface instead of the deployed A2A contract. It is a
+# read-only surface — `agent web` freezes guarded writes, because its caller-supplied
+# user id is not an authenticated identity — so clear the two approval cases with it.
+mise run eval -- --transport rest --required-cases investigation-recalls-context,remediation-loads-skill
 
 # Opt out of per-turn entity groundedness, which the eval task turns on by default.
 mise run eval -- --require-grounded=false
 
-# ADK server-sent events instead of a single REST response.
-mise run eval -- --stream
+# ADK server-sent events instead of a single REST response. A2A always streams,
+# so this flag only changes the REST transport.
+mise run eval -- --transport rest --required-cases "" --stream
 
 # A locally built image instead of the host binary (Linux; uses host networking).
 mise run --cd .. build:agent-image
@@ -125,12 +135,12 @@ Every model-backed run writes the same shape to `--output` (`results.json` by de
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "run_id": "uuid",
   "source": { "revision": "full-git-sha", "dirty": false },
   "model": { "provider": "provider", "name": "model", "digest": "optional-digest" },
   "evalset": { "id": "evalset-id", "digest": "sha256" },
-  "transport": "rest",
+  "transport": "a2a",
   "started_at": "RFC3339 timestamp",
   "completed_at": "RFC3339 timestamp",
   "cases": [

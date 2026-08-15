@@ -147,6 +147,24 @@ func TestDefaultArtifactsReadsTheCommittedInventory(t *testing.T) {
 	}
 }
 
+// TestDisplayPathPrintsRepositoryRelativePaths pins what the commands put on
+// stdout: the course pages quote those lines verbatim, and an absolute path would
+// both fail the machine-path contract and leak a home directory into a capture.
+func TestDisplayPathPrintsRepositoryRelativePaths(t *testing.T) {
+	working, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(working, ".agents", "tmp", "course-completion.json")
+	if got := DisplayPath(inside); got != filepath.Join(".agents", "tmp", "course-completion.json") {
+		t.Errorf("DisplayPath(%q) = %q, want it relative to the working directory", inside, got)
+	}
+	outside := filepath.Join(t.TempDir(), "elsewhere.json")
+	if got := DisplayPath(outside); got != outside {
+		t.Errorf("DisplayPath(%q) = %q, want a path outside the working directory left alone", outside, got)
+	}
+}
+
 func TestCreateWritesAReadableSummaryBesideTheManifest(t *testing.T) {
 	root := initializeRepository(t)
 	output := filepath.Join(root, ".evidence", "course-completion.json")

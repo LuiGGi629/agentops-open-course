@@ -1,0 +1,212 @@
+package conventions
+
+// GitHub Actions contracts. Every check here reads workflow and composite-action
+// YAML: checkout order, Pages deployment authority, and untrusted interpolation.
+
+import (
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+func checkLocalActionCheckouts(root string) []Problem {
+	directory := filepath.Join(root, ".github", "workflows")
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return []Problem{problem(".github/workflows", "could not read workflows: %v", err)}
+	}
+	var problems []Problem
+	for _, entry := range entries {
+		if entry.IsDir() || (filepath.Ext(entry.Name()) != ".yml" && filepath.Ext(entry.Name()) != ".yaml") {
+			continue
+		}
+		where := filepath.ToSlash(filepath.Join(".github", "workflows", entry.Name()))
+		content, readErr := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if readErr != nil {
+			problems = append(problems, problem(where, "could not read workflow: %v", readErr))
+			continue
+		}
+		var workflow struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					Uses string `yaml:"uses"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if parseErr := yaml.Unmarshal(content, &workflow); parseErr != nil {
+			problems = append(problems, problem(where, "could not parse workflow: %v", parseErr))
+			continue
+		}
+		for name, job := range workflow.Jobs {
+			checkedOut := false
+			for _, step := range job.Steps {
+				if strings.HasPrefix(step.Uses, "actions/checkout@") {
+					checkedOut = true
+				}
+				if strings.HasPrefix(step.Uses, "./") && !checkedOut {
+					problems = append(problems, problem(where,
+						"job %q uses repository-local action %q before actions/checkout", name, step.Uses))
+					break
+				}
+			}
+		}
+	}
+	return problems
+}
+
+// checkNoPagesDeployment refuses Pages deployment authority anywhere in CI. It used to
+// read one workflow by name; that file has since been folded into another, which is
+// exactly how a single-file check goes quietly blind. It now walks every workflow.
+func checkNoPagesDeployment(root string) []Problem {
+	paths, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
+	if err != nil || len(paths) == 0 {
+		return []Problem{problem(".github/workflows", "could not read the workflow directory")}
+	}
+	slices.Sort(paths)
+	var problems []Problem
+	for _, path := range paths {
+		where := ".github/workflows/" + filepath.Base(path)
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			problems = append(problems, problem(where, "could not read workflow: %v", readErr))
+			continue
+		}
+		var workflow struct {
+			Jobs map[string]struct {
+				Environment any               `yaml:"environment"`
+				Permissions map[string]string `yaml:"permissions"`
+				Steps       []struct {
+					Uses string `yaml:"uses"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if unmarshalErr := yaml.Unmarshal(content, &workflow); unmarshalErr != nil {
+			problems = append(problems, problem(where, "could not parse workflow: %v", unmarshalErr))
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(workflow.Jobs)) {
+			job := workflow.Jobs[name]
+			pagesAuthority := job.Permissions["pages"] != "" || pagesEnvironment(job.Environment)
+			for _, step := range job.Steps {
+				for _, action := range []string{
+					"actions/configure-pages@",
+					"actions/upload-pages-artifact@",
+					"actions/deploy-pages@",
+				} {
+					pagesAuthority = pagesAuthority || strings.HasPrefix(step.Uses, action)
+				}
+			}
+			if pagesAuthority {
+				problems = append(problems, problem(where,
+					"job %q retains Pages deployment actions or authority; the course site is built, never deployed", name))
+			}
+		}
+	}
+	return problems
+}
+
+func pagesEnvironment(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return typed == "github-pages"
+	case map[string]any:
+		name, _ := typed["name"].(string)
+		return name == "github-pages"
+	default:
+		return false
+	}
+}
+
+func checkWorkflowShellExpressions(root string) []Problem {
+	directory := filepath.Join(root, ".github", "workflows")
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return []Problem{problem(".github/workflows", "could not read workflows: %v", err)}
+	}
+	var problems []Problem
+	directMatrix := regexp.MustCompile(`\$\{\{\s*matrix\.`)
+	for _, entry := range entries {
+		if entry.IsDir() || (filepath.Ext(entry.Name()) != ".yml" && filepath.Ext(entry.Name()) != ".yaml") {
+			continue
+		}
+		where := filepath.ToSlash(filepath.Join(".github", "workflows", entry.Name()))
+		content, readErr := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if readErr != nil {
+			problems = append(problems, problem(where, "could not read workflow: %v", readErr))
+			continue
+		}
+		var workflow struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					Run string `yaml:"run"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if parseErr := yaml.Unmarshal(content, &workflow); parseErr != nil {
+			problems = append(problems, problem(where, "could not parse workflow: %v", parseErr))
+			continue
+		}
+		for name, job := range workflow.Jobs {
+			for _, step := range job.Steps {
+				if directMatrix.MatchString(step.Run) {
+					problems = append(problems, problem(where,
+						"job %q interpolates matrix context directly in shell; pass it through env", name))
+				}
+			}
+		}
+	}
+
+	actionsRoot := filepath.Join(root, ".github", "actions")
+	directInput := regexp.MustCompile(`\$\{\{\s*inputs\.`)
+	actions, openErr := os.OpenRoot(actionsRoot)
+	if os.IsNotExist(openErr) {
+		return problems
+	}
+	if openErr != nil {
+		return append(problems, problem(".github/actions", "could not read actions: %v", openErr))
+	}
+	walkErr := fs.WalkDir(actions.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || (entry.Name() != "action.yml" && entry.Name() != "action.yaml") {
+			return nil
+		}
+		where := filepath.ToSlash(filepath.Join(".github", "actions", path))
+		content, readErr := actions.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		var action struct {
+			Runs struct {
+				Steps []struct {
+					Run string `yaml:"run"`
+				} `yaml:"steps"`
+			} `yaml:"runs"`
+		}
+		if parseErr := yaml.Unmarshal(content, &action); parseErr != nil {
+			problems = append(problems, problem(where, "could not parse action: %v", parseErr))
+			return nil
+		}
+		for _, step := range action.Runs.Steps {
+			if directInput.MatchString(step.Run) {
+				problems = append(problems, problem(where,
+					"composite action interpolates an action input directly in shell; pass it through env"))
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		problems = append(problems, problem(".github/actions", "could not read actions: %v", walkErr))
+	}
+	if closeErr := actions.Close(); closeErr != nil {
+		problems = append(problems, problem(".github/actions", "could not close actions root: %v", closeErr))
+	}
+	return problems
+}

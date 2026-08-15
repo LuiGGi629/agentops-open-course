@@ -67,7 +67,10 @@ func Report(ctx context.Context, options Options) (string, error) {
 		"Authority: executable repository sources through "+markdownCode("tools/bin/conventions")+". Required validation: "+markdownCode("mise run check:docs")+".", "",
 	)
 	if len(proseProblems) == 0 {
-		lines = append(lines, "PASS — task expansions, documented task names, source versions, and stable ports match their owners.")
+		// The sentence is derived, not written here. A hand-written list would let this
+		// report claim a comparison CheckCopiedSources had stopped making, or omit one
+		// it had started making; the checker names its own subset, in the order it ran.
+		lines = append(lines, "PASS — "+conventions.CopiedSourceSummary()+" match their owners.")
 	} else {
 		lines = append(lines, fmt.Sprintf("REVIEW — %d copied-source mismatch(es):", len(proseProblems)))
 		for _, item := range proseProblems {

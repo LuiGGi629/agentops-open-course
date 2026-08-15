@@ -66,8 +66,13 @@ source = ".github"
 target = "assets/source/.github"
 
 # The top bar. The learning path itself is data/nav.yaml, rendered by the sidebar; these are
-# the two site-wide controls Material carried in its header. Hextra only renders the navbar
+# the site-wide controls Material carried in its header. Hextra only renders the navbar
 # search box when a menu entry declares it, which is why search lives here and not in params.
+#
+# Glossary and Troubleshooting are here rather than in the sidebar alone because the sidebar
+# renders each chapter as a `<details>` that is open only while you are inside it. A reader
+# stuck in Chapter 6 would otherwise have to expand "0. Overview" to reach the two pages they
+# need most at that moment, which is exactly when they are least willing to go looking.
 [[menu.main]]
 name = "Search"
 weight = 1
@@ -75,9 +80,23 @@ weight = 1
 type = "search"
 
 [[menu.main]]
+name = "Glossary"
+url = "/0-overview/0-8-glossary/"
+weight = 2
+[menu.main.params]
+type = "link"
+
+[[menu.main]]
+name = "Troubleshooting"
+url = "/0-overview/0-7-troubleshooting/"
+weight = 3
+[menu.main.params]
+type = "link"
+
+[[menu.main]]
 name = "GitHub"
 url = "https://github.com/MLOps-Courses/agentops-open-course-go"
-weight = 2
+weight = 4
 [menu.main.params]
 type = "link"
 

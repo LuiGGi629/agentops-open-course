@@ -53,6 +53,45 @@ func TestCheckHeadings(t *testing.T) {
 	})
 }
 
+func TestCheckSceneHeadings(t *testing.T) {
+	runPageRuleCases(t, checkSceneHeadings, []pageRuleCase{
+		{name: "purpose heading", text: "## Why the agent has to become a container image\n"},
+		{name: "port is not a clock", text: "## Free port 11434 before the cluster can reach Ollama\n"},
+		{name: "latency figure", text: "## Span p95 exceeds 15s under load\n"},
+		{
+			name: "scene heading",
+			text: "## Ana gets paged at 02:14\n",
+			want: "names a moment in the worked example",
+		},
+		{
+			name: "clock inside a fence is prose the page quotes",
+			text: "## A claim\n\n```text\nHH:MM 03:00 alert fired\n```\n",
+		},
+	})
+}
+
+func TestCheckRetiredNarrative(t *testing.T) {
+	runPageRuleCases(t, checkRetiredNarrative, []pageRuleCase{
+		{name: "role instead of character", text: "The approving engineer supplies a rationale.\n"},
+		{name: "seed data still allowed", text: "`INC-002` is a SEV1 in the committed seed.\n"},
+		{name: "substring is not the persona", text: "Run the analysis over every package.\n"},
+		{
+			name: "persona",
+			text: "Ana approves a restart of the inventory service.\n",
+			want: "retired narrative persona or brand",
+		},
+		{
+			name: "brand",
+			text: "Northwind Retail does not exist.\n",
+			want: "retired narrative persona or brand",
+		},
+		{
+			name: "capture may quote whatever it printed",
+			text: "## A claim\n\n```text\napprover=Ana\n```\n",
+		},
+	})
+}
+
 func TestCheckClosing(t *testing.T) {
 	runPageRuleCases(t, checkClosing, []pageRuleCase{
 		{name: "course page", text: "## A claim\n\n## What you can do now\n"},

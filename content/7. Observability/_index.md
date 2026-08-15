@@ -7,25 +7,25 @@ slug: "7-observability"
 {{% admonition abstract "In one glance" %}}
 
 - **You will:** Bring up the telemetry stack the rest of the chapter reads from, and learn which page owns which signal.
-- **You need:** Chapter 5 finished and Docker running. Only [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) also needs the Chapter 6 cluster.
+- **You need:** `mise run install` and `mise run install:platform` done, plus Docker running. No model, cluster, or account for this page.
 - **Time:** about 20 minutes the first time, because six container images have to download; about 6 once they are cached. Kind: orientation. {{% /admonition %}}
 
-## The agent answered. Now what?
+## Why a running agent needs its own telemetry plane
 
-Ana's agent produced a paragraph about INC-002 and a restart recommendation. It looked right. Six hours later someone asks the three questions nobody can answer from a paragraph: how long did that turn take and where did the time go, what did it cost, and who approved the restart that followed.
+A **telemetry plane** is the infrastructure a running system reports itself through. That is one collector receiving traces, metrics, and logs; three stores that keep them; and one Grafana over all three. Chapters 5 and 6 made the agent reachable and kept it running; neither made its turns answerable. A finished paragraph does not say how long the turn took and where the time went, what tokens it spent, or which principal approved the write it triggered. Without those, a regression stays an anecdote and a bill stays a surprise.
 
-Every chapter so far made the agent do more. This one makes the agent _answerable_ — for one turn, for a fleet of turns, and for the night it breaks. The ten pages below each own one signal, and they all read from a single Docker Compose stack you are about to start.
+In the reference agent, a turn about `INC-002` ends in a restart recommendation answering none of those three questions. Two commands here bring up six services and prove a span crossed the agent path into storage. Ten pages follow: the first pins what any measurement is attributable to, each page after it owns one signal, and all read from that one Docker Compose stack.
 
-## Start the stack before you read further
+## Start the telemetry stack this chapter reads from
 
-Two commands, from the repository root. The first only probes; the second brings up Tempo, Loki, the OpenTelemetry Collector, Prometheus, Alertmanager, and Grafana, then refuses to return until each one answers:
+Two commands, from the repository root, in this order. The first only probes, so a missing container engine fails here, not part-way through six image pulls. The second brings up Tempo, Loki, the OpenTelemetry Collector, Prometheus, Alertmanager, and Grafana, then refuses to return until each one answers:
 
 ```bash
 mise run doctor:gateway    # Docker, Compose, and the other container prerequisites
 mise run observability:up  # the six services, brought up and readiness-checked
 ```
 
-Here is the tail of a successful run, in full, from the first cached start on this machine:
+The tail of a successful run, in full, from the first cached start on this machine:
 
 ```text
 Tempo ready: http://127.0.0.1:3200/ready
@@ -44,17 +44,17 @@ agentops-observability-tempo-1 hardened: non-root, read-only, no-new-privileges,
 observability exposure remains loopback-only
 ```
 
-Six readiness probes, then the three claims that make this more than "the containers started." The `trace path verified` line pushed a synthetic span through the real agent path and read it back out of Tempo by that exact id, so a collector that accepts telemetry and quietly drops it fails startup instead of failing you at 02:00. The six `hardened` lines — one per container, alphabetical — assert non-root, read-only root filesystem, dropped capabilities, and bounded memory and process counts. The last line proves every published port is bound to loopback, which is why you can leave this running on a laptop in a café.
+Six readiness probes, then three claims that make this more than "the containers started." The `trace path verified` line pushed a synthetic span through the real agent path and read it back out of Tempo by that exact id, so a collector that accepts telemetry and quietly drops it fails startup rather than misleading you later. The six `hardened` lines — one per container, alphabetical — assert non-root, read-only root filesystem, dropped capabilities, and bounded memory and process counts, so a telemetry container cannot rewrite itself or starve the host. The last line proves every published port is bound to loopback, so nothing else on your network can reach the stack.
 
 Open Grafana at `http://localhost:3002` and leave that tab open for the rest of the chapter. It asks for no login, and Prometheus, Loki, and Tempo are already provisioned as datasources.
 
-**You just stood up a complete open-source telemetry plane — traces, metrics, logs, dashboards, and alert routing — on your own machine, with no SaaS account and no vendor agent.**
+**You just stood up all of it from open source, on your own machine — no SaaS account, no vendor agent.**
 
-One default surprises people: ADK traces stay off until [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}}) has you accept their content risk on purpose. An empty trace view before that page is the shipped privacy state, not a broken exporter.
+ADK traces stay off until [7.1. Tracing]({{< relref "/7. Observability/7.1. Tracing.md" >}}) has you accept their content risk on purpose, so an empty trace view before that page is the shipped privacy default, not a broken exporter.
 
-## Which signal answers which question
+## Which signal to read for each operational question
 
-Traces, metrics, logs, assessments, and audit rows each answer a different operational question. Open the page that owns the one you actually need:
+Traces, metrics, logs, assessments, and audit rows each answer a different operational question. Three shorthands arrive before the pages that own them: **RED** is rate, errors, and duration; **SLO burn** is the pace at which a service level objective spends its allowed failures; **sanitized** means personal data and credential patterns stripped, strings capped. Open the page that owns the one you need:
 
 | When you ask...                            | Signal to read                            | Where it lives                      | Page                                                                                                     |
 | ------------------------------------------ | ----------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -69,11 +69,11 @@ Traces, metrics, logs, assessments, and audit rows each answer a different opera
 | Who approved this write, and what changed? | append-only audit row                     | SQLite audit table                  | [7.6. Governance]({{< relref "/7. Observability/7.6. Governance.md" >}}) _(hands-on, needs the cluster)_ |
 | The agent itself broke — now what?         | detect → triage → mitigate → review       | every signal above, joined          | [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}) _(hands-on)_      |
 
-Each page is also explicit about where the shipped stack stops: no fake dollar panel, no automatic live judge, no external paging, no cryptographically immutable audit store.
+Each page also says where the shipped stack stops: no fake dollar panel, no automatic live judge, no external paging, no cryptographically immutable audit store.
 
 ## Where each signal physically lives
 
-One collector receives everything the agent and gateway emit, then fans that single stream out to three stores. Prometheus scrapes the collector and feeds both the dashboard and the alerts:
+**OTLP**, the OpenTelemetry wire protocol, carries traces, metrics, and logs off the agent ([0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md#otlp" >}})). One collector receives that single stream and fans it out to three stores; Prometheus scrapes the collector and feeds both the dashboard and the alerts. Two more names matter later. **`span_metrics`** is the collector connector that derives request-count and duration metrics from spans, so the application never emits them itself. **`trace_id`** is the identifier a log record carries when it was written inside a recorded span, which lets Grafana jump from a span to its logs.
 
 ```mermaid
 flowchart LR
@@ -92,8 +92,6 @@ flowchart LR
 
 **Diagram in words:** The agent pushes metrics and sanitized logs to the collector on `:4318`; ADK spans use that path only after explicit risk acceptance. Kubernetes gateway traces enter on `:4317`. The collector routes available spans to Tempo, logs to Loki, and metrics to Prometheus. Grafana reads all three, and Prometheus feeds Alertmanager.
 
-Three names in that diagram carry weight later. **OTLP** is the OpenTelemetry wire protocol that carries traces, metrics, and logs off the agent ([0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md#otlp" >}})). **`span_metrics`** is the collector connector that turns spans into request-count and duration metrics without the application emitting a single metric itself. **`trace_id`** is the identifier a log record carries when it was written inside a recorded span, and it is what lets Grafana jump from a span to its log lines.
-
 Every later page assumes you know which port belongs to which piece:
 
 | Component                  | Port                       | What it is for                                                                                  |
@@ -107,7 +105,7 @@ Every later page assumes you know which port belongs to which piece:
 | Grafana                    | `:3002`                    | dashboards and Explore over Prometheus, Loki, and Tempo, host profile only                      |
 | agentgateway metrics       | `:15020`                   | the gateway's own metrics, scraped by Prometheus on the host and by the collector in Kubernetes |
 
-Which scraper pulls those metrics, and whether you get a Grafana at all, depends on the deployment profile you are running.
+Which scraper pulls those metrics, and whether you get a Grafana, depends on the deployment profile:
 
 {{% collapsible note "Deeper: what each deployment profile ships" %}}
 
@@ -123,13 +121,13 @@ This table is the canonical deployment-profile split; sibling pages link back in
 
 ## What this chapter proved
 
-Only the first three lines are true the moment you finish this page. The fourth is what the other ten pages are for, and you should be able to say it out loud by the end of [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}).
+Only the first three are true when you finish this page. The fourth lands at the end of [7.7. Incident Response]({{< relref "/7. Observability/7.7. Incident Response.md" >}}).
 
 - `mise run observability:up` finished green, which means a real span crossed the agent path into Tempo and came back out by id.
 - Grafana at `http://localhost:3002` opens without a login and lists Prometheus, Loki, and Tempo as datasources.
 - For a trace, a metric, a log line, an assessment, and an audit row, you can name the page that owns it — and for the three that live behind a port, the port as well. The other two are files.
 - Given a symptom, you can walk metric → trace → log → audit row without stopping to ask which tool holds which half of the answer.
 
-You began this chapter able to build an agent and unable to say anything about one that is already running. You can now stand up its whole telemetry plane in two commands, and name the store that answers each operational question: Tempo for one turn, Prometheus for the fleet, Loki for the sentence that explains a failure, and a SQLite table for who approved what.
+The evidence this chapter produces — traces, metrics, sanitized logs, audit rows — is what [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}) asks you to reproduce on a domain of your own.
 
-Continue to [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md" >}}) when the stack is up and Grafana is open in a tab you are not going to close.
+Continue to [7.0. Reproducibility]({{< relref "/7. Observability/7.0. Reproducibility.md" >}}) once the stack is up: a signal is worth reading only if you can name the code, image, model, instruction, and data behind it.

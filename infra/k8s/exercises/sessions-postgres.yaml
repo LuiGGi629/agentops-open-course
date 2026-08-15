@@ -1,12 +1,21 @@
-# Temporary Chapter 6.9 exercise fixture: the shared session store.
+# Temporary Chapter 6.9 exercise fixture: the shared session store, in cluster.
 #
 # Apply it by hand, point one agent at it, watch what changes and what does not,
-# then delete it. It is deliberately absent from every deployable overlay, and
-# `check:infra` proves that: the A2A readiness route still probes the SQLite
-# session file in AGENT_STATE_DIR (a2aserver/probe.go, probeStateStores), so an
-# agent configured for PostgreSQL serves turns correctly and reports
-# `{"status":"unready"}` forever. Shipping that in an overlay would be shipping a
-# deployment that lies about itself. Reproducing it on purpose is the exercise.
+# then delete it. It is the in-cluster form of the `docker run postgres` step in
+# 6.9. Scale Out, and it exists so the shared-session-store lesson can be read
+# against a Service, a StatefulSet, and the NetworkPolicies that fence them,
+# rather than against a container on your laptop.
+#
+# It is deliberately absent from every deployable overlay. Readiness is no longer
+# the reason: `a2aserver/postgres.go` probes the shared store through
+# information_schema, so an agent on PostgreSQL reports ready, and an earlier
+# version of this comment claiming it stays `{"status":"unready"}` forever was
+# wrong — 6.9 says so too. The reason it stays out of the overlays is ownership:
+# this StatefulSet has no backup, no restore drill, and a password in plain sight,
+# which is exactly what an exercise may have and a deployment may not.
+#
+# `check:infra` validates this file with kubeconform so a fixture nobody applies
+# still cannot go stale against the API version the cluster runs.
 #
 # The password below is a non-secret marker, exactly like the `agentgateway` and
 # `local-ollama` markers elsewhere in this repository: this fixture is reachable

@@ -415,6 +415,10 @@ grep -Fq "additional properties 'provder' not allowed" "${tmp_dir}/invalid-kagen
 # resource included by either completed overlay. Keep its unsafe shape stable so
 # the exercise remains reproducible and easy to delete.
 kubeconform -strict -summary infra/k8s/exercises/otel-ingress-broad.yaml
+# The shared-session-store fixture is quarantined the same way and gets the same
+# treatment: nobody applies it from an overlay, so nothing else would notice the
+# day its apiVersion stops matching the cluster this course pins.
+kubeconform -strict -kubernetes-version 1.36.0 -summary infra/k8s/exercises/sessions-postgres.yaml
 exercise_policy_name="$(yq -r '.metadata.name' infra/k8s/exercises/otel-ingress-broad.yaml)"
 exercise_sources="$(yq -r '.spec.ingress[0].from[].namespaceSelector.matchLabels."kubernetes.io/metadata.name"' infra/k8s/exercises/otel-ingress-broad.yaml | sort | paste -sd, -)"
 exercise_ports="$(yq -r '.spec.ingress[0].ports[].port' infra/k8s/exercises/otel-ingress-broad.yaml | sort -n | paste -sd, -)"

@@ -40,12 +40,37 @@ type SessionInput struct {
 }
 
 type Invocation struct {
+	Confirmation        *ConfirmationInput  `json:"confirmation,omitempty"`
 	ID                  string              `json:"invocation_id"`
 	CreatedAt           json.Number         `json:"creation_timestamp,omitempty"`
 	IntermediateData    IntermediateData    `json:"intermediate_data"`
 	DeterministicChecks DeterministicChecks `json:"deterministic_checks,omitempty"`
 	UserContent         EvalContent         `json:"user_content"`
 	FinalResponse       EvalContent         `json:"final_response"`
+}
+
+// ConfirmationInput turns one conversation entry into a human's answer to the
+// approval the previous turn asked for, rather than a new question.
+//
+// The course's central claim — propose, approve, execute, re-read, report — is a
+// conversation, not a turn, and nothing in a single-turn case can score the half
+// that happens after a human says yes. A turn that declares this sends the
+// ADK confirmation response instead of user text; `user_content` still carries the
+// sentence a human would have typed, so the case reads as a transcript.
+//
+// Approve deliberately has no default: an evalset that means "reject this" must
+// say so, because the two produce opposite writes.
+type ConfirmationInput struct {
+	Approve *bool `json:"approve"`
+	// Rationale is what an approver types and what the audit row keeps. The agent
+	// refuses an approval without one, so a case that omits it is testing the
+	// refusal rather than the loop, and validation says so.
+	Rationale string `json:"rationale"`
+}
+
+// Approved reports whether this entry approves or rejects.
+func (c *ConfirmationInput) Approved() bool {
+	return c != nil && c.Approve != nil && *c.Approve
 }
 
 type EvalContent struct {
@@ -99,6 +124,44 @@ func LoadEvalSet(path string) (EvalSet, error) {
 		return EvalSet{}, fmt.Errorf("validate evalset %s: %w", path, err)
 	}
 	return evalset, nil
+}
+
+// validateConfirmationTurn rejects the three shapes an approval turn cannot have.
+//
+// Each is a case that would run and score without ever exercising the loop it
+// claims to test, which is the failure mode a required case can least afford.
+func validateConfirmationTurn(evalCase EvalCase, invocation Invocation, turnIndex int) []error {
+	confirmation := invocation.Confirmation
+	if confirmation == nil {
+		return nil
+	}
+	var problems []error
+	if turnIndex == 0 {
+		problems = append(problems, fmt.Errorf(
+			"case %q turn 1 answers a confirmation, but nothing has proposed one yet", evalCase.ID,
+		))
+	}
+	if confirmation.Approve == nil {
+		problems = append(problems, fmt.Errorf(
+			"case %q turn %d must say whether it approves; the two answers write different rows",
+			evalCase.ID, turnIndex+1,
+		))
+	}
+	if confirmation.Approved() && strings.TrimSpace(confirmation.Rationale) == "" {
+		problems = append(problems, fmt.Errorf(
+			"case %q turn %d approves without a rationale, which the agent refuses; the case would score the refusal",
+			evalCase.ID, turnIndex+1,
+		))
+	}
+	// A confirmation is answered inside the task that asked for it, so the turn
+	// before it must be the one that left a guarded action pending.
+	if turnIndex > 0 && evalCase.Conversation[turnIndex-1].DeterministicChecks.RequiredConfirmation == nil {
+		problems = append(problems, fmt.Errorf(
+			"case %q turn %d answers a confirmation the previous turn does not require",
+			evalCase.ID, turnIndex+1,
+		))
+	}
+	return problems
 }
 
 func (s EvalSet) Validate() error {
@@ -177,6 +240,7 @@ func (s EvalSet) Validate() error {
 					turnIndex+1,
 				))
 			}
+			problems = append(problems, validateConfirmationTurn(evalCase, invocation, turnIndex)...)
 		}
 	}
 	return errors.Join(problems...)
@@ -240,6 +304,10 @@ func (c DeterministicChecks) Validate() error {
 
 func (s EvalSet) ValidateDomain(domain Domain) error {
 	var problems []error
+	// The two deliberate negative controls: `unknown-incident` and `unknown-service`
+	// ask about an incident and a service the seed data does not hold, to prove the
+	// agent says so instead of inventing one. Every other unknown identifier is a
+	// typo in a case, and stays an error rather than reaching a model-backed run.
 	allowedMissing := map[string]struct{}{"INC-999": {}, "warehouse": {}}
 	incidentArgs := map[string]string{
 		"get_incident":            "incident_id",

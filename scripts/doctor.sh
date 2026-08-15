@@ -154,7 +154,7 @@ if ((missing)); then
 	exit 1
 fi
 
-for native_tool in tools/bin/course-evidence tools/bin/loopback-relay tools/bin/static-server; do
+for native_tool in tools/bin/course-certificate tools/bin/course-evidence tools/bin/loopback-relay tools/bin/static-server; do
 	if [[ ! -x ${native_tool} ]]; then
 		fail "${native_tool} missing; run mise run install"
 	fi

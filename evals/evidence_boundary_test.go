@@ -1,7 +1,10 @@
 package evals
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -354,3 +357,121 @@ func TestProcessUtilitiesKeepHarnessIdentityStateAndTelemetry(t *testing.T) {
 		t.Fatalf("FreePort = %d, %v", port, err)
 	}
 }
+
+// TestRunArtifactCarriesNoContent is the sanitization boundary as a test.
+//
+// The run artifact is the one evaluation output that gets published, so it may
+// carry the checkout, the model, the evalset, per-case scores, usage, and timing
+// — and nothing a model or a tool wrote. Schema 5 added `duration_ms` and
+// `case_consistency`, and the reason both were safe to add is that both are
+// numbers; this test is what keeps a future field honest, by driving a run whose
+// every content-bearing surface holds a distinct marker and then searching the
+// serialized artifact for all of them.
+func TestRunArtifactCarriesNoContent(t *testing.T) {
+	t.Parallel()
+
+	recorder, err := NewNoopRecorder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers := map[string]string{
+		"question":      "MARKER_QUESTION_alice.smith@example.com",
+		"answer":        "MARKER_ANSWER_the-model-said-this",
+		"reference":     "MARKER_REFERENCE_expected-text",
+		"tool result":   "MARKER_TOOL_RESULT_row-from-the-database",
+		"tool argument": "MARKER_TOOL_ARGUMENT_INC-002",
+		"rationale":     "MARKER_RATIONALE_approving-because",
+	}
+	approve := true
+	evalset := EvalSet{
+		ID: "set", Name: "Set", Digest: strings.Repeat("a", 64),
+		Cases: []EvalCase{{
+			ID: "case-one",
+			Conversation: []Invocation{
+				{
+					UserContent:   EvalContent{Parts: []EvalPart{{Text: markers["question"]}}},
+					FinalResponse: EvalContent{Parts: []EvalPart{{Text: markers["reference"]}}},
+					DeterministicChecks: DeterministicChecks{
+						RequiredConfirmation: &ExpectedToolCall{
+							Name: "restart_service", Args: map[string]any{"name": "inventory"},
+						},
+					},
+					IntermediateData: IntermediateData{ToolUses: []ExpectedToolCall{{
+						Name: "restart_service", Args: map[string]any{"name": "inventory"},
+					}}},
+				},
+				{
+					Confirmation:  &ConfirmationInput{Approve: &approve, Rationale: markers["rationale"]},
+					UserContent:   EvalContent{Parts: []EvalPart{{Text: markers["question"]}}},
+					FinalResponse: EvalContent{Parts: []EvalPart{{Text: markers["reference"]}}},
+				},
+			},
+		}},
+	}
+	pending := Turn{
+		Text: markers["answer"],
+		ToolCalls: []ToolCall{
+			{Name: "restart_service", Args: map[string]any{"name": "inventory", "note": markers["tool argument"]}, CallID: "call-write"},
+			{Name: ConfirmationTool, Args: map[string]any{
+				"originalFunctionCall": map[string]any{
+					"name": "restart_service", "args": map[string]any{"name": "inventory"}, "id": "call-write",
+				},
+			}},
+		},
+		ToolResponses: []ToolResponse{{
+			Name: "restart_service", CallID: "call-write",
+			Response: map[string]any{"status": PendingConfirmationStatus, "detail": markers["tool result"]},
+		}},
+		Usage: Usage{InputTokens: 11, OutputTokens: 7, TotalTokens: 18, ModelCalls: 1},
+	}
+	pending.AwaitingConfirmation = &pending.ToolCalls[1]
+
+	artifact, err := Run(t.Context(), RunnerConfig{
+		EvalSet: evalset, RunID: "run", Source: testSourceEvidence(),
+		Model: ModelEvidence{Provider: "provider", Name: "model"}, Transport: "a2a",
+		Repeat: 2, MinimumPassRate: 0, Recorder: recorder,
+		ClientFactory: func(context.Context, EvalCase, int) (AgentClient, func() error, error) {
+			return &markerClient{pending: pending, answered: Turn{Text: markers["answer"]}}, func() error { return nil }, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(artifact.Summary.CaseConsistency) != 1 || artifact.Summary.CaseConsistency[0].Samples != 2 {
+		t.Fatalf("case consistency = %+v, want one case over two samples", artifact.Summary.CaseConsistency)
+	}
+	encoded, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for surface, marker := range markers {
+		if bytes.Contains(encoded, []byte(marker)) {
+			t.Fatalf("the run artifact leaked the %s: %s", surface, encoded)
+		}
+	}
+}
+
+// markerClient answers the proposal turn with a pending guarded write and the
+// confirmation turn with a plain answer, which is the two-turn shape schema 5
+// had to stay content-free across.
+type markerClient struct {
+	pending  Turn
+	answered Turn
+}
+
+func (c *markerClient) CreateSession(context.Context) (string, error) { return "session", nil }
+
+func (c *markerClient) Send(context.Context, string, string) (Turn, error) {
+	return c.pending, nil
+}
+
+func (c *markerClient) Confirm(
+	_ context.Context, _ string, turn Turn, _ bool, _ string,
+) (Turn, error) {
+	if turn.AwaitingConfirmation == nil {
+		return Turn{}, errors.New("confirm called on a turn with nothing pending")
+	}
+	return c.answered, nil
+}
+
+func (c *markerClient) Close() error { return nil }

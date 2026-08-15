@@ -128,6 +128,19 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      # Explore is a Viewer capability only when this is on, and Chapter 7.1 asks
+      # every learner to open it — verified on 13 August 2026 against this pinned
+      # image: without it the anonymous role holds datasources:query and
+      # datasources:read but not datasources:explore, and /explore silently
+      # redirects to the home dashboard. The page's central instruction was
+      # therefore impossible to follow against the stack the course ships.
+      #
+      # The widening is smaller than it reads. It grants an in-session editing
+      # surface, not persistence: nothing anonymous can save a dashboard, create a
+      # datasource, or reach an admin route, and this stack publishes on loopback
+      # only. Granting the Editor role instead would have bought the same Explore
+      # access plus write permissions nobody here needs.
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
     volumes:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro

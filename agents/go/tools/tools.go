@@ -227,6 +227,7 @@ func New(cfg Config) (*Tools, error) {
 					minLogSearchLimit, maxLogSearchLimit),
 			}, agentTools.runSearchServiceLogs)
 		}},
+		// --8<-- [start:guarded-tool-entry]
 		{&agentTools.restartService, func() (tool.Tool, error) {
 			return newTool(functiontool.Config{
 				Name:                RestartServiceToolName,
@@ -236,6 +237,7 @@ func New(cfg Config) (*Tools, error) {
 				"name": "The service to restart, e.g. " + vocabulary.Services.Inventory + ".",
 			}, agentTools.runRestartService)
 		}},
+		// --8<-- [end:guarded-tool-entry]
 		{&agentTools.resolveIncident, func() (tool.Tool, error) {
 			return newTool(functiontool.Config{
 				Name:                ResolveIncidentToolName,
@@ -291,6 +293,7 @@ func (t *Tools) ActionTools() []tool.Tool {
 // must name a domain identifier cannot be a tag because a tag has to be a
 // literal; and the inferrer models an optional field as the union
 // ["null", T], which some providers reject outright.
+// --8<-- [start:new-tool]
 func newTool[TArgs, TResults any](
 	cfg functiontool.Config, descriptions map[string]string, handler functiontool.Func[TArgs, TResults],
 ) (tool.Tool, error) {
@@ -315,6 +318,8 @@ func newTool[TArgs, TResults any](
 	}
 	return built, nil
 }
+
+// --8<-- [end:new-tool]
 
 // describeProperties writes the model-facing description of every argument, and
 // refuses a schema where one is missing.

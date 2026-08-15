@@ -41,6 +41,17 @@ readonly auth_dir_input
 readonly runtime_root="${AGENTOPS_GATEWAY_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agentops-open-course}"
 readonly relay_mode="${AGENTOPS_GATEWAY_LOOPBACK_RELAY:-auto}"
 readonly resilience_lab="${AGENTOPS_GATEWAY_RESILIENCE_LAB:-off}"
+# Opt-in gateway tracing, off in every shipped profile.
+#
+# The host profile exports no traces on purpose: a proxy that ships spans by
+# default is a proxy that ships them to somebody's collector by default. But
+# Chapter 7.1 teaches trace-context propagation *across* this hop, and with no
+# gateway spans anywhere that lesson was an assertion rather than an observation.
+# This flag renders one `tracing.otlpEndpoint` at the collector's bridge alias so
+# a learner can see both service names under one trace id, and turning it off
+# restores the shipped config byte for byte.
+readonly tracing_lab="${AGENTOPS_GATEWAY_TRACING_LAB:-off}"
+readonly otlp_upstream_port="${AGENTOPS_OTLP_UPSTREAM_PORT:-4317}"
 usage() {
 	cat <<'EOF'
 Usage: infra/scripts/gateway-host.sh COMMAND
@@ -70,6 +81,8 @@ Environment:
   AGENTOPS_GATEWAY_LOOPBACK_RELAY  auto (default), on, or off.
   AGENTOPS_GATEWAY_RELAY           Installed native loopback-relay binary.
   AGENTOPS_GATEWAY_RESILIENCE_LAB  off (default) or timeout.
+  AGENTOPS_GATEWAY_TRACING_LAB     off (default) or on; exports gateway spans via OTLP.
+  AGENTOPS_OTLP_UPSTREAM_PORT      Host OTLP gRPC upstream port (4317).
   AGENTOPS_MCP_UPSTREAM_PORT       Host MCP upstream port (8000).
   AGENTOPS_A2A_UPSTREAM_PORT       Host A2A upstream port (8080).
   AGENTOPS_MODEL_UPSTREAM_PORT     Host model upstream port (11434).
@@ -110,6 +123,11 @@ validate_inputs() {
 	off | timeout) ;;
 	*) die "AGENTOPS_GATEWAY_RESILIENCE_LAB must be off or timeout" ;;
 	esac
+	case "${tracing_lab}" in
+	off | on) ;;
+	*) die "AGENTOPS_GATEWAY_TRACING_LAB must be off or on" ;;
+	esac
+	validate_port AGENTOPS_OTLP_UPSTREAM_PORT "${otlp_upstream_port}"
 
 	validate_port AGENTOPS_GATEWAY_MCP_PORT "${mcp_port}"
 	validate_port AGENTOPS_GATEWAY_A2A_PORT "${a2a_port}"
@@ -174,15 +192,27 @@ render_network_config() {
 		' "${canonical_config_input}"
 }
 
+render_tracing_config() {
+	if [[ "${tracing_lab}" != "on" ]]; then
+		cat
+		return
+	fi
+	# The same bridge alias every upstream uses, so the gateway reaches the host
+	# collector the way it already reaches the host model and MCP server.
+	OTLP_UPSTREAM_PORT="${otlp_upstream_port}" \
+		yq '.config.tracing.otlpEndpoint = ("http://host.docker.internal:" + strenv(OTLP_UPSTREAM_PORT))' -
+}
+
 render_base_config() {
 	if [[ "${resilience_lab}" == "timeout" ]]; then
 		# Six seconds deterministically exceeds the MCP route five-second total
 		# deadline. The opt-in lab never reaches or retries a confirmed write.
 		render_network_config |
-			yq '(.routes[] | select(.name == "mcp") | .policies.delay) = {"duration": "6s"}' -
+			yq '(.routes[] | select(.name == "mcp") | .policies.delay) = {"duration": "6s"}' - |
+			render_tracing_config
 		return
 	fi
-	render_network_config
+	render_network_config | render_tracing_config
 }
 
 render_config() {

@@ -3,30 +3,31 @@ title: "AgentOps Open Course"
 description: Build, evaluate, secure, deploy, and operate one production-shaped AI agent with an open-source AgentOps stack.
 ---
 
-Learn from one completed **AgentOps Agent**, from its first local model call to an observable Kubernetes workload. Every chapter inspects and runs the same reference, so concepts stay connected to code, tests, policy, and operations. The capstone then guides you through replacing the fictional incident domain with your own agent platform.
+**AgentOps** is the practice of building, evaluating, securing, deploying, and operating AI agents as production software. It exists because a model that can call your functions may take a different route on the same input and change real state: a clean build and a good demo stop proving the system works. This course teaches it through one finished reference, the **AgentOps Agent**, which you inspect and run in every chapter, from its first local model call to an observable Kubernetes workload, before a capstone replaces its domain with your own.
+
+Incident response is the worked example, not the subject. The agent answers questions from a committed incident dataset, and a fixed dataset makes a **grounded** answer — every identifier traceable to a tool result — checkable rather than plausible.
 
 {{% admonition abstract "In one glance" %}}
 
 - **You will:** Build, test, secure, deploy, and operate one production-shaped AI agent, then replace its domain with your own.
 - **You need:** Linux x86_64 with cgroup v2, Git, and basic Go for the fully supported path. Linux arm64, macOS, and WSL2 are best-effort. No account, API key, or cloud project is required.
-- **Time:** about 12 to 19 focused hours to read the course. {{% /admonition %}}
+- **Time:** about 12 to 19 focused hours to read the course, or about 32 hours to also run every command in it, including the optional ones. {{% /admonition %}}
 
-## Four entry points, one for each starting experience
-
-Choose the entry point that matches your current experience:
+## Choose the entry point that matches your experience
 
 - **Want to see it work before you read anything?** Take the six commands below. They end in a real agent turn on your own hardware, in about the time the model takes to download.
 - **New to agents or AgentOps?** Begin with [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}). Chapter 0 is read-only and helps you decide whether an agent fits your problem.
+- **Already building agents in Python?** Start at [8.8. From Python]({{< relref "/8. Community/8.8. From Python.md" >}}), which maps every concept you already hold — node, checkpointer, interrupt, retriever, tracing integration — onto the Go file that owns it here.
 - **Ready to prepare your machine?** Go to [1.0. System]({{< relref "/1. Setup/1.0. System.md" >}}). Chapter 1 owns installation, local checks, and model setup.
 - **Already have the repository and local model ready?** Start the first conversation at [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}).
 
-This separation is intentional. You make the architecture and provider decisions before downloading tools, prove the code offline before adding a model, then run the agent where the course can explain what happened.
+The order is deliberate: you make the architecture and provider decisions before downloading tools, prove the code offline before adding a model, then run the agent where the course can explain what happened.
 
 Keep [0.8. Glossary]({{< relref "/0. Overview/0.8. Glossary.md" >}}) open when a term is unfamiliar. Use [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md" >}}) only when a command later fails.
 
 ## Six commands reach the first agent turn
 
-You need [mise](https://mise.jdx.dev/) and [Ollama](https://ollama.com/download) on a Unix-like shell, plus a C compiler, because `mise run install` rebuilds the SQLite CLI from a checksum-verified source archive: `sudo apt install build-essential` on Debian and Ubuntu, `sudo dnf group install development-tools` on Fedora, `xcode-select --install` on macOS. No account, no API key, no `.env`:
+You need [mise](https://mise.jdx.dev/), the task runner and tool-version manager that owns every command in this course, and [Ollama](https://ollama.com/download) on a Unix-like shell. You also need a C compiler, because `mise run install` rebuilds the SQLite CLI from a checksum-verified source archive rather than trusting the host's own build: `sudo apt install build-essential` on Debian and Ubuntu, `sudo dnf group install development-tools` on Fedora, `xcode-select --install` on macOS. No account, no API key, no `.env`:
 
 <!-- quickstart: unverified-preview -->
 
@@ -40,16 +41,18 @@ cd agentops-open-course-go
 mise run install
 ollama pull qwen3:4b-instruct
 cd agents/go
-mise run run
+AGENT_MODEL_TIMEOUT_S=300 mise run web
 ```
 
-Ask `List the open incidents`. The expected final answer names exactly **INC-002, INC-005, and INC-010**, but this console preview alone cannot prove whether the model read or guessed them.
+Open `http://localhost:8002`, select `agentops_agent`, and ask `List the open incidents`. Read the Events pane before you read the answer: a `functionCall` row naming `list_incidents(status="open")`, the rows it returned, then a final answer naming exactly **INC-002, INC-005, and INC-010**. Watching the model ask for a tool is the whole point — those incidents live in a seed database on your disk, and no model can have memorised them.
 
-The first turn on CPU can take tens of seconds while the model loads, and a slow local model can exceed the agent's own 60-second deadline — [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu" >}}) names the one variable to raise, and how to tell a slow turn from an unreachable model.
+`AGENT_MODEL_TIMEOUT_S=300` is a deadline sized for a CPU. The shipped sixty seconds is this course's most common first failure, and [1.4. Providers]({{< relref "/1. Setup/1.4. Providers.md" >}}) has you measure your own machine rather than guess. The first turn is the slowest, because the model loads before it answers; [0.7. Troubleshooting]({{< relref "/0. Overview/0.7. Troubleshooting.md#why-does-every-model-turn-fail-at-about-60-seconds-on-my-cpu" >}}) tells a slow turn from an unreachable one.
 
-`mise run run` prints the answer, not the tool calls behind it. [2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) repeats this run under `mise run web`, then requires the `list_incidents(status="open")` call, returned rows, and final identifiers in one observed turn before calling it grounded.
+[2.1. First Agent]({{< relref "/2. Agents/2.1. First Agent.md" >}}) runs this properly — doctor first, and the difference between an answer that matches and an answer that is grounded spelled out.
 
-## What you will be able to do
+## What you will be able to build, prove, and operate
+
+You are not expected to recognize the technologies named below; each belongs to the chapter that introduces it.
 
 - Design an agent only where model autonomy is worth its latency and risk.
 - Build typed ADK agents with tools, Agent Skills, MCP, memory, workflows, and A2A.
@@ -57,10 +60,9 @@ The first turn on CPU can take tens of seconds while the model loads, and a slow
 - Route model, tool, and agent traffic through agentgateway with one stable application contract.
 - Run the same container on local k3d or a small GKE lab managed by kagent.
 - Trace, log, and monitor the system with OpenTelemetry into self-hosted Tempo, Loki, and Prometheus, all read through one Grafana.
+- Prove the finished result reproduces, and render that proof into a shareable certificate.
 
-You are not expected to recognize those names yet. Each one gets its own chapter, and the glossary defines every one of them in a single line.
-
-## The system you will inspect and extend
+## The reference agent you will inspect and extend
 
 ```mermaid
 flowchart TD
@@ -87,7 +89,7 @@ You do not reconstruct this system file by file. `main` is the working reference
 
 ## The chapter order is the AgentOps lifecycle
 
-The chapter order is the AgentOps lifecycle: you build the agent, prove it, govern its traffic, deploy it, operate it, then sustain it. Each stage unlocks a heavier prerequisite tier, so nothing forces a model, gateway, cluster, or cloud on you before the chapter that needs it.
+You build the agent, prove it, govern its traffic, deploy it, operate it, then sustain it. Each stage unlocks a heavier prerequisite tier, so nothing forces a model, gateway, cluster, or cloud on you before the chapter that needs it.
 
 ```mermaid
 flowchart LR
@@ -105,9 +107,9 @@ flowchart LR
 
 ## Each chapter, and the outcome it leaves you with
 
-New to agent systems? Read the chapters in order. Already shipping LLM applications? Use the outcomes below as a map.
+Read the chapters in order if agent systems are new to you. Or use the outcomes below as a map if you already ship LLM applications.
 
-Coming from LangGraph or a Python agent framework, none of this is conceptually new to you — you have written nodes, a checkpointer, an interrupt, a retriever, and a tracing integration. What changes is where each of them lives: Go pushes them out of decorators and dictionaries and into a struct, a package, or a process boundary you can point at, which is mostly an inconvenience while you are prototyping and mostly a relief when you are on call. [8.8. From Python]({{< relref "/8. Community/8.8. From Python.md" >}}) maps every concept you already hold onto the file that owns it here.
+Coming from LangGraph or another Python agent framework, none of this is conceptually new: you have written nodes, a checkpointer, an interrupt, a retriever, and a tracing integration. What changes is where each of them lives. Go pushes them out of decorators and dictionaries into a struct, a package, or a process boundary you can point at — an inconvenience while you are prototyping, a relief when you are on call. [8.8. From Python]({{< relref "/8. Community/8.8. From Python.md" >}}) maps every concept you already hold onto the file that owns it here.
 
 | Chapter                                                          | You will leave with                                                      |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -121,16 +123,14 @@ Coming from LangGraph or a Python agent framework, none of this is conceptually 
 | [7. Observability]({{< relref "/7. Observability/_index.md" >}}) | Self-hosted tracing, metrics, evaluation, feedback, and audit evidence.  |
 | [8. Capstone]({{< relref "/8. Community/_index.md" >}})          | An evidence-backed agent platform of your own, plus optional OSS upkeep. |
 
-Every page opens with the same "In one glance" block — what you will do, what you need first, and how long it takes — and ends with a checkpoint you can actually verify. Skim the glance block and skip a page when it is not for you today.
-
-Those per-page times add up to about 31 hours. That is the figure for running every command on every page, including the optional ones; the 12 to 19 hours above is reading it. Both are honest, and you choose which course you are taking.
+Every page opens with the same "In one glance" block you just read, ends with a checkpoint you can verify, and contributes its own time to the 32 hours above. Skim that block and skip a page when it is not for you today.
 
 ## What "open source" means here
 
-Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, Ollama, the Apache-2.0 open-weight Qwen3 model, and the course code form the required open-source path. The standalone Go evaluation harness records offline evidence without adding a runtime service. The optional Gemini API, Vertex AI, GKE, and repository/site hosting are proprietary services. They are integrations, not hidden requirements.
+Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, Ollama, the Apache-2.0 open-weight Qwen3 model, and the course code form the required open-source path. The optional Gemini API, Vertex AI, GKE, and repository/site hosting are proprietary services. They are integrations, not hidden requirements.
 
-## Where to begin
+## Where to start: 0.0. Course, or your current stage
 
-Start reading at [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), or enter at the later stage that matches your current setup. Every chapter ends with a checkpoint; Chapters 5-7 also include explicit verification and teardown steps. Finish by adapting the reference through [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}).
+Start at [0.0. Course]({{< relref "/0. Overview/0.0. Course.md" >}}), or at the later stage your setup already matches. Every chapter ends with a checkpoint, and Chapters 5-7 add explicit verification and teardown steps, because those stages leave processes and clusters running once you stop reading. Finish by adapting the reference through [8.7. Capstone]({{< relref "/8. Community/8.7. Capstone.md" >}}).
 
 The source repository is public at [MLOps-Courses/agentops-open-course-go](https://github.com/MLOps-Courses/agentops-open-course-go). To preview documentation changes locally, run `mise run serve` at `http://127.0.0.1:8003`.

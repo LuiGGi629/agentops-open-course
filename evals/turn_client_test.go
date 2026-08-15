@@ -3,6 +3,7 @@ package evals
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -97,12 +98,10 @@ func TestRESTAndA2ATransportsFoldEquivalentTurns(t *testing.T) {
 		if decodeErr := json.NewDecoder(request.Body).Decode(&envelope); decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		if envelope.Method != "message/send" {
+		if envelope.Method != "message/stream" {
 			t.Fatalf("method = %q", envelope.Method)
 		}
-		writeTestJSON(t, writer, map[string]any{
-			"jsonrpc": "2.0", "id": envelope.ID, "result": logicalA2AResult(),
-		})
+		writeTestA2AStream(t, writer, "2.0", envelope.ID, a2aStreamFrames(logicalA2AResult()))
 	}))
 	defer a2aServer.Close()
 	a2a, err := NewA2AClient(A2AClientConfig{BaseURL: a2aServer.URL})
@@ -155,11 +154,8 @@ func TestA2AClientRejectsInvalidJSONRPCEnvelope(t *testing.T) {
 				if err := json.NewDecoder(request.Body).Decode(&envelope); err != nil {
 					t.Fatal(err)
 				}
-				writeTestJSON(t, writer, map[string]any{
-					"jsonrpc": test.jsonRPC,
-					"id":      test.responseID(envelope.ID),
-					"result":  logicalA2AResult(),
-				})
+				writeTestA2AStream(t, writer, test.jsonRPC, test.responseID(envelope.ID),
+					a2aStreamFrames(logicalA2AResult()))
 			}))
 			defer server.Close()
 
@@ -334,9 +330,12 @@ func TestA2AConfirmResumesTheSameTask(t *testing.T) {
 			t.Fatal(err)
 		}
 		messages = append(messages, envelope.Params.Message)
-		writeTestJSON(t, writer, map[string]any{
-			"jsonrpc": "2.0", "id": envelope.ID,
-			"result": map[string]any{"kind": "task", "id": "task-1", "contextId": "session"},
+		// input-required is the state a guarded write really leaves behind: the task
+		// stays open precisely because it is waiting for the approval the next
+		// message carries.
+		writeTestA2AStream(t, writer, "2.0", envelope.ID, []map[string]any{
+			{"kind": "task", "id": "task-1", "contextId": "session"},
+			{"kind": "status-update", "status": map[string]any{"state": "input-required"}},
 		})
 	}))
 	defer server.Close()
@@ -385,6 +384,70 @@ func TestA2AConfirmResumesTheSameTask(t *testing.T) {
 	data, ok := part["data"].(map[string]any)
 	if !ok || data["id"] != "call-confirm" || data["name"] != ConfirmationTool {
 		t.Fatalf("confirmation data = %v, want the pending confirmation call", part["data"])
+	}
+}
+
+// A multi-turn case sends its second question into a task the first question
+// already finished. A2A refuses that with "task in a terminal state", so the
+// client has to start a fresh task and keep only the context id — which is what
+// makes conversation-level cases runnable over this transport at all.
+func TestA2AClientStartsAFreshTaskAfterATerminalOne(t *testing.T) {
+	t.Parallel()
+
+	for name, state := range map[string]string{
+		"completed":              "completed",
+		"failed":                 "failed",
+		"canceled":               "canceled",
+		"rejected":               "rejected",
+		"protobuf enum spelling": "TASK_STATE_COMPLETED",
+		"no status at all":       "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var messages []map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var envelope struct {
+					Params struct {
+						Message map[string]any `json:"message"`
+					} `json:"params"`
+					ID string `json:"id"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&envelope); err != nil {
+					t.Error(err)
+					return
+				}
+				messages = append(messages, envelope.Params.Message)
+				frames := []map[string]any{{"kind": "task", "id": "task-1", "contextId": "session"}}
+				if state != "" {
+					frames = append(frames, map[string]any{
+						"kind": "status-update", "status": map[string]any{"state": state},
+					})
+				}
+				writeTestA2AStream(t, writer, "2.0", envelope.ID, frames)
+			}))
+			defer server.Close()
+
+			client, err := NewA2AClient(A2AClientConfig{BaseURL: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, question := range []string{"save a note about INC-002", "what did I just note?"} {
+				if _, err := client.Send(t.Context(), "session", question); err != nil {
+					t.Fatalf("Send(%q) error = %v", question, err)
+				}
+			}
+			if len(messages) != 2 {
+				t.Fatalf("sent %d messages, want two turns", len(messages))
+			}
+			if messages[1]["taskId"] != nil {
+				t.Fatalf("second turn reused taskId %v after a %s task", messages[1]["taskId"], state)
+			}
+			// The context is what actually carries the conversation; only the task
+			// is per-exchange.
+			if messages[1]["contextId"] != "session" {
+				t.Fatalf("second turn contextId = %v, want the conversation's", messages[1]["contextId"])
+			}
+		})
 	}
 }
 
@@ -617,6 +680,52 @@ func logicalA2AResult() map[string]any {
 				},
 			},
 		},
+	}
+}
+
+// a2aStreamFrames turns a stored task into the frames a message/stream response
+// would have carried it in. It is the inverse of what the server does: an opening
+// snapshot, one artifact update per artifact with that artifact's metadata moved
+// onto the frame — which is where the live server puts it, and why the harness
+// streams — and a closing status update.
+func a2aStreamFrames(result map[string]any) []map[string]any {
+	opening := map[string]any{"kind": "task", "status": map[string]any{"state": "submitted"}}
+	for _, key := range []string{"id", "contextId"} {
+		if value, found := result[key]; found {
+			opening[key] = value
+		}
+	}
+	frames := []map[string]any{opening}
+	artifacts, _ := result["artifacts"].([]any)
+	for _, entry := range artifacts {
+		artifact, _ := entry.(map[string]any)
+		frames = append(frames, map[string]any{
+			"kind":     "artifact-update",
+			"artifact": map[string]any{"parts": artifact["parts"]},
+			"metadata": artifact["metadata"],
+		})
+	}
+	closing := map[string]any{"kind": "status-update", "status": map[string]any{"state": "completed"}}
+	if status, found := result["status"]; found {
+		closing["status"] = status
+	}
+	if metadata, found := result["metadata"]; found {
+		closing["metadata"] = metadata
+	}
+	return append(frames, closing)
+}
+
+func writeTestA2AStream(t *testing.T, writer http.ResponseWriter, jsonRPC, responseID string, frames []map[string]any) {
+	t.Helper()
+	writer.Header().Set("Content-Type", "text/event-stream")
+	for _, frame := range frames {
+		encoded, err := json.Marshal(map[string]any{"jsonrpc": jsonRPC, "id": responseID, "result": frame})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fmt.Fprintf(writer, "data: %s\n\n", encoded); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
