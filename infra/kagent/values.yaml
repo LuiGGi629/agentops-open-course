@@ -4,6 +4,10 @@ rbac:
     - agentops
 
 controller:
+  image:
+    # The chart inserts ':' before tag, so tag@digest preserves the readable
+    # version while making the multi-architecture registry index immutable.
+    tag: "0.9.12@sha256:d1ea7b70bb8d97de9f0774d44b598971c944b3ab4e88294b0bb78e59d1a63c15"
   watchNamespaces:
     - agentops
   resources:
@@ -15,6 +19,8 @@ controller:
       memory: 512Mi
 
 ui:
+  image:
+    tag: "0.9.12@sha256:1d5ada8d7f65a6b9ad28232463f9fd670c4c20875baa1c8008aaa1f1f988382e"
   replicas: 0
   resources:
     requests:
@@ -27,6 +33,8 @@ ui:
 database:
   postgres:
     bundled:
+      image:
+        tag: "18.3-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7"
       storage: 500Mi
       resources:
         requests:

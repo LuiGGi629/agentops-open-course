@@ -163,11 +163,11 @@ All notable changes to this project are documented in this file.
 
 - Publish AgentOps Open Course
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.7.0
-[0.6.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.6.0
-[0.5.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.5.0
-[0.3.5]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.3.5
-[0.2.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.2.0
-[0.1.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.1
-[0.1.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.1.0
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course-go/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.7.0
+[0.6.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.6.0
+[0.5.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.5.0
+[0.3.5]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.3.5
+[0.2.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.2.0
+[0.1.1]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.1.1
+[0.1.0]: https://github.com/MLOps-Courses/agentops-open-course-go/releases/tag/v0.1.0

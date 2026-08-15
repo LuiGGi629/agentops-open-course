@@ -4,17 +4,22 @@ kind: Kustomization
 resources:
   - ../../base
   - ../../../agentgateway/gke
-  - network-policies.yaml
   - storage-class.yaml
-
-configMapGenerator:
-  - name: gke-overlay-values
-    namespace: agentops
-    literals:
-      - mlflow-artifacts-destination=gs://__MLFLOW_BUCKET_NAME__
 
 patches:
   - path: workload-identity.yaml
+  # The proprietary model lives here rather than in the base, so an overlay-free
+  # `kubectl apply -k infra/kagent` cannot silently select it. The replacements
+  # block below carries this value into the agent's AGENT_MODEL.
+  - target:
+      group: kagent.dev
+      version: v1alpha2
+      kind: ModelConfig
+      name: agentgateway
+    patch: |-
+      - op: replace
+        path: /spec/model
+        value: gemini-3.5-flash
   - target:
       version: v1
       kind: PersistentVolumeClaim
@@ -35,15 +40,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/cpu
         value: 50m
   - target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: mlflow
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/requests/cpu
-        value: 100m
-  - target:
       group: kagent.dev
       version: v1alpha2
       kind: Agent
@@ -52,6 +48,13 @@ patches:
       - op: replace
         path: /spec/byo/deployment/resources/requests/cpu
         value: 100m
+      # Vertex has no local Ollama for the optional named-entity webhook. The
+      # deterministic in-process PII layer and GKE gateway rejection stay active.
+      - op: add
+        path: /spec/byo/deployment/env/-
+        value:
+          name: AGENT_PII_MODEL_ENABLED
+          value: "false"
   # Vertex exception: Google API endpoints publish no stable CIDR, so the
   # rule is port-scoped HTTPS. This cluster uses Calico, whose GKE metadata
   # endpoint requires both TCP 987 and 988 for Workload Identity Federation.
@@ -116,15 +119,3 @@ replacements:
           name: agentops-agent
         fieldPaths:
           - spec.byo.deployment.env.[name=^AGENT_MODEL$].value
-  - source:
-      kind: ConfigMap
-      name: gke-overlay-values
-      fieldPath: data.mlflow-artifacts-destination
-    targets:
-      - select:
-          group: apps
-          version: v1
-          kind: Deployment
-          name: mlflow
-        fieldPaths:
-          - spec.template.spec.containers.[name=^mlflow$].env.[name=^MLFLOW_ARTIFACTS_DESTINATION$].value

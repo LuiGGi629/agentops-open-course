@@ -1,90 +1,100 @@
-# Model-backed evaluation of the AgentOps Agent — scheduled evidence, never a PR gate.
-#
-# The merge gate (ci.yml) stays fast, deterministic, and secret-free: offline tests,
-# the red-team suite, and evalset validation. This workflow closes the loop the course
-# teaches in Chapter 4.4 by actually calling a model: it provisions a local Ollama
-# server on the runner, pulls a small open model, and runs the ADK trajectory and
-# MLflow evaluations against the fixed seed data.
-#
-# Honest expectations:
-# - No provider secret is required — the model runs locally, so forks and PRs never
-#   need credentials (the job simply does not trigger on pull_request).
-# - CPU inference of a ~4B model on the standard 4-vCPU runner is slow; allow up
-#   to two hours. Dispatch with a smaller model tag (for example qwen3:1.7b) to
-#   trade answer quality for speed.
-# - The agentgateway data plane is NOT in this loop: the OpenAI-compatible client
-#   points directly at Ollama, so gateway rate limits and prompt guards are not
-#   exercised here. This run measures model/prompt/tool behavior only.
-# - A small model can miss exact tool trajectories. A failure is a signal to inspect
-#   the uploaded results, not a merge blocker — this workflow never gates PRs.
+# Model-backed evidence for the Go agent, on explicit dispatch only. A run pulls a
+# local open model, drives the black-box wire harness against the candidate
+# container, and exports sanitized evidence — it is slow, stochastic, and spends a
+# runner for up to two hours, so it is never a merge gate. Every pull request is
+# covered by the deterministic offline validator (`eval:validate`) inside CI.
 name: Eval
 
 on:
   workflow_dispatch:
     inputs:
       model:
-        description: "Ollama model tag to evaluate (smaller runs faster on the 4-vCPU runner)"
+        description: "Ollama model tag to evaluate"
         type: string
         default: qwen3:4b-instruct
-  schedule:
-    - cron: "0 7 * * 1" # weekly, Monday 07:00 UTC, after the Scan run (06:00)
 
 permissions:
   contents: read
 
 concurrency:
   group: eval-${{ github.workflow }}
-  cancel-in-progress: false # let a running weekly evaluation finish
+  cancel-in-progress: false
 
 jobs:
   evaluate:
+    if: github.repository == 'MLOps-Courses/agentops-open-course-go'
     runs-on: ubuntu-24.04
-    # Guard forks and mirrors: the weekly model download and long CPU inference only
-    # make sense on the canonical repository. Elsewhere the job is skipped, not failed.
-    if: github.repository == 'MLOps-Courses/agentops-open-course'
     timeout-minutes: 120
     env:
-      # Route ADK's OSS OpenAI-compatible client directly at the local Ollama server.
+      AGENT_BUILD_MODE: release
       AGENT_MODEL_PROVIDER: openai-compatible
       AGENT_MODEL: ${{ inputs.model || 'qwen3:4b-instruct' }}
-      OPENAI_BASE_URL: http://127.0.0.1:11434/v1
-      OPENAI_API_KEY: local-ollama # non-secret marker; the local server has no auth
-      # The repository wrapper runs ADK cases serially so one local CPU model
-      # never queues four requests behind the same client timeout. One
-      # 180-second attempt avoids duplicate generations while preserving the
-      # learner defaults.
-      # The shared retry setting also keeps fixed-data read tools single-attempt;
-      # their failures remain visible instead of being hidden by this evidence job.
-      # ADK forwards this through GenerateContentConfig to Ollama's
-      # OpenAI-compatible chat-completions request. It lowers sampling variance;
-      # model/runtime implementation details can still change the exact output.
       AGENT_MODEL_TEMPERATURE: "0"
       AGENT_MODEL_TIMEOUT_S: "180"
       AGENT_MAX_RETRIES: "0"
-      # Keep the serving window explicit and reproducible. Tool declarations,
-      # bounded evidence, and the completion all share this window.
+      AGENT_SOURCE_COMMIT: ${{ github.sha }}
+      OPENAI_BASE_URL: http://127.0.0.1:11434/v1
+      OPENAI_API_KEY: local-ollama
+      AGENT_PII_MODEL_BASE_URL: http://127.0.0.1:11434/v1
+      EVAL_JUDGE_BASE_URL: http://127.0.0.1:4000/v1
+      EVAL_JUDGE_API_KEY: local-ollama
+      EVAL_JUDGE_MODEL: ${{ inputs.model || 'qwen3:4b-instruct' }}
+      EVAL_OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+      EVAL_CONTEXT_LENGTH: "8192"
+      EVAL_AGENT_RUNTIME: container
+      EVAL_AGENT_IMAGE: agentops-agent:dev
+      EVAL_CONTAINER_ENGINE: docker
+      EVAL_PLATFORM_IDENTITY: github-actions-ubuntu-24.04-container
       OLLAMA_CONTEXT_LENGTH: "8192"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Install the pinned toolchain
+      - name: Select the pinned tool manager
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
         with:
           install: false
 
-      - name: Install only the evaluation toolchain
-        run: mise install uv github:mikefarah/yq
+      - name: Restore Go module and build caches
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: eval-go-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('agents/go/go.sum', 'evals/go.sum', 'tools/go.sum') }}
 
-      - name: Install agent dependencies
-        run: cd agents/python && mise run install:eval
+      # The harness refuses a binary that does not match this checkout, so proving
+      # the image identity here turns a later mismatch into a build error instead of
+      # evidence attributed to the wrong commit.
+      - name: Build and identify the agent image under evaluation
+        run: |
+          mise install -y --locked go jq github:mikefarah/yq
+          mise run build:agent-image
+          source_identity="$(go -C tools run ./cmd/source-identity --root .. --mode release)"
+          source_tree_digest="$(jq -er .tree_digest <<<"$source_identity")"
+          version="$(tr -d '\n' < VERSION)"
+          created="$(git show -s --format=%cI HEAD)"
+          binary_identity="$(docker run --rm "$EVAL_AGENT_IMAGE" version)"
+          jq -e \
+            --arg revision "$GITHUB_SHA" \
+            --arg tree_digest "$source_tree_digest" \
+            --arg version "$version" \
+            --arg created "$created" '
+              .mode == "release" and
+              .version == $version and
+              .source_identity == $revision and
+              .revision == $revision and
+              .tree_digest == $tree_digest and
+              .build_timestamp == $created and
+              .dirty == false
+            ' <<<"$binary_identity" >/dev/null
+          cd evals
+          mise run install
 
-      - name: Install Ollama and serve the evaluation model
-        # Pin both the release asset and GitHub-published SHA-256 instead of
-        # executing Ollama's floating install script. v0.32.5 contains the
-        # GCC 13 Linux-runner fix for the Sapphire Rapids first-inference crash
-        # seen on otherwise compatible hosted runners; it still needs the strict
-        # trajectories and reviewed baseline below before release qualification.
+      - name: Install Ollama and load the pinned model
+        # compatibility hold: owner=go-eval-cost constraint=reviewed-Go-rebaseline validator=full-Eval-workflow
         run: |
           archive="${RUNNER_TEMP}/ollama-linux-amd64.tar.zst"
           curl --fail --show-error --location --retry 3 \
@@ -93,8 +103,9 @@ jobs:
           echo "f7d6bdbcf71b83aa8670c4e7dc4b6936c0952fcf8b114eaf6a11cbadb9684214  ${archive}" |
             sha256sum --check -
           zstd --decompress --stdout "${archive}" | sudo tar -xf - -C /usr/local
-          ollama --version
-          ollama serve > agents/python/evals/ollama.log 2>&1 &
+          ollama serve > evals/ollama.log 2>&1 &
+          echo "OLLAMA_PID=$!" >> "$GITHUB_ENV"
+          echo "EVAL_OLLAMA_VERSION=$(ollama --version)" >> "$GITHUB_ENV"
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:11434/ >/dev/null; do sleep 1; done'
           ollama pull "$AGENT_MODEL"
           model_digest="$(
@@ -103,244 +114,115 @@ jobs:
                 '.models[] | select(.name == $model or .model == $model) | .digest' |
               head -n 1
           )"
-          jq -n \
-            --arg model "$AGENT_MODEL" \
-            --arg digest "$model_digest" \
-            --arg ollama_version "$(ollama --version)" \
-            --argjson context_length "$OLLAMA_CONTEXT_LENGTH" \
-            --argjson temperature "$AGENT_MODEL_TEMPERATURE" \
-            '{model: $model, digest: $digest, ollama_version: $ollama_version, context_length: $context_length, temperature: $temperature}' \
-            > agents/python/evals/model.json
           echo "EVAL_MODEL_DIGEST=${model_digest}" >> "$GITHUB_ENV"
 
-          # Readiness and a completed pull do not load the inference backend.
-          # Exercise one bounded generation now so CPU-library crashes fail
-          # before the six expensive evidence paths, with the server log kept.
-          smoke_payload="$(
-            jq -n \
-              --arg model "$AGENT_MODEL" \
-              '{
-                model: $model,
-                messages: [{role: "user", content: "Reply with OK."}],
-                temperature: 0,
-                max_tokens: 8,
-                stream: false
-              }'
-          )"
-          if ! smoke_response="$(
-            curl --fail-with-body --show-error \
-              --max-time "$AGENT_MODEL_TIMEOUT_S" \
-              --header 'Content-Type: application/json' \
-              --data "$smoke_payload" \
-              http://127.0.0.1:11434/v1/chat/completions
-          )"; then
-            tail -n 200 agents/python/evals/ollama.log >&2
-            exit 1
-          fi
-          jq -e '.choices[0].message.content | strings | length > 0' \
-            <<< "$smoke_response" >/dev/null
+      - name: Start evaluation observability and judge boundary
+        env:
+          AGENT_ENTRYPOINT: agent
+          AGENT_A2A_BIND_HOST: 127.0.0.1
+          AGENT_A2A_PORT: "8080"
+          OTEL_SDK_DISABLED: "true"
+        run: |
+          mise run observability:up
+          docker run --detach --rm \
+            --name agentops-eval-judge \
+            --network host \
+            --tmpfs /app/state:rw,nosuid,nodev,noexec,uid=10001,gid=10001,mode=0700 \
+            --label "agentops.eval.source_commit=${GITHUB_SHA}" \
+            --env AGENT_ENTRYPOINT \
+            --env AGENT_A2A_BIND_HOST \
+            --env AGENT_A2A_PORT \
+            --env AGENT_MODEL_PROVIDER \
+            --env AGENT_MODEL \
+            --env AGENT_MODEL_TEMPERATURE \
+            --env AGENT_MODEL_TIMEOUT_S \
+            --env AGENT_MAX_RETRIES \
+            --env AGENT_SOURCE_COMMIT \
+            --env OPENAI_BASE_URL \
+            --env OPENAI_API_KEY \
+            --env AGENT_PII_MODEL_BASE_URL \
+            --env OTEL_SDK_DISABLED \
+            "$EVAL_AGENT_IMAGE" a2a
+          timeout 60 bash -c 'until curl -fsS http://127.0.0.1:8080/healthz >/dev/null; do sleep 1; done'
+          mise run gateway:host:start
 
-      - name: Start the judge path through agentgateway
-        run: mise run gateway:host:start
-
-      - name: Run the ADK trajectory evaluation
-        id: adk
-        # Keep going on a trajectory miss so the MLflow evidence below is still
-        # collected; the final step re-surfaces the failure so it stays actionable.
-        continue-on-error: true
-        shell: bash # explicit bash enables pipefail, so tee cannot mask the exit code
-        run: cd agents/python && mise run eval 2>&1 | tee evals/adk-eval.log
-
-      - name: Run the structured report evaluation
-        id: report
-        continue-on-error: true
-        shell: bash
-        run: cd agents/python && mise run eval:report 2>&1 | tee evals/report-eval.log
-
-      - name: Run the bounded workflow evaluation
-        id: workflow
-        continue-on-error: true
-        shell: bash
-        run: cd agents/python && mise run eval:workflow 2>&1 | tee evals/workflow-eval.log
-
-      - name: Run the MLflow evaluation (deterministic scorers, no judge)
-        id: mlflow
-        # Without MLFLOW_TRACKING_URI this logs to local SQLite (evals/mlflow.db)
-        # with run artifacts under mlruns/, both uploaded below.
-        continue-on-error: true
-        shell: bash
-        run: cd agents/python && mise run eval:mlflow 2>&1 | tee evals/mlflow-eval.log
-
-      - name: Measure gateway-judge agreement on labeled answers
+      # Calibration first: an uncalibrated judge makes the campaign's judge score
+      # unreadable. Both steps continue on error so one weak signal still produces
+      # the full sanitized verdict below instead of an empty run.
+      - name: Measure judge agreement against the labeled set
         id: judge
         continue-on-error: true
-        shell: bash
-        env:
-          MLFLOW_JUDGE_API_KEY: local-ollama
-          MLFLOW_JUDGE_BASE_URL: http://127.0.0.1:4000/v1
-          MLFLOW_JUDGE_MODEL: ${{ inputs.model || 'qwen3:4b-instruct' }}
-        run: cd agents/python && mise run eval:judge-calibration 2>&1 | tee evals/judge-calibration.log
+        run: mise run eval:judge-calibration
 
-      - name: Check per-case token/cost usage against the baseline
-        id: cost
-        # Required scheduled evidence, never a PR gate: records a baseline on
-        # first run and reports drift once cost_baseline.json is committed.
-        # Reuse the exact source/prompt/model/eval-bound transcript MLflow scored.
+      - name: Run the model-backed operations campaign
+        id: core
         continue-on-error: true
-        shell: bash
-        env:
-          AGENT_EVAL_OBSERVED_PATH: evals/model-observed.json
-          EVAL_MODEL_METADATA_PATH: evals/model.json
-        run: cd agents/python && mise run eval:cost 2>&1 | tee evals/cost-eval.log
+        run: mise run eval
 
-      - name: Check answer groundedness against retrieved evidence
-        id: ground
-        # Required scheduled evidence, never a PR gate: recognized domain claims
-        # must be grounded in that turn's tool responses or the user's question.
-        # Reuse the exact transcript MLflow scored.
+      - name: Prove Tempo, Prometheus, and Grafana received the run
+        id: observability
         continue-on-error: true
-        shell: bash
-        env:
-          AGENT_EVAL_OBSERVED_PATH: evals/model-observed.json
-        run: cd agents/python && mise run eval:ground 2>&1 | tee evals/ground-eval.log
+        run: |
+          timeout 90 bash -c '
+            until curl -fsS --get --data-urlencode "query=agentops_eval_run_passed" \
+              http://127.0.0.1:9090/api/v1/query | jq -e ".data.result | length > 0" >/dev/null; do sleep 3; done
+          '
+          timeout 90 bash -c '
+            until curl -fsS "http://127.0.0.1:3200/api/search?tags=resource.service.name%3Dagentops-evals" |
+              jq -e ".traces | length > 0" >/dev/null; do sleep 3; done
+          '
+          curl -fsS "http://127.0.0.1:3002/api/search?query=AgentOps%20evaluation%20comparison" |
+            jq -e 'map(select(.uid == "agentops-evaluation-comparison")) | length == 1' >/dev/null
 
-      - name: Write the sanitized evaluation verdict
+      - name: Write sanitized campaign verdict
         if: always()
         env:
-          ADK_OUTCOME: ${{ steps.adk.outcome }}
-          COST_OUTCOME: ${{ steps.cost.outcome }}
-          GROUND_OUTCOME: ${{ steps.ground.outcome }}
+          CORE_OUTCOME: ${{ steps.core.outcome }}
           JUDGE_OUTCOME: ${{ steps.judge.outcome }}
-          MLFLOW_OUTCOME: ${{ steps.mlflow.outcome }}
-          REPORT_OUTCOME: ${{ steps.report.outcome }}
-          WORKFLOW_OUTCOME: ${{ steps.workflow.outcome }}
+          OBSERVABILITY_OUTCOME: ${{ steps.observability.outcome }}
         run: |
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg sha "$GITHUB_SHA" \
             --arg run_id "$GITHUB_RUN_ID" \
-            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
             --arg model "$AGENT_MODEL" \
             --arg digest "${EVAL_MODEL_DIGEST:-}" \
-            --arg adk "$ADK_OUTCOME" \
-            --arg report "$REPORT_OUTCOME" \
-            --arg workflow "$WORKFLOW_OUTCOME" \
-            --arg mlflow "$MLFLOW_OUTCOME" \
-            --arg cost "$COST_OUTCOME" \
-            --arg ground "$GROUND_OUTCOME" \
+            --arg core "$CORE_OUTCOME" \
             --arg judge "$JUDGE_OUTCOME" \
+            --arg observability "$OBSERVABILITY_OUTCOME" \
             '{
               schema_version: 1,
               repository: $repository,
-              sha: $sha,
-              run: {
-                id: ($run_id | tonumber),
-                attempt: ($run_attempt | tonumber),
-                url: (
-                  "https://github.com/" + $repository + "/actions/runs/" + $run_id
-                )
-              },
-              model: {
-                name: $model,
-                digest: $digest
-              },
-              signals: {
-                adk_trajectory: $adk,
-                structured_report: $report,
-                bounded_workflow: $workflow,
-                mlflow_scorers: $mlflow,
-                cost_regression: $cost,
-                groundedness: $ground,
-                judge_calibration: $judge
-              },
-              overall: (
-                [$adk, $report, $workflow, $mlflow, $cost, $ground, $judge] |
-                if all(. == "success") then "success" else "failure" end
-              ),
-              privacy: "sanitized verdict only; no prompts, responses, tool data, or model transcripts"
-            }' > agents/python/evals/verdict.json
+              source_commit: $sha,
+              run: {id: ($run_id | tonumber)},
+              model: {name: $model, digest: $digest},
+              signals: {core: $core, judge_calibration: $judge, observability: $observability},
+              overall: ([$core, $judge, $observability] | if all(. == "success") then "signals-collected" else "failure" end),
+              privacy: "sanitized evidence only; no prompts, responses, tool data, errors, URLs, secrets, or model transcripts"
+            }' > evals/verdict.json
 
-      - name: Upload evaluation results
+      - name: Upload sanitized evaluation evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: eval-results-${{ github.run_id }}
+          name: eval-evidence-${{ github.run_id }}
           path: |
-            agents/python/evals/adk-eval.log
-            agents/python/evals/report-eval.log
-            agents/python/evals/workflow-eval.log
-            agents/python/evals/mlflow-eval.log
-            agents/python/evals/ollama.log
-            agents/python/evals/cost-eval.log
-            agents/python/evals/cost-observed.json
-            agents/python/evals/cost_baseline.json
-            agents/python/evals/ground-eval.log
-            agents/python/evals/judge-calibration.log
-            agents/python/evals/ground-observed.json
-            agents/python/evals/model-observed.json
-            agents/python/evals/model.json
-            agents/python/evals/verdict.json
-            agents/python/evals/mlflow.db
-            agents/python/mlruns
-            agents/python/src/**/.adk/eval_history/*.evalset_result.json
-          if-no-files-found: warn
-          include-hidden-files: true
-          retention-days: 7
-
-      - name: Upload the sanitized release evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: eval-release-evidence-${{ github.run_id }}
-          path: |
-            agents/python/evals/model.json
-            agents/python/evals/verdict.json
+            evals/results.json
+            evals/judge-calibration-results.json
+            evals/verdict.json
           if-no-files-found: error
           retention-days: 7
 
-      - name: Summarize all evaluation signals
+      - name: Stop temporary evidence services
         if: always()
         run: |
-          {
-            echo "## Model-backed evaluation"
-            echo
-            echo "| Signal | Outcome | Contract |"
-            echo "| --- | --- | --- |"
-            echo "| ADK trajectory | ${{ steps.adk.outcome }} | Required run verdict: aggregate floor plus strict recall/skill/restart/resolve cases |"
-            echo "| Structured report | ${{ steps.report.outcome }} | Required run verdict: strict case |"
-            echo "| Bounded workflow | ${{ steps.workflow.outcome }} | Required run verdict: strict case |"
-            echo "| MLflow scorers | ${{ steps.mlflow.outcome }} | Required run verdict: scorer floors |"
-            echo "| Cost regression | ${{ steps.cost.outcome }} | Required run verdict: reviewed baseline |"
-            echo "| Groundedness | ${{ steps.ground.outcome }} | Required run verdict: no provider errors or unsupported recognized claims |"
-            echo "| Judge calibration | ${{ steps.judge.outcome }} | Required run verdict: at least 75% agreement on labeled answers |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          mise run gateway:host:stop || true
+          docker stop --timeout 30 agentops-eval-judge || true
+          if [[ -n "${OLLAMA_PID:-}" ]]; then kill "$OLLAMA_PID" || true; fi
+          mise run observability:down || true
 
-      - name: Stop the judge gateway
-        if: always()
-        run: mise run gateway:host:stop
-
-      - name: Surface model-backed evaluation verdicts
-        if: always() && (steps.adk.outcome == 'failure' || steps.report.outcome == 'failure' || steps.workflow.outcome == 'failure' || steps.mlflow.outcome == 'failure' || steps.cost.outcome == 'failure' || steps.ground.outcome == 'failure' || steps.judge.outcome == 'failure')
+      - name: Surface failed evaluation signals
+        if: always() && (steps.core.outcome == 'failure' || steps.judge.outcome == 'failure' || steps.observability.outcome == 'failure')
         run: |
-          if [[ "${{ steps.adk.outcome }}" == "failure" ]]; then
-            echo "::error::The ADK trajectory evaluation failed — inspect adk-eval.log."
-          fi
-          if [[ "${{ steps.report.outcome }}" == "failure" ]]; then
-            echo "::error::The structured report evaluation failed — inspect report-eval.log."
-          fi
-          if [[ "${{ steps.workflow.outcome }}" == "failure" ]]; then
-            echo "::error::The bounded workflow evaluation failed — inspect workflow-eval.log."
-          fi
-          if [[ "${{ steps.mlflow.outcome }}" == "failure" ]]; then
-            echo "::error::The MLflow scorer evaluation failed — inspect mlflow-eval.log."
-          fi
-          if [[ "${{ steps.cost.outcome }}" == "failure" ]]; then
-            echo "::error::The cost evaluation failed — inspect cost-eval.log and model-observed.json; cost-observed.json exists only after every case yields valid measurement evidence."
-          fi
-          if [[ "${{ steps.ground.outcome }}" == "failure" ]]; then
-            echo "::error::The groundedness evaluation failed — inspect ground-eval.log and ground-observed.json."
-          fi
-          if [[ "${{ steps.judge.outcome }}" == "failure" ]]; then
-            echo "::error::The gateway judge missed its labeled agreement floor — inspect judge-calibration.log."
-          fi
+          echo "::error::At least one model-backed evaluation signal failed; inspect the named step and sanitized artifacts."
           exit 1

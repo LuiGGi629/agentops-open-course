@@ -1,6 +1,6 @@
 # In-cluster Prometheus scrapes only the collector: agentgateway metrics are
-# already re-exported through otel-collector:8889, and MLflow /metrics stays
-# host-only so the mlflow-ingress policy keeps its single-writer contract.
+# already re-exported through otel-collector:8889, and Tempo /metrics stays
+# host-only so the tempo-ingress policy keeps its single-writer contract.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

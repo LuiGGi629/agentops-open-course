@@ -9,9 +9,6 @@ readonly -a common=(
 	--skip-dirs .agents
 	--skip-dirs .cache
 	--skip-dirs .git
-	--skip-dirs .venv
-	--skip-dirs agents/python/.venv
-	--skip-dirs infra/mlflow/.venv
 	--skip-dirs site
 	--skip-dirs infra/agentgateway/host/auth
 )
@@ -22,7 +19,6 @@ source)
 		--scanners vuln,misconfig,secret \
 		--tf-vars infra/gcp/terraform.tfvars.example \
 		--skip-files .env \
-		--skip-files agents/python/.env \
 		.
 	;;
 licenses)
@@ -30,7 +26,6 @@ licenses)
 		--scanners license \
 		--severity UNKNOWN,HIGH,CRITICAL \
 		--skip-files .env \
-		--skip-files agents/python/.env \
 		.
 	;;
 config)

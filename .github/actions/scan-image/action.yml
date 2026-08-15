@@ -14,16 +14,20 @@ runs:
 
     - name: Install the repository-pinned Trivy
       shell: bash
-      run: mise install trivy
+      run: mise install -y --locked trivy
 
     - name: Scan image vulnerabilities and secrets
       shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
       run: >-
         trivy image --config trivy.yaml --scanners vuln,secret
-        --severity HIGH,CRITICAL --exit-code 1 '${{ inputs.image }}'
+        --severity HIGH,CRITICAL --exit-code 1 "$IMAGE"
 
     - name: Verify image licenses
       shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
       run: >-
         trivy image --config trivy.yaml --scanners license
-        --severity UNKNOWN,HIGH,CRITICAL --exit-code 1 '${{ inputs.image }}'
+        --severity UNKNOWN,HIGH,CRITICAL --exit-code 1 "$IMAGE"

@@ -8,38 +8,23 @@ x-hardened-service: &hardened-service
     - no-new-privileges:true
 
 services:
-  mlflow:
+  tempo:
     <<: *hardened-service
-    image: agentops-mlflow:3.15.0
-    build:
-      context: ../mlflow
-      dockerfile: Dockerfile
-    environment:
-      MLFLOW_ALLOWED_HOSTS: mlflow:*,localhost:*,127.0.0.1:*
-      MLFLOW_ARTIFACTS_DESTINATION: /var/lib/mlflow/artifacts
-      MLFLOW_DEFAULT_ARTIFACT_ROOT: mlflow-artifacts:/
-      MLFLOW_EXPERIMENT_NAME: agentops-agent
+    # Distroless image (no shell), so no Compose healthcheck; the collector
+    # retries failed exports and Grafana proxies queries on demand.
+    image: grafana/tempo:3.0.2@sha256:cda87c212d8c584dc0b89e337e7ed648a5100feb657e5d528480ee4fa03dbbe3
+    command: ["-config.file=/etc/tempo/config.yaml"]
     volumes:
-      - mlflow-data:/var/lib/mlflow
+      - ./tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
     tmpfs:
-      - /tmp:size=128m,mode=1777
-    cpus: 1
-    mem_limit: 2g
-    pids_limit: 256
-    user: "10002:10002"
+      - /tmp:size=64m,mode=1777
+    cpus: 0.5
+    mem_limit: 1g
+    pids_limit: 128
+    user: "10001:10001"
     ports:
-      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=2)",
-        ]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+      - "127.0.0.1:${TEMPO_PORT:-3200}:3200"
 
   loki:
     <<: *hardened-service
@@ -77,8 +62,8 @@ services:
     depends_on:
       loki:
         condition: service_started
-      mlflow:
-        condition: service_healthy
+      tempo:
+        condition: service_started
 
   alertmanager:
     <<: *hardened-service
@@ -143,10 +128,28 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      # Explore is a Viewer capability only when this is on, and Chapter 7.1 asks
+      # every learner to open it — verified on 13 August 2026 against this pinned
+      # image: without it the anonymous role holds datasources:query and
+      # datasources:read but not datasources:explore, and /explore silently
+      # redirects to the home dashboard. The page's central instruction was
+      # therefore impossible to follow against the stack the course ships.
+      #
+      # The widening is smaller than it reads. It grants an in-session editing
+      # surface, not persistence: nothing anonymous can save a dashboard, create a
+      # datasource, or reach an admin route, and this stack publishes on loopback
+      # only. Granting the Editor role instead would have bought the same Explore
+      # access plus write permissions nobody here needs.
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
     volumes:
       - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
       - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Mount each dashboard as its own file. Binding the directory read-only and then
+      # binding a file inside it makes runc create a mountpoint under a read-only mount,
+      # which fails the container outright ("read-only file system"). Landing both files
+      # directly in the grafana-data volume keeps each one read-only without that nesting.
+      - ./grafana/dashboards/agentops.json:/var/lib/grafana/dashboards/agentops.json:ro
+      - ../../evals/grafana-dashboard.json:/var/lib/grafana/dashboards/evaluations.json:ro
       - grafana-data:/var/lib/grafana
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -162,13 +165,15 @@ services:
         condition: service_started
       prometheus:
         condition: service_healthy
+      tempo:
+        condition: service_started
 
 volumes:
   alertmanager-data: {}
   grafana-data: {}
   loki-data: {}
-  mlflow-data: {}
   prometheus-data: {}
+  tempo-data: {}
 
 # Share the gateway wrapper's scoped bridge so Prometheus scrapes the gateway
 # container directly. The startup tasks create this external network first.

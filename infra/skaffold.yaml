@@ -4,8 +4,9 @@ metadata:
   name: agentops
 build:
   tagPolicy:
-    gitCommit:
-      variant: AbbrevCommitSha
+    # A dirty development tree must never receive a HEAD-looking image tag.
+    envTemplate:
+      template: "{{.AGENT_IMAGE_TAG}}"
   local:
     push: true
     useBuildkit: true
@@ -13,15 +14,15 @@ build:
     - image: agentops-agent
       context: ../agents
       docker:
-        dockerfile: python/Dockerfile
+        dockerfile: go/Dockerfile
         buildArgs:
+          AGENT_BUILD_MODE: "{{.AGENT_BUILD_MODE}}"
           AGENT_SOURCE_COMMIT: "{{.AGENT_SOURCE_COMMIT}}"
-    - image: agentops-mlflow
-      context: mlflow
-      docker:
-        dockerfile: Dockerfile
-        buildArgs:
-          AGENT_SOURCE_COMMIT: "{{.AGENT_SOURCE_COMMIT}}"
+          AGENT_SOURCE_REVISION: "{{.AGENT_SOURCE_REVISION}}"
+          AGENT_SOURCE_TREE_DIGEST: "{{.AGENT_SOURCE_TREE_DIGEST}}"
+          AGENT_SOURCE_DIRTY: "{{.AGENT_SOURCE_DIRTY}}"
+          OCI_CREATED: "{{.OCI_CREATED}}"
+          OCI_VERSION: "{{.OCI_VERSION}}"
 manifests:
   kustomize:
     paths:

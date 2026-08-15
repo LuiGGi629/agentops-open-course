@@ -24,19 +24,25 @@ jobs:
     runs-on: ubuntu-24.04
     # Guard forks and mirrors: a 60-minute cluster acceptance run only makes
     # sense on the canonical repository. Elsewhere the job is skipped, not failed.
-    if: github.repository == 'MLOps-Courses/agentops-open-course'
+    if: github.repository == 'MLOps-Courses/agentops-open-course-go'
     timeout-minutes: 60
     env:
       BACKUP_EVIDENCE_MARKER: platform-backup-canary
       CURL_IMAGE: curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
       GITHUB_TOKEN: ${{ github.token }}
+      # A log line the agent really emits, rather than one injected through an exec: the
+      # distroless image has no interpreter to inject with, and asserting on the agent's own
+      # startup record proves the slog-to-OTLP bridge is what carries application logs.
+      # `agents/go/a2aserver/serve.go` is its owner.
+      TELEMETRY_LOG_LINE: serving A2A
       # Keep privacy canaries alphabetic: numeric run IDs can look like financial
-      # identifiers to Presidio and turn capture assertions into false positives.
-      TELEMETRY_LOG_MARKER: platform-telemetry-log-canary
+      # identifiers to a PII detector and turn capture assertions into false positives.
       TELEMETRY_SENTINEL: platform-private-content-canary
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Select the pinned tool manager
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
@@ -47,8 +53,30 @@ jobs:
 
       - name: Install only the account-free platform dependencies
         run: |
-          mise install uv k3d kubectl helm helmfile skaffold jq
+          mise install -y --locked go golangci-lint gotestsum dprint k3d kubectl helm helmfile skaffold jq
+          (cd tools && mise run install)
           ./scripts/install-helm-diff.sh
+
+      - name: Resolve the clean candidate build identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          source_identity="$(tools/bin/source-identity --root . --mode release)"
+          revision="$(jq -er .revision <<<"$source_identity")"
+          test "$revision" = "$EXPECTED_SHA"
+          commit_timestamp="$(git show -s --format=%ct HEAD)"
+          [[ "$commit_timestamp" =~ ^[0-9]+$ ]]
+          created="$(date --utc --date="@${commit_timestamp}" +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo "AGENT_BUILD_MODE=release"
+            echo "AGENT_SOURCE_COMMIT=$revision"
+            echo "AGENT_SOURCE_REVISION=$revision"
+            echo "AGENT_IMAGE_TAG=$revision"
+            echo "AGENT_SOURCE_TREE_DIGEST=$(jq -er .tree_digest <<<"$source_identity")"
+            echo "AGENT_SOURCE_DIRTY=false"
+            echo "OCI_CREATED=$created"
+            echo "OCI_VERSION=$(tr -d '\n' < VERSION)"
+          } >> "$GITHUB_ENV"
 
       - name: Verify the cgroup-v2 and container prerequisites
         run: |
@@ -67,15 +95,13 @@ jobs:
             docker network inspect k3d-local \
               --format '{{(index .IPAM.Config 0).Gateway}}'
           )"
-          nohup uv run --script load/fake_model.py --host "${bridge}" \
+          nohup tools/bin/fake-model --host "${bridge}" \
             >"${RUNNER_TEMP}/fake-model.log" 2>&1 &
           echo "$!" >"${RUNNER_TEMP}/fake-model.pid"
           timeout 60 bash -c \
             "until curl -fsS 'http://${bridge}:11434/healthz' >/dev/null; do sleep 1; done"
 
       - name: Build and deploy the local overlay
-        env:
-          AGENT_SOURCE_COMMIT: ${{ github.sha }}
         run: |
           cd infra
           SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 \
@@ -253,13 +279,35 @@ jobs:
           kubectl exec --namespace kagent gateway-allowed-probe -- \
             curl --silent --show-error --connect-timeout 2 --max-time 4 \
             http://agentgateway.agentops.svc.cluster.local:3000/ >/dev/null
+          # The agent image is distroless: no shell, no interpreter, nothing to exec. An
+          # ephemeral debug container joins the *same pod*, so it inherits that pod's network
+          # identity and the NetworkPolicy that selects it — which is exactly what this step
+          # asserts. `--target` also shares the agent's process namespace, used further below.
           agent_pod="$(
             kubectl get pod --namespace agentops \
               --selector app.kubernetes.io/name=agentops-agent \
               --output jsonpath='{.items[0].metadata.name}'
           )"
-          kubectl exec --namespace agentops "${agent_pod}" -- python -c \
-            'import socket; [socket.create_connection(("agentgateway", port), timeout=3).close() for port in (3000, 4000)]'
+          # shellcheck disable=SC2016 # the probe's own `sh` expands these, not this script
+          kubectl debug --namespace agentops "${agent_pod}" \
+            --image "${CURL_IMAGE}" --target agent \
+            --container gateway-egress-probe --attach=false --quiet -- \
+            sh -c 'for port in 3000 4000; do
+                     code="$(curl -s -o /dev/null -w "%{http_code}" \
+                       --connect-timeout 3 --max-time 5 "http://agentgateway:${port}/" || true)"
+                     echo "agentgateway:${port} -> ${code}"
+                     [ "${code}" != "000" ] || exit 1
+                   done'
+          timeout 120 bash -c "
+            until kubectl get pod --namespace agentops '${agent_pod}' -o json |
+              jq -e '.status.ephemeralContainerStatuses[]?
+                     | select(.name == \"gateway-egress-probe\")
+                     | .state.terminated' >/dev/null; do sleep 2; done"
+          kubectl logs --namespace agentops "${agent_pod}" --container gateway-egress-probe
+          kubectl get pod --namespace agentops "${agent_pod}" -o json |
+            jq -e '.status.ephemeralContainerStatuses[]
+                   | select(.name == "gateway-egress-probe")
+                   | .state.terminated.exitCode == 0'
 
       - name: Forward only the tested private services
         run: |
@@ -274,14 +322,14 @@ jobs:
             3000:3000 3001:3001 4000:4000 15020:15020
           forward mcp service/agentops-mcp 8000:8000
           forward a2a service/agentops-agent 8080:8080
-          forward mlflow service/mlflow 5000:5000
+          forward tempo service/tempo 3200:3200
           forward prometheus service/prometheus 9090:9090
           forward loki service/loki 3100:3100
           timeout 90 bash -c \
             'until curl -fsS http://127.0.0.1:3001/healthz >/dev/null &&
               curl -fsS http://127.0.0.1:8000/healthz >/dev/null &&
               curl -fsS http://127.0.0.1:8080/healthz >/dev/null &&
-              curl -fsS http://127.0.0.1:5000/health >/dev/null &&
+              curl -fsS http://127.0.0.1:3200/ready >/dev/null &&
               curl -fsS http://127.0.0.1:9090/-/ready >/dev/null &&
               curl -fsS http://127.0.0.1:3100/ready >/dev/null; do sleep 1; done'
 
@@ -291,64 +339,70 @@ jobs:
           RATE: "2"
           PROMPT: ${{ env.TELEMETRY_SENTINEL }}
         run: |
+          traffic_window_start="$(date +%s)"
+          printf '%s\n' "$((traffic_window_start - 1))" \
+            >"${RUNNER_TEMP}/traffic-window-start"
           mise run load:health
           DURATION=15s RATE=12 mise run load:mcp
           ITERATIONS=1 mise run load:a2a
+          traffic_window_end="$(date +%s)"
+          printf '%s\n' "$((traffic_window_end + 1))" \
+            >"${RUNNER_TEMP}/traffic-window-end"
 
-      - name: Emit one safe application log and verify capture defaults
+      # Read the effective privacy defaults off the running process. The image supplies the
+      # capture defaults, the platform pins the risk gate and sampler, and startup applies the
+      # gate before ADK constructs its provider. An ephemeral container with `--target agent`
+      # shares the process namespace, so it can verify the final /proc/1/environ composition.
+      - name: Verify the telemetry capture defaults on the running agent
         run: |
           agent_pod="$(
             kubectl -n agentops get pods \
               -l app.kubernetes.io/name=agentops-agent \
               -o jsonpath='{.items[0].metadata.name}'
           )"
-          kubectl -n agentops exec "${agent_pod}" -- sh -eu -c \
-            "test \"\${ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS}\" = false
-             test \"\${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT}\" = false"
-          kubectl -n agentops exec "${agent_pod}" -- \
-            python -c \
-            'import logging, sys; from agent.telemetry import setup_telemetry; from opentelemetry import _logs; setup_telemetry(); logging.getLogger("agent.platform").warning(sys.argv[1]); provider = _logs.get_logger_provider(); assert provider.force_flush(timeout_millis=10_000), "OpenTelemetry log flush timed out"' \
-            "${TELEMETRY_LOG_MARKER}"
+          # shellcheck disable=SC2016 # the probe's own `sh` expands these, not this script
+          kubectl debug --namespace agentops "${agent_pod}" \
+            --image "${CURL_IMAGE}" --target agent \
+            --container capture-defaults-probe --attach=false --quiet -- \
+            sh -c 'environ="$(tr "\0" "\n" </proc/1/environ)"
+                   echo "${environ}" | grep -qx "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+                   echo "${environ}" | grep -qx "OTEL_TRACES_SAMPLER=always_off"
+                   echo "${environ}" | grep -qx "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false"'
+          timeout 120 bash -c "
+            until kubectl get pod --namespace agentops '${agent_pod}' -o json |
+              jq -e '.status.ephemeralContainerStatuses[]?
+                     | select(.name == \"capture-defaults-probe\")
+                     | .state.terminated' >/dev/null; do sleep 2; done"
+          kubectl get pod --namespace agentops "${agent_pod}" -o json |
+            jq -e '.status.ephemeralContainerStatuses[]
+                   | select(.name == "capture-defaults-probe")
+                   | .state.terminated.exitCode == 0'
 
-      - name: Prove traces, metrics, and logs contain the expected evidence
+      - name: Prove default agent tracing remains off after traffic
         run: |
-          mlflow_request="$(
-            jq -cn '{
-              locations: [{
-                type: "MLFLOW_EXPERIMENT",
-                mlflow_experiment: {experiment_id: "0"}
-              }],
-              max_results: 100
-            }'
-          )"
-          for _ in {1..60}; do
-            curl -fsS \
-              --header 'Content-Type: application/json' \
-              --data "${mlflow_request}" \
-              http://127.0.0.1:5000/api/3.0/mlflow/traces/search \
-              >"${RUNNER_TEMP}/mlflow-traces.json"
-            jq -e '.traces | length > 0' \
-              "${RUNNER_TEMP}/mlflow-traces.json" >/dev/null && break
+          traffic_window_start="$(<"${RUNNER_TEMP}/traffic-window-start")"
+          traffic_window_end="$(<"${RUNNER_TEMP}/traffic-window-end")"
+          [[ "$traffic_window_start" =~ ^[0-9]+$ ]]
+          [[ "$traffic_window_end" =~ ^[0-9]+$ ]]
+          ((traffic_window_start <= traffic_window_end))
+          # A zero immediately after traffic can race Tempo's block flush. Observe
+          # the closed traffic window for a full minute and fail on any agent span.
+          for _ in {1..30}; do
+            curl -fsS -G http://127.0.0.1:3200/api/search \
+              --data-urlencode 'q={ resource.service.name = "agentops-agent" }' \
+              --data-urlencode 'limit=100' \
+              --data-urlencode "start=${traffic_window_start}" \
+              --data-urlencode "end=${traffic_window_end}" \
+              >"${RUNNER_TEMP}/tempo-traces.json"
+            jq -e '
+              (.traces | type == "array") and
+              (.traces | length == 0)
+            ' "${RUNNER_TEMP}/tempo-traces.json" >/dev/null
             sleep 2
           done
-          jq -e '.traces | length > 0 and any(.state == "OK")' \
-            "${RUNNER_TEMP}/mlflow-traces.json" >/dev/null
-          jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
-            'tostring | contains($sentinel) | not' \
-            "${RUNNER_TEMP}/mlflow-traces.json" >/dev/null
-          trace_id="$(
-            jq -er '.traces | map(select(.state == "OK")) | first | .trace_id' \
-              "${RUNNER_TEMP}/mlflow-traces.json"
-          )"
-          curl -fsS -G http://127.0.0.1:5000/api/3.0/mlflow/traces/get \
-            --data-urlencode "trace_id=${trace_id}" \
-            >"${RUNNER_TEMP}/mlflow-trace.json"
-          jq -e '.trace.spans | length > 0' \
-            "${RUNNER_TEMP}/mlflow-trace.json" >/dev/null
-          jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
-            'tostring | contains($sentinel) | not' \
-            "${RUNNER_TEMP}/mlflow-trace.json" >/dev/null
 
+      - name: Prove metrics and logs contain the expected evidence
+        run: |
           prometheus_dir="${RUNNER_TEMP}/prometheus"
           mkdir -p "$prometheus_dir"
           for metric in \
@@ -377,20 +431,58 @@ jobs:
               --data-urlencode 'since=15m' \
               --data-urlencode 'limit=500' \
               >"${RUNNER_TEMP}/loki.json"
-            jq -e --arg marker "${TELEMETRY_LOG_MARKER}" \
-              '.status == "success" and (tostring | contains($marker))' \
+            jq -e --arg line "${TELEMETRY_LOG_LINE}" \
+              '.status == "success" and (tostring | contains($line))' \
               "${RUNNER_TEMP}/loki.json" >/dev/null && break
             sleep 2
           done
-          jq -e --arg marker "${TELEMETRY_LOG_MARKER}" \
-            '.status == "success" and (tostring | contains($marker))' \
+          jq -e --arg line "${TELEMETRY_LOG_LINE}" \
+            '.status == "success" and (tostring | contains($line))' \
             "${RUNNER_TEMP}/loki.json" >/dev/null
           jq -e --arg sentinel "${TELEMETRY_SENTINEL}" \
             'tostring | contains($sentinel) | not' \
             "${RUNNER_TEMP}/loki.json" >/dev/null
 
       - name: Prove the in-cluster backup restores every persistent evidence type
-        run: ./infra/scripts/platform-backup-drill.sh
+        run: |
+          work_dir="${RUNNER_TEMP}/platform-backup-drill"
+          docker_config="${work_dir}/docker"
+          [[ ! -e "${work_dir}" && ! -L "${work_dir}" ]]
+          umask 077
+          mkdir -m 700 -- "${work_dir}"
+          cleanup_work_dir() {
+            primary_status=$?
+            cleanup_status=0
+            trap - EXIT
+            set +e
+            for artifact in "${work_dir}"/platform-*.json; do
+              [[ -f "${artifact}" && ! -L "${artifact}" ]] || continue
+              cp -- "${artifact}" "${RUNNER_TEMP}/$(basename -- "${artifact}")" || cleanup_status=1
+            done
+            if [[ "${work_dir}" == "${RUNNER_TEMP}/platform-backup-drill" &&
+              -d "${work_dir}" && ! -L "${work_dir}" ]]; then
+              rm -r -- "${work_dir}" || cleanup_status=1
+            else
+              echo "::error::Refusing to clean invalid platform backup work directory ${work_dir}." >&2
+              cleanup_status=1
+            fi
+            if ((primary_status != 0)); then
+              exit "${primary_status}"
+            fi
+            exit "${cleanup_status}"
+          }
+          trap cleanup_work_dir EXIT
+          mkdir -m 700 -- "${docker_config}"
+          printf '%s\n' '{"auths":{}}' >"${docker_config}/config.json"
+          chmod 600 "${docker_config}/config.json"
+          ./infra/scripts/platform-backup-drill.sh \
+            --context k3d-local \
+            --work-dir "${work_dir}" \
+            --source-revision "${AGENT_SOURCE_REVISION}" \
+            --reader-image "${CURL_IMAGE}" \
+            --agent-card-url http://127.0.0.1:8080/.well-known/agent-card.json \
+            --docker-config "${docker_config}" \
+            --evidence-marker "${BACKUP_EVIDENCE_MARKER}"
       - name: Collect sanitized failure diagnostics
         if: failure()
         run: |
@@ -469,9 +561,10 @@ jobs:
           )
           cp "${RUNNER_TEMP}"/*-forward.log "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/fake-model.log "${diagnostics}/" 2>/dev/null || true
-          cp "${RUNNER_TEMP}"/mlflow-*.json "${diagnostics}/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}"/tempo-*.json "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/prometheus.json "${diagnostics}/" 2>/dev/null || true
           cp "${RUNNER_TEMP}"/loki.json "${diagnostics}/" 2>/dev/null || true
+          cp "${RUNNER_TEMP}"/platform-*.json "${diagnostics}/" 2>/dev/null || true
 
       - name: Upload failure diagnostics
         if: failure()
@@ -492,7 +585,7 @@ jobs:
             "${RUNNER_TEMP}/gateway-forward.pid" \
             "${RUNNER_TEMP}/mcp-forward.pid" \
             "${RUNNER_TEMP}/a2a-forward.pid" \
-            "${RUNNER_TEMP}/mlflow-forward.pid" \
+            "${RUNNER_TEMP}/tempo-forward.pid" \
             "${RUNNER_TEMP}/prometheus-forward.pid" \
             "${RUNNER_TEMP}/loki-forward.pid" \
             "${RUNNER_TEMP}/fake-model.pid"; do

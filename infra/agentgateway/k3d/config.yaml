@@ -1,6 +1,18 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/agentgateway/agentgateway/v1.4.1/schema/config.json
 # k3d data plane: MCP :3000, A2A :3001, and OpenAI-compatible LLM :4000.
 config:
+  # Self-hosted Qwen has no per-token provider fee. Zero rates let the gateway
+  # attribute tokens and provider cost without claiming electricity, hardware,
+  # labor, or an authoritative bill.
+  modelCatalog:
+    - inline:
+        providers:
+          openai:
+            models:
+              qwen3:4b-instruct:
+                rates:
+                  input: "0"
+                  output: "0"
   logging:
     format: json
   # Pod-local readiness endpoint (/healthz/ready) on :15021, the same address
@@ -12,98 +24,151 @@ config:
     otlpEndpoint: http://otel-collector.agentops.svc.cluster.local:4317
     randomSampling: true
 
-binds:
-  - port: 3000
-    listeners:
-      - name: mcp
+gateways:
+  mcp:
+    port: 3000
+  a2a:
+    port: 3001
+  llm:
+    port: 4000
+
+routes:
+  - name: mcp
+    gateways: [mcp]
+    policies:
+      retry:
+        attempts: 2
+        backoff: 100ms
+        codes: [502, 503, 504]
+      timeout:
+        requestTimeout: 5s
+        backendRequestTimeout: 2s
+      localRateLimit:
+        - maxTokens: 120
+          tokensPerFill: 120
+          fillInterval: 60s
+      mcpAuthorization:
+        rules:
+          - 'mcp.tool.name == "list_incidents"'
+          - 'mcp.tool.name == "get_incident"'
+          - 'mcp.tool.name == "get_service_status"'
+          - 'mcp.tool.name == "search_service_logs"'
+          - 'mcp.tool.name == "get_runbook"'
+          - 'mcp.tool.name == "search_runbooks"'
+    backends:
+      - mcp:
+          failureMode: failClosed
+          targets:
+            - name: agentops-agent
+              mcp:
+                host: http://agentops-mcp.agentops.svc.cluster.local:8000/mcp
+
+  - name: a2a
+    gateways: [a2a]
+    policies:
+      a2a: {}
+      cors:
+        allowOrigins:
+          - "http://localhost:8001"
+        allowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        allowHeaders:
+          - content-type
+      localRateLimit:
+        - maxTokens: 60
+          tokensPerFill: 60
+          fillInterval: 60s
+    backends:
+      - host: agentops-agent.agentops.svc.cluster.local:8080
+
+  - name: llm
+    gateways: [llm]
+    policies:
+      # Caller authentication: enforce the marker that the in-cluster agent and
+      # kagent send as OPENAI_API_KEY from the agentgateway-client secret. The
+      # public course value is a demo credential; rotate both uses in reality.
+      apiKey:
+        mode: strict
+        keys:
+          - key: agentgateway
+            metadata:
+              client: agentops-course
+      # Requests bound how often a caller may ask; tokens bound how much it
+      # may spend. Both buckets are per gateway instance, so a second replica
+      # doubles both allowances (7.3b).
+      localRateLimit:
+        - maxTokens: 30
+          tokensPerFill: 30
+          fillInterval: 60s
+        - maxTokens: 100000
+          tokensPerFill: 100000
+          fillInterval: 60s
+          type: tokens
+      ai:
+        # The client route type is what agentgateway parses the body with. Without this
+        # override it assumes chat-completions and rejects a Responses request as
+        # "missing field `messages`" — and the response guard below would then be
+        # inspecting a shape that never arrives. The agent speaks only /v1/responses
+        # (ADK Go's openaimodel has no chat-completions code path).
         routes:
-          - policies:
-              localRateLimit:
-                - maxTokens: 120
-                  tokensPerFill: 120
-                  fillInterval: 60s
-              mcpAuthorization:
+          /v1/responses: responses
+        promptGuard:
+          request:
+            # Reserved smoke canary preserves the 400/502 rejection evidence;
+            # ordinary email continues to the central mask rule below.
+            - regex:
+                action: reject
                 rules:
-                  - 'mcp.tool.name == "list_incidents"'
-                  - 'mcp.tool.name == "get_incident"'
-                  - 'mcp.tool.name == "get_service_status"'
-                  - 'mcp.tool.name == "search_service_logs"'
-                  - 'mcp.tool.name == "get_runbook"'
-                  - 'mcp.tool.name == "search_runbooks"'
-            backends:
-              - mcp:
-                  failureMode: failClosed
-                  targets:
-                    - name: agentops-agent
-                      mcp:
-                        host: http://agentops-mcp.agentops.svc.cluster.local:8000/mcp
-
-  - port: 3001
-    listeners:
-      - name: a2a
-        routes:
-          - policies:
-              a2a: {}
-              cors:
-                allowOrigins:
-                  - "http://localhost:8001"
-                allowMethods:
-                  - GET
-                  - POST
-                  - OPTIONS
-                allowHeaders:
-                  - content-type
-              localRateLimit:
-                - maxTokens: 60
-                  tokensPerFill: 60
-                  fillInterval: 60s
-            backends:
-              - host: agentops-agent.agentops.svc.cluster.local:8080
-
-  - port: 4000
-    listeners:
-      - name: llm
-        routes:
-          - policies:
-              # Caller authentication: enforce the marker that the in-cluster
-              # agent and kagent already send as OPENAI_API_KEY from the
-              # agentgateway-client secret. The value is public in this
-              # repository, so it is a demo credential — rotate the secret and
-              # this list together in a real deployment.
-              apiKey:
-                mode: strict
-                keys:
-                  - key: agentgateway
-                    metadata:
-                      client: agentops-course
-              localRateLimit:
-                - maxTokens: 30
-                  tokensPerFill: 30
-                  fillInterval: 60s
-              ai:
-                promptGuard:
-                  request:
-                    - regex:
-                        action: reject
-                        rules:
-                          - builtin: email
-                          - pattern: "(?i)(ignore|override).{0,40}(instructions|system prompt)"
-                      rejection:
-                        status: 400
-                        body: Request rejected by the course prompt guard.
-                  response:
-                    - regex:
-                        action: reject
-                        rules:
-                          - builtin: email
-                      rejection:
-                        status: 502
-                        body: Model response rejected by the course data-loss guard.
-            backends:
-              - ai:
-                  name: ollama
-                  hostOverride: host.k3d.internal:11434
-                  pathOverride: /v1/chat/completions
-                  provider:
-                    openAI:
-                      model: qwen3:4b-instruct
+                  - pattern: "(?i)reject-probe@example\\.invalid"
+              rejection:
+                status: 400
+                body: Request rejected by the course prompt guard.
+            - regex:
+                action: reject
+                rules:
+                  - pattern: "(?i)(ignore|override).{0,40}(instructions|system prompt)"
+              rejection:
+                status: 400
+                body: Request rejected by the course prompt guard.
+            - regex:
+                action: mask
+                rules:
+                  - builtin: ssn
+                  - builtin: creditCard
+                  - builtin: phoneNumber
+                  - builtin: email
+                  - builtin: caSin
+            - webhook:
+                target:
+                  host: agentops-agent.agentops.svc.cluster.local:8080
+                failureMode: failClosed
+          response:
+            - regex:
+                action: reject
+                rules:
+                  - pattern: "(?i)reject-probe@example\\.invalid"
+              rejection:
+                status: 502
+                body: Model response rejected by the course data-loss guard.
+            - regex:
+                action: mask
+                rules:
+                  - builtin: ssn
+                  - builtin: creditCard
+                  - builtin: phoneNumber
+                  - builtin: email
+                  - builtin: caSin
+            - webhook:
+                target:
+                  host: agentops-agent.agentops.svc.cluster.local:8080
+                failureMode: failClosed
+    backends:
+      - ai:
+          name: ollama
+          hostOverride: host.k3d.internal:11434
+          pathOverride: /v1/responses
+          provider:
+            openAI:
+              model: qwen3:4b-instruct

@@ -1,6 +1,6 @@
 # Infrastructure
 
-The same container images run on a local k3d cluster and a small GKE Standard cluster. The software data plane is OSS: Google ADK, agentgateway, kagent, MLflow, OpenTelemetry, Prometheus, and Grafana. GKE, Vertex AI, Artifact Registry, and GCS are optional managed Google Cloud services, not OSS.
+The same container images run on a local k3d cluster and a small GKE Standard cluster. The software data plane is OSS: Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, and Grafana. GKE, Vertex AI, and Artifact Registry are optional managed Google Cloud services, not OSS.
 
 ## Layout
 
@@ -9,7 +9,6 @@ The same container images run on a local k3d cluster and a small GKE Standard cl
 - `k8s/base` and `k8s/overlays/{local,gke}` are the Kustomize deployment.
 - `k8s/base/secrets/` holds SOPS-encrypted Secret manifests (age recipient in the root `.sops.yaml`). `scripts/secrets.sh` generates the gitignored age key under `infra/secrets/`, then encrypts, decrypts, or edits manifests; deploy one with `scripts/secrets.sh decrypt <file> | kubectl apply -f -`. Encrypted files stay out of the Kustomize overlays so rendering never needs the private key.
 - `kagent` contains the BYO `Agent`, gateway `ModelConfig`, MCP registration, and a slim stable-chart values file.
-- `mlflow` builds a locked MLflow 3.15 image that runs as UID 10002.
 - `observability` is the loopback-only host stack for running the agent outside Kubernetes.
 - `gcp` is an OpenTofu module. It never runs kubectl or gcloud provisioners.
 
@@ -68,7 +67,7 @@ kubectl -n agentops port-forward svc/agentgateway 3000:3000 3001:3001 4000:4000 
 ```
 
 ```bash
-kubectl -n agentops port-forward svc/mlflow 5000:5000
+kubectl -n agentops port-forward svc/tempo 3200:3200
 ```
 
 The local overlay keeps `AGENT_MODEL_PROVIDER=openai-compatible` and sends the agent through agentgateway to `qwen3:4b-instruct`; it does not need an upstream provider key. `OPENAI_API_KEY=agentgateway` is a non-secret marker that the Kubernetes gateway model listener enforces as a demo API key. The direct `agentops-mcp:8000` Service is reachable only behind the gateway.
@@ -77,13 +76,13 @@ The agent and MCP server share one RWO `agentops-agent-state` claim so SQLite re
 
 ## Host observability
 
-Use the Compose stack when running the agent directly on the host, not at the same time as the in-cluster MLflow/collector on the same ports:
+Use the Compose stack when running the agent directly on the host, not at the same time as the in-cluster Tempo/collector on the same ports:
 
 ```bash
 mise run observability:up
 ```
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`. MLflow is at <http://127.0.0.1:5000>, the provisioned Grafana dashboard at <http://127.0.0.1:3002/d/agentops-overview>, Prometheus at <http://127.0.0.1:9090>, and Alertmanager at <http://127.0.0.1:9093>. See `observability/README.md` for gateway metrics and the shipped alert rules. In the local Kubernetes overlay, the same rules run in an in-cluster Prometheus/Alertmanager pair reachable via `kubectl -n agentops port-forward`.
+Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`. Traces are read in Grafana through its Tempo datasource (raw API at <http://127.0.0.1:3200>), the provisioned Grafana dashboard is at <http://127.0.0.1:3002/d/agentops-overview>, Prometheus at <http://127.0.0.1:9090>, and Alertmanager at <http://127.0.0.1:9093>. See `observability/README.md` for gateway metrics and the shipped alert rules. In the local Kubernetes overlay, the same rules run in an in-cluster Prometheus/Alertmanager pair reachable via `kubectl -n agentops port-forward`.
 
 ## GKE
 
@@ -103,7 +102,7 @@ cd ../..
 mise run gke:deploy
 ```
 
-The task verifies the exact GKE context before it installs kagent, builds and pushes images, resolves the project-neutral manifest from OpenTofu outputs, validates it, and applies it. GKE agentgateway obtains a Vertex access token from ambient Workload Identity; MLflow uses its own identity for GCS. Neither workload has a static cloud key.
+The task verifies the exact GKE context before it installs kagent, builds and pushes images, resolves the project-neutral manifest from OpenTofu outputs, validates it, and applies it. GKE agentgateway obtains a Vertex access token from ambient Workload Identity; it is the only workload with a Google identity, and it holds no static cloud key.
 
 Prove the compatibility-pinned Vertex function-call loop and one read-only A2A retrieval. This invokes the billed model and belongs only inside an explicitly approved lab:
 

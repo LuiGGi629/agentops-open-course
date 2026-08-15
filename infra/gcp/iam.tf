@@ -14,14 +14,6 @@ resource "google_service_account" "agentgateway" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_service_account" "mlflow" {
-  project      = var.project_id
-  account_id   = "mlflow"
-  display_name = "AgentOps MLflow"
-
-  depends_on = [google_project_service.required]
-}
-
 resource "google_project_iam_member" "nodes_default" {
   project = var.project_id
   role    = "roles/container.defaultNodeServiceAccount"
@@ -46,25 +38,10 @@ resource "google_project_iam_member" "agentgateway_service_usage" {
   member  = "serviceAccount:${google_service_account.agentgateway.email}"
 }
 
-resource "google_storage_bucket_iam_member" "mlflow_objects" {
-  bucket = google_storage_bucket.mlflow.name
-  role   = "roles/storage.objectUser"
-  member = "serviceAccount:${google_service_account.mlflow.email}"
-}
-
 resource "google_service_account_iam_member" "agentgateway_workload_identity" {
   service_account_id = google_service_account.agentgateway.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "serviceAccount:${var.project_id}.svc.id.goog[agentops/agentgateway]"
-
-  # The workload pool becomes bindable only after GKE finishes creating it.
-  depends_on = [google_container_cluster.agentops]
-}
-
-resource "google_service_account_iam_member" "mlflow_workload_identity" {
-  service_account_id = google_service_account.mlflow.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[agentops/mlflow]"
 
   # The workload pool becomes bindable only after GKE finishes creating it.
   depends_on = [google_container_cluster.agentops]

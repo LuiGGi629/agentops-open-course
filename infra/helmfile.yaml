@@ -1,5 +1,15 @@
 # kagent's stable chart. The values disable its demo fleet and optional MCP servers.
 # kagent-chart-version: 0.9.12
+#
+# v0.10.0 was checked against the project's GitHub releases on 13 August 2026 and was
+# still at rc2 (beta11 on 27 July, rc1 on 29 July, rc2 on 11 August); no GA tag exists.
+# The pin stays on the newest stable release rather than following a candidate, because
+# a course that teaches digest pinning cannot itself ship a release candidate.
+#
+# Re-check at GA, and read that release's own notes rather than any summary of them:
+# the rc2 notes name backported fixes only, so what v0.10.0 finally changes about the
+# Agent spec or about token exchange is not settled yet, and taking it is a coordinated
+# change that may touch Chapter 6 prose as well as this file.
 # --8<-- [start:kagent-crds-release]
 helmDefaults:
   wait: true

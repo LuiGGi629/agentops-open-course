@@ -25,6 +25,10 @@
     .msg { border-radius: .6rem; padding: .5rem .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
     .user { background: color-mix(in srgb, currentColor 12%, transparent); align-self: flex-end; max-width: 85%; }
     .agent { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); align-self: flex-start; max-width: 85%; }
+    /* A dashed border marks text the whole-message redaction has not seen yet.
+       The system note below the bubble carries the same meaning in words, so
+       the distinction never rests on the border alone. */
+    .agent.streaming, .agent.provisional { border-style: dashed; }
     .system { font-size: .8rem; opacity: .8; align-self: center; }
     .error { color: #b3261e; align-self: center; font-size: .85rem; }
     .tool { font-family: monospace; font-size: .8rem; opacity: .85; align-self: flex-start; }
@@ -80,6 +84,9 @@
       activeTaskId: null,
       lastAgentText: "",
       lastTaskState: null,
+      // The bubble the model's chunks are being painted into, or null when no
+      // chunk has arrived. One live bubble at a time: a turn has one answer.
+      stream: null,
     };
     const $ = (id) => document.getElementById(id);
 
@@ -106,6 +113,54 @@
       state.activeTaskId = terminal ? null : taskId;
       state.taskId = taskState === "input-required" || taskState === "auth-required" ? taskId : null;
       $("task-cancel").disabled = !state.activeTaskId;
+      if (terminal) abandonStream();
+    }
+
+    // ------------------- Streamed chunks vs the whole answer ----------------
+    // With AGENT_A2A_STREAMING on, the server emits one artifact update per
+    // model chunk before the finished message. Each chunk was redacted on its
+    // own; only the final, non-partial artifact was redacted as a whole. So
+    // chunks paint a provisional bubble that the final answer overwrites in
+    // place — which is exactly where you can watch a mask arrive late.
+    function appendChunk(text) {
+      if (!state.stream) {
+        const bubble = addBubble("agent streaming", "");
+        bubble.setAttribute("aria-busy", "true");
+        state.stream = { bubble, text: "" };
+      }
+      state.stream.text += text;
+      state.stream.bubble.textContent = state.stream.text;
+      state.stream.bubble.scrollIntoView({ block: "end" });
+    }
+
+    // settleStream replaces the provisional text with the whole-message answer
+    // and reports whether there was a live bubble to replace.
+    function settleStream(text) {
+      if (!state.stream) return false;
+      state.stream.bubble.textContent = text;
+      state.stream.bubble.classList.remove("streaming");
+      state.stream.bubble.removeAttribute("aria-busy");
+      state.stream = null;
+      state.lastAgentText = text; // the completed status repeats this text
+      return true;
+    }
+
+    // abandonStream is the canceled or failed ending: chunks are on screen that
+    // no whole-message redaction ever replaced. Say so instead of letting
+    // provisional output read as a finished answer.
+    function abandonStream() {
+      if (!state.stream) return;
+      state.stream.bubble.classList.replace("streaming", "provisional");
+      state.stream.bubble.removeAttribute("aria-busy");
+      state.stream = null;
+      addBubble("system", "The turn ended before the whole answer arrived. The text above is provisional: only the chunks were checked, never the finished message.");
+    }
+
+    // dropStream discards a provisional bubble that a non-text answer replaces.
+    function dropStream() {
+      if (!state.stream) return;
+      state.stream.bubble.remove();
+      state.stream = null;
     }
 
     // --------------------- 1. Agent card discovery ------------------------
@@ -152,6 +207,7 @@
       if (state.taskId) message.taskId = state.taskId; // resume the paused task
       state.lastAgentText = ""; // new turn: reset the duplicate-artifact filter
       state.lastTaskState = null;
+      dropStream(); // a new turn never continues the previous turn's chunks
       setComposerEnabled(false);
       try {
         if (state.streaming) {
@@ -231,10 +287,29 @@
         if (result.status.message) renderParts(result.status.message.parts, result.status.state, result.taskId);
         rememberTask(result.status.state, result.taskId);
       } else if (result.kind === "artifact-update") {
-        renderParts(result.artifact.parts);
+        renderArtifact(result);
       } else if (result.kind === "message") {
         renderParts(result.parts);
       }
+    }
+
+    // An artifact update says which flavour it is in its own metadata:
+    //   adk_partial true  — one model chunk, provisional.
+    //   adk_partial false — the finished answer, redacted as a whole.
+    // The last partial update of a streamed turn carries an empty data part:
+    // that is ADK resetting its ephemeral artifact, not text to render.
+    function renderArtifact(event) {
+      const parts = (event.artifact && event.artifact.parts) || [];
+      const meta = event.metadata || {};
+      if (meta.adk_partial) {
+        for (const part of parts) {
+          if (part.kind === "text" && part.text) appendChunk(part.text);
+        }
+        return;
+      }
+      if (parts.length === 1 && parts[0].kind === "text" && settleStream(parts[0].text)) return;
+      dropStream();
+      renderParts(parts);
     }
 
     function renderParts(parts, taskState, taskId) {
@@ -345,8 +420,11 @@
         if (!response.ok) throw new Error("HTTP " + response.status);
         const rpc = await response.json();
         if (rpc.error) throw new Error(`A2A error ${rpc.error.code}: ${rpc.error.message}`);
-        rememberTask(rpc.result.status.state, rpc.result.id);
+        // This RPC is what stops the turn. The open SSE connection then ends on
+        // its own with the same terminal state; closing this page would not,
+        // because the task belongs to the server, not to the connection.
         showState(rpc.result.status.state);
+        rememberTask(rpc.result.status.state, rpc.result.id);
       } catch (error) {
         addBubble("error", `Could not cancel the active task: ${error}`);
         $("task-cancel").disabled = !state.activeTaskId;

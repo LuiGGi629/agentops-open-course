@@ -4,79 +4,222 @@ Guidance for coding agents working in the AgentOps Open Course. Humans should st
 
 ## Repository purpose
 
-The course teaches the complete lifecycle of one **AgentOps Agent** with Google ADK, agentgateway, kagent, MLflow, and OpenTelemetry. `main` is a completed, executable reference that learners inspect and extend; it must not drift into a collection of illustrative snippets. Chapter 8.7 turns that reference into a capstone contract for a learner-owned domain.
+The course teaches the complete lifecycle of one Go AgentOps Agent with Google ADK, agentgateway, kagent, and OpenTelemetry into Tempo, Loki, Prometheus, Alertmanager, and Grafana. `main` is a completed executable reference learners inspect and extend, not a collection of illustrative snippets.
 
-- `docs/` contains FAQ-based course pages published by Zensical.
-- `agents/python/` is the locked Python reference agent, offline tests, and model-backed evaluations.
-- `agents/data/` is immutable seed input: SQLite, logs, runbooks, and the agent's runtime Agent Skills.
-- `skills/` holds installable, portable Agent Skills (`npx skills add …`) that distil the course's patterns for reuse in other projects — distinct from the runtime skills under `agents/data/skills`. `scripts/check_conventions.py skills` (via `mise run check:skills`) validates them.
-- `clients/web/` is a minimal, offline, dependency-free A2A web client for the AgentOps Agent.
-- `load/` holds k6 load tests and the documented latency budgets for the platform.
-- `infra/agentgateway/{host,k3d,gke}/` contains the three data-plane profiles.
-- `infra/k8s/base` plus `infra/k8s/overlays/{local,gke}` contains the shared Kubernetes deployment.
-- `infra/kagent/` declares the BYO Agent, gateway ModelConfig, and governed RemoteMCPServer.
-- `infra/mlflow/` builds the locked non-root MLflow server.
-- `infra/observability/` contains host Compose and in-cluster OTel/Prometheus/Grafana resources.
-- `infra/gcp/` is a plan-first OpenTofu module for the optional GKE lab.
+- `agents/go/` is the Go reference agent, offline tests, state commands, protocol servers, and distroless image.
+- `agents/data/` is immutable seed input: SQLite, logs, runbooks, and runtime Agent Skills.
+- `evals/` is a standalone black-box Go evaluation module. It must not require or import the agent module.
+- `tools/` is a standalone Go module for repository conventions, accessibility, release evidence, and local support commands.
+- `content/` contains 84 Hugo pages: 74 course pages, nine chapter indexes, and the landing page.
+- `layouts/`, `assets/`, `data/nav.yaml`, and `hugo.toml` own the Hextra site build and explicit learning path.
+- `skills/` contains portable Agent Skills distilled from the course, distinct from runtime skills under `agents/data/skills`.
+- `clients/web/` is a minimal dependency-free A2A client.
+- `load/` contains k6 load tests and documented latency budgets.
+- `infra/agentgateway/{host,k3d,gke}/` contains data-plane profiles.
+- `infra/k8s/base` and `infra/k8s/overlays/{local,gke}` contain shared deployment resources.
+- `infra/kagent/` declares the BYO Agent, ModelConfig, and governed RemoteMCPServer.
+- `infra/observability/` contains host and in-cluster OpenTelemetry backends.
+- `infra/gcp/` is a plan-first OpenTofu module for the optional GKE laboratory.
+
+The root `go.mod` exists only for the Hextra Hugo Module. Never add agent, evaluator, or repository-tool dependencies to it.
 
 ## Course invariants
 
-- **Docs mirror source.** Critical Python excerpts use checked `pymdownx.snippets` regions from `agents/python`; commands/manifests match `infra`. Prefer a short exact excerpt plus a source link over a second pseudo-implementation.
-- **Every course page is an FAQ.** It starts with YAML `description` front matter, contains at least one H2, and every H2 ends in `?`. `scripts/check_conventions.py` enforces this and the page frame below.
-- **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/python/.state`; Kubernetes agent/MCP processes share `agentops-agent-state` so reads remain coherent with approved writes. Only the A2A startup and direct write boundary may prepare or migrate runtime state; probes and read tools stay read-only.
-- **Restore is crash-recoverable, not an instantaneous multi-file rename.** Stop every writer first. `agent.state` serializes backup/restore with a process lock and fsyncs a three-phase journal; A2A startup recovers an interrupted transaction before schema preflight or publication. Never bypass that boundary with direct file copies or delete unexplained `.restore-*` evidence.
-- **Reads and writes have different authority.** The conversational entrypoint alone switches its six read/runbook tools from direct local calls to MCP through `AGENT_MCP_URL`; workflow and coordinator specialists always bind local tools. The MCP toolset passes `tool_filter=MCP_READ_TOOL_NAMES` (`mcp_client.py`), so a server cannot widen the surface by advertising more tools. `restart_service` and `resolve_incident` remain in-process, require ADK confirmation, validate targets, and append audit evidence in the same transaction. Replays with the same invocation, action, and target return the original audit row without mutating state again.
-- **Policy is attached once, at the app boundary.** `src/agent/governance.py` holds `AgentOpsPolicyPlugin`, an ADK `BasePlugin` registered on the `App` that `composition.py` exports as `app` (also re-exported by `src/agent/__init__.py`, which ADK discovery prefers over a bare `root_agent`). Its hooks fire for every agent, sub-agent, and workflow node, so adding an agent cannot lose the policy. Two properties are load-bearing: the before-model order is budget → compaction → redaction, and the first non-`None` return short-circuits the rest. Never reintroduce a per-agent callback list — that is what let nine copies of the same six callbacks accumulate. ADK 2.6's stock evaluator rebuilds a bare-agent runner, so ADK evals must enter through `evals/governed_adk_eval.py`, while MLflow must use `InMemoryRunner(app=build_app(...))`.
-- **Skills and retrieved data have different trust.** The carve-out is keyed on the ADK `LoadSkillTool` **type**, which only the locally built `skill_toolset()` constructs — not on the tool's name, which any MCP server could claim. That result is reviewed repository instruction, so it bypasses injection neutralization and spotlighting while retaining recursive PII/credential redaction. Every other tool result stays data-hardened by default.
-- **Audit is append-only, not immutable.** Every row carries its audit schema version. SQLite triggers block row update/delete through the schema; administrators can still alter the file/schema. Do not overclaim.
-- **Telemetry content stays private by default.** Both ADK/GenAI content-capture variables default to literal `false`. PII callbacks cover outbound model requests, inbound model responses, and tool output, but raw session ingestion occurs earlier.
-- **No LiteLLM or garak contract.** Runtime/evaluation uses ADK's OpenAI-compatible client for Ollama/agentgateway or native Gemini when selected explicitly. `mise run redteam` is deterministic offline adversarial regression, not live-model penetration testing.
-- **Planning is bounded.** `root_agent` plans only multi-step investigations and verifies approved actions afterward. `triage_workflow` is the runnable, read-only plan → investigate → evidence review → recommend path; do not replace it with an unbounded reflection loop.
-- **Cost-efficient by default.** Prefer deterministic offline tests and fakes, the smallest model that can validate the behavior, and single-replica resource-bounded local services. Measure before increasing model size, context, RAM, CPU, storage, replicas, or load-test concurrency. Do not start a cluster, observability stack, model server, paid API, or cloud resource unless it materially validates the current boundary; stop temporary processes and tear down disposable resources when the check is complete.
+- **Docs mirror source.** Critical excerpts use `{{< include >}}` over exact named `--8<-- [start:name]` and end regions. Missing files, missing or duplicate regions, and empty excerpts fail the Hugo build.
+- **Seed and state stay separate.** `agents/data/incidents.db` is never mutated. Host writes go to `agents/go/.state`; Kubernetes writers share `agentops-agent-state`.
+- **Only write-owning boundaries prepare state.** A2A startup and direct state commands may copy or migrate runtime state. Probes and read tools remain read-only.
+- **Restore is crash-recoverable.** Stop every writer first. State restore holds a process lock, fsyncs a three-phase journal, and recovers interrupted transactions before schema preflight or publication. Never bypass it with file copies or delete unexplained `.restore-*` evidence.
+- **Reads and writes have different authority.** Only the conversational entrypoint can move its six read/runbook tools from local calls to MCP through `AGENT_MCP_URL`. Workflow and coordinator specialists keep local tools. Guarded writes remain in process.
+- **MCP cannot widen the surface.** The client filters the server catalog through `MCPReadToolNames`; an advertised extra tool never joins the model request.
+- **Writes require confirmation and attribution.** `restart_service` and `resolve_incident` require ADK confirmation, valid targets, approver/session/invocation identity, and a bounded redacted rationale. Mutation and audit insert share one transaction.
+- **Action replay is idempotent.** The same invocation, action, and target returns the original audit result without another mutation.
+- **Policy is attached once.** One ADK plugin at the app boundary covers every agent, sub-agent, workflow node, and coordinator specialist.
+- **Guard order is load-bearing.** Before-model order is budget, compaction, redaction. The first non-nil callback result short-circuits later guards. After-model usage accounting runs before response redaction.
+- **PII has two layers.** In-process deterministic Go redaction is always on. agentgateway adds central builtin masking and a private Go webhook that asks local Ollama for person, location, and organization spans. The webhook validates exact byte spans and fails closed.
+- **Layer 1 remains necessary.** A gateway cannot see direct model calls, local logs, saved notes, audit writes, or pre-gateway chapters. It also cannot replace checksum-backed validation and credential tripwires.
+- **Skills and retrieved data have different trust.** Only the locally constructed concrete skill loader can mark repository-reviewed instruction as trusted. Tool name strings cannot grant that status. Secret and PII redaction still applies.
+- **Audit is append-only, not immutable.** SQLite triggers block ordinary update and delete, and every row carries its schema version. An administrator with file or schema authority can still alter it.
+- **Telemetry content stays private by default.** ADK and GenAI content-capture settings default to literal `false`. Redaction covers model and tool boundaries, but raw session ingestion happens earlier.
+- **Collection and evaluation are separate.** Runtime OTLP flows through the collector. `evals` exports only when `EVAL_OTEL_EXPORTER_OTLP_ENDPOINT` is set explicitly and forces child-agent export off.
+- **Evaluation is black-box.** ADK REST and A2A events fold into one typed turn. Streaming partials never contribute duplicate usage. Expected domain values come from immutable seed data.
+- **Evaluation evidence is sanitized.** Release artifacts and OTel attributes exclude prompts, answers, references, tool payloads, rationales, URLs, credentials, and provider errors.
+- **Build identity has one authority.** Linker-owned mode, version, source identity, revision, tree digest, timestamp, and dirty state feed CLI output, AgentCard version, OTel resources, OCI labels, and backup manifests. Runtime environment variables cannot relabel a binary.
+- **Dirty work never claims `HEAD`.** Release-bearing source resolution rejects tracked or untracked changes. Development may use `unknown+dirty.<digest>`, with revision empty and the deterministic tree digest recorded separately.
+- **Planning is bounded.** The root agent plans multi-step investigations and verifies approved actions. The workflow is plan, investigate, evidence review, recommend; never introduce an unbounded reflection loop.
+- **Cost-efficient by default.** Prefer deterministic offline tests, fakes, and the smallest model that materially proves the boundary. Do not start clusters, collectors, model servers, paid APIs, or cloud resources for an offline claim.
+- **Go coverage has a floor.** `mise run test` fails when any package in `agents/go` or `evals` drops below 80% line coverage; `scripts/check-coverage.sh` measures it per package, because a repository total hides exactly the package worth worrying about. `cmd/` packages are excluded by kind — they are `package main` wiring exercised through subprocess tests. `tools/` is maintainer scaffolding and sits outside the floor; its two largest packages are verified by execution rather than unit tests, and the same script reports its real numbers on demand.
 
 ## Open-source boundary
 
-The required software path is OSS: ADK, agentgateway, kagent, MLflow, OpenTelemetry, Prometheus, Grafana, Ollama, the Apache-2.0 open-weight Qwen3 model, and repository code. It requires no account, no mandatory SaaS, and no usage fee. Gemini, Vertex AI, GKE, GCS, Artifact Registry, and GitHub hosting are optional proprietary services. Never blur that distinction or call an optional cloud environment fully OSS.
+The required path uses Google ADK for Go, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Alertmanager, Grafana, Ollama, the Apache-2.0 Qwen3 open-weight model, and repository code. It requires no account, mandatory SaaS, or usage fee.
 
-Local Qwen3/Ollama is the default model path from the first Chapter 2 interaction. `AGENT_MODEL_PROVIDER=openai-compatible`, `AGENT_MODEL=qwen3:4b-instruct`, `OPENAI_BASE_URL=http://127.0.0.1:11434/v1`, and the non-secret `local-ollama` marker are the stable defaults. Chapter 5 changes only `OPENAI_BASE_URL` to the agentgateway listener. Native Gemini and the GKE/Vertex path are optional comparisons; the GKE overlay uses Workload Identity Federation and mounts no cloud key.
+Gemini, Vertex AI, GKE, GCS, Artifact Registry, and hosted repository services are optional proprietary substrates. Never call the optional cloud environment fully open source.
 
-The optional GKE path compatibility-pins `gemini-3.5-flash`. Do not move that pin because a newer model exists: the pinned agentgateway release's Vertex conversion adds a blank text part beside a function response, which Gemini 3.6 rejects. A replacement model and stable gateway pair is supported only after `mise run gke:smoke` completes both its synthetic tool-result turn and its stable-seed, read-only A2A retrieval.
+Local Qwen3 through Ollama is the stable default:
+
+```text
+AGENT_MODEL_PROVIDER=openai-compatible
+AGENT_MODEL=qwen3:4b-instruct
+OPENAI_BASE_URL=http://127.0.0.1:11434/v1
+OPENAI_API_KEY=local-ollama
+```
+
+Chapter 5 changes only `OPENAI_BASE_URL` to the agentgateway listener. Native Gemini and GKE/Vertex are comparisons.
+
+The optional GKE path keeps its compatibility-pinned model until `mise run gke:smoke` passes both synthetic tool-result and stable-seed read-only A2A retrieval against a replacement gateway/model pair.
 
 ## Pinned contracts
 
-`SUPPORT.md` defines which surfaces are stable, plus compatibility, deprecation, supported platforms, upgrade, rollback, and explicit non-goals. Course prose is deliberately not frozen; the software contracts are.
+Use locks and manifests as authority, never a number copied into prose:
 
-Use the repository files and locks as version authority — never a number copied into prose. The authoritative pin for each component lives in:
+- Agent dependencies: `agents/go/go.mod` and `agents/go/go.sum`.
+- Evaluation dependencies: `evals/go.mod` and `evals/go.sum`.
+- Repository-tool dependencies: `tools/go.mod` and `tools/go.sum`.
+- Go and cross-repository CLI tools: root `mise.toml` and `mise.lock`.
+- Agent build stage: `agents/go/Dockerfile`; its Go version must match every Go module and root mise.
+- Hextra: root `go.mod` and `go.sum`; Hugo: root `mise.toml`.
+- Self-hosted Mermaid and FlexSearch bundles: `assets/js/vendor/versions.json`.
+- kagent charts: `infra/helmfile.yaml`; API resources use the pinned version declared there.
+- Container images: digest-pinned at their use sites under `infra/` and the agent Dockerfile.
+- Workflow-only Buildx: explicit version inputs in the release workflow.
+- Evaluation inputs: three `evals/*.evalset.json` files and `judge-calibration.json`; the run thresholds are the `eval` task command line in `evals/mise.toml`.
 
-- Google ADK, MLflow, and every Python dependency: `agents/python/pyproject.toml` for the range, `uv.lock` for the exact resolution. The MLflow server image has its own `infra/mlflow/pyproject.toml`.
-- Zensical and the documentation toolchain: root `pyproject.toml` and `uv.lock`.
-- CLI tools (agentgateway, k3d, kubectl, helm, helmfile, skaffold, k6, gcloud, …): `mise.toml` `[tools]`, with checksums and provenance in `mise.lock`.
-- Workflow-only Docker Buildx: the explicit `version` inputs in `.github/workflows/release.yml`.
-- kagent Helm charts: `infra/helmfile.yaml`. API resources are `v1alpha2`.
-- Container images (agentgateway, OpenTelemetry Collector, Loki, Prometheus, …): digest-pinned at their use site under `infra/k8s/` and `infra/observability/`.
-- Python interpreter: `.python-version`.
+Two transitive families are explicit ADK Go v2.2.0 compatibility ceilings, not stale pins:
 
-GitHub Actions artifacts are transient handoffs. The organization caps artifact and log retention at **7 days**, so every `upload-artifact` step stays at or below that limit; durable release evidence belongs on the immutable GitHub release and in OCI attestations.
+- ADK's own module pairs `github.com/openai/openai-go/v3` v3.49.0 with `google.golang.org/genai` v1.66.0, and minimal version selection resolves both from ADK itself. ADK owns this pair; do not bump either client independently. (openai-go v3.50.0 does compile and pass against ADK v2.2.0 — the union-struct breakage that justified the older v3.8.1 floor is fixed upstream — but the pair still moves with ADK, not ahead of it.)
+- ADK uses OpenTelemetry log `Value` and `KeyValue` APIs removed by the OTel 1.45 and log 0.21 family. OTel stable 1.44 with log 0.20 is the highest compiling family for this ADK release.
 
-This file owns the stable network inventory, while `scripts/check_conventions.py` maps every entry to its executable owner: MCP `:3000`, A2A `:3001`, OpenAI-compatible model `:4000`, gateway metrics `:15020`, host gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, web client `:8001`, ADK web UI `:8002`, documentation preview `:8003`, Ollama `:11434`, MLflow `:5000`, OTLP `:4317/:4318`, collector metrics `:8889`, pod-local collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, host Grafana `:3002`, Loki `:3100`, and the local registry `:5050`.
+The validator for either ceiling is `cd agents/go && mise run check && mise run test`; it must compile ADK and pass the focused telemetry, command, and full race suite before the constraint or prose changes. A newer resolved module is not supported evidence.
 
-## Maintainer recipes
+Generated result files are transient handoffs. The organization caps artifact and log retention at **7 days**; durable release evidence belongs on an owner-approved immutable release and in OCI attestations.
 
-Release evidence is commit-scoped. Freeze `main`, dispatch Eval and Platform at the candidate SHA, then dispatch Release with that same SHA and the fresh handoffs. Any push creates a new candidate and restarts the evidence sequence; never combine evidence from different commits.
+## Evaluation evidence contract
 
-- **Add repository Python:** add the tracked path to `scripts/repository-python-files.txt`; `mise run check:python` rejects both unlisted and stale entries.
-- **Add a network port:** update this file's inventory, `PORT_CONTRACT` in `scripts/check_conventions.py`, the executable owner, and the table in `docs/0. Overview/0.3. Ecosystem.md`.
-- **Add a course page:** start from the required FAQ frame, add it to the chapter index and navigation, preserve the closing proof contract, then run the docs and accessibility gates.
-- **Bump a coordinated pin:** update the authority named above, regenerate its lock or digest evidence, search for checked compatibility copies, and run every affected offline profile before changing prose.
+`evals/mise.toml` is the contract. `mise run eval` writes `results.json`, `mise run eval:judge-calibration` writes `judge-calibration-results.json`, and `mise run eval:ab` writes `prompt-comparison.json`. Both are gitignored, so the evidence a page shows is the evidence a page carries. There is no `release-policy.json` and no automatic release qualifier: the thresholds live on the `eval` task's command line, which is what `content/4. Quality/4.4. Evaluations.md` teaches learners to read, and `checkEvalThresholds` pins the page to that command line.
+
+The judge is scored but never decides a safety case. `evals/score.go` tags a judged verdict `Stochastic`, and `summarizeCases` folds `required_cases_passed` over deterministic scores only — a judged failure costs the run its `pass_rate` and cannot on its own declare a required case failed.
+
+Stable OTel names are:
+
+- Spans: `agentops.eval.run`, `agentops.eval.case`, `agentops.eval.score`.
+- Metrics: `agentops.eval.score`, `agentops.eval.case.passed`, `agentops.eval.tokens`, `agentops.eval.model_calls`, `agentops.eval.run.passed`.
+
+Do not change these names or JSON schemas without a compatibility decision and coordinated release-qualifier update.
+
+## Stable network inventory
+
+This file owns the stable network inventory. Repository convention checks map MCP `:3000`, A2A `:3001`, model `:4000`, gateway metrics `:15020`, gateway readiness `:15021`, raw MCP `:8000`, raw A2A `:8080`, kagent control plane `:8083`, web client `:8001`, ADK web `:8002`, docs `:8003`, Ollama `:11434`, Tempo `:3200`, OTLP `:4317` and `:4318`, collector metrics `:8889`, collector health `:13133`, Prometheus `:9090`, Alertmanager `:9093`, Grafana `:3002`, Loki `:3100`, and registry `:5050` to executable owners.
+
+Adding a port requires updating this inventory, the convention checker contract, the executable owner, and `content/0. Overview/0.4. Ecosystem.md`.
+
+## Hugo documentation build
+
+Hugo Extended builds the site with Hextra as a Hugo Module. `mise run serve` previews on `:8003`; `mise run build:docs` writes `site/`.
+
+| Concern                              | Location                                                |
+| ------------------------------------ | ------------------------------------------------------- |
+| Site configuration and source mounts | `hugo.toml`                                             |
+| Learning path                        | `data/nav.yaml` and sidebar partial                     |
+| Source include                       | `layouts/_shortcodes/include.html` and include partials |
+| Admonitions and collapsibles         | shortcode layouts and custom CSS                        |
+| Self-hosted search and diagrams      | `assets/js/vendor/`                                     |
+| Search accessibility                 | `assets/js/search-a11y.js`                              |
+| Search route index                   | `assets/json/search-data.json`                          |
+
+Four non-default contracts are easy to break:
+
+1. Strict mode combines Hugo `--panicOnWarning`, reference-link errors, and the navigation checker.
+1. Every non-home page has an explicit lowercase kebab-case slug; Hugo combines reviewed section slugs and regular-page slugs through the permalink configuration.
+1. Includes read through `assets/source/**` mounts so Hugo watches quoted code.
+1. The title lives in front matter; never add a second Markdown H1.
+
+This repository is a Hugo evaluation build and is not deployed. `baseURL` preserves canonical and social metadata for comparison, but no CNAME, Pages workflow, DNS, or publication claim ships here.
+
+**Chapter numbering was reviewed on 11 August 2026 and deliberately left as it is.** Renumbering — `7.2b`/`7.3b` into the sequence, `8.7 Capstone` to `8.0`, `1.2` and `1.3` into the chapters they render inside — was free only while nothing is published, and it was considered on that basis. It was declined because the cost is the largest mechanical change available here (83 slug fields, every `relref`, `data/nav.yaml`, and every hard-coded `content/` path in `tools/`) against a benefit that is presentational, and because the numbers that look wrong are load-bearing: `1.2` and `1.3` are cross-chapter prerequisites the navigation states explicitly, and `8.7` first is the correct pedagogical order. Three narrower fixes landed instead: `1.2. Container Engine` and `0.5. Provider Options` were retitled so neither collides with a later page in search, and the 48 never-linked heading anchors were deleted so a copied section link cannot contradict the heading it lands on. Revisit only before the first published URL exists.
+
+## Vocabulary decisions
+
+Four words meant two things each across the corpus. Each was resolved on 13 August 2026 rather than left open, because an unresolved vocabulary conflict is where drift re-enters:
+
+- **`token bucket` keeps its algorithmic meaning in both chapters, and every use names its unit.** Chapter 5's buckets hold requests; `7.3b. Cost Governance`'s holds model tokens. Renaming either would have been wrong — both are token buckets — so 7.3b states the relationship once and neither page says "token bucket" without saying what it counts.
+- **`observation` belongs to `0.2. Evidence`**: a measurement that varies between runs. `7.4. Feedback` now says _report_ for the human sentence that starts a case, because the two are different objects and the reader meets the measurement first.
+- **`audit row` is the term; `audit record` is retired.** Twenty-two pages already said row. The glossary entry was retitled and keeps its older `audit-record` anchor, because deleting an anchor orphans every deep link that points at it.
+- **`artifact` keeps its A2A meaning; ADK's artifact service is declined, not deferred.** The A2A artifact is a task's typed output on the wire. ADK's `artifact.Service` — in-memory and GCS backends, `tool/loadartifactstool`, `{artifact.key}` templating — is file storage for agents, and nothing this course builds needs an agent to hold a file. It is not taught, and the glossary says so at the word rather than leaving the collision for a reader to hit.
+- **Chapter 5 requires Chapters 1-4.** The index and `5.0` said 2-4 while `5.1` said 1-4; 5.1 was right, since the chapter's first live command needs the model pulled in `1.4. Providers`. All three now agree.
+
+## Documentation page frame
+
+`content/` holds 84 Markdown pages: 74 course pages, nine chapter `_index.md` files, and the landing `content/_index.md`. Every one of them follows this shape:
+
+```markdown
+---
+title: "N.M. Title"
+description: One sentence.
+slug: "n-m-title"
+---
+
+{{% admonition abstract "In one glance" %}}
+
+- **You will:** Outcome.
+- **You need:** Checkable precondition.
+- **Time:** about N minutes, kind. {{% /admonition %}}
+
+## What this section teaches, named as its purpose
+
+Prose that opens on the concept and the reason it exists, a runnable command, and the output that command produced.
+
+## Your turn: do the thing
+
+Predict first: one question the learner answers before running anything.
+
+- **Mode**: `inspect`, `temporary experiment`, `keep`, or `capstone carry-forward`.
+- **Goal**: what the learner ends up able to do.
+- **Files to touch**: exact paths, or `none`.
+- **Preflight**: the command that proves the starting state.
+- **Steps**: the ordered work.
+- **Gate that proves completion**: the command whose output decides it.
+- **Final state**: what stays on disk afterwards.
+
+## What you can do now
+
+- Observable capability.
+
+Continue to [Full page name](link), which does the next thing.
+```
+
+Rules:
+
+- **Headings name their teaching purpose.** An H2 names its technical subject and what the section does with it — motivation, definition, mechanism, procedure, boundary, trade-off, or exercise — so it reads as a claim on its own in a sidebar, not a claim in an interview with the paragraph below it. Never a scene ("Ana gets paged at 02:14"), a riddle ("The tool that does not exist"), a quote, or a bare noun that could sit on any page ("Instructions", "Impact"). One interrogative H2 per page is allowed, for the tension the page actually resolves. `0.7. Troubleshooting` and `0.8. Glossary` are the two exceptions, because their headings are the symptoms and terms a reader scans for.
+- **A page opens on the concept, not on the example.** The paragraph after the glance block names the term being taught — bolded at first use — says what breaks or cannot be proved without it, and says what the page will show. Only then may the reference agent's incident domain appear, framed explicitly as the worked example. Never open on a clock time, a persona, or a withheld subject meant to create suspense.
+- **`You need` declares machine state, never reading history.** Two clauses, in order. Clause one is the machine state the page truly requires from a clean clone, named as the command that produces it (`mise run install` done, Docker running, Ollama serving), and it says what is _not_ needed when that is reassuring ("No model, cluster, or account."). Scope anything heavier to the part that needs it ("a model only for the optional live run"). Clause two is optional and is a back-pointer, never a gate: `Assumed, not required: <concept> from [N.M. Page](relref).` "Chapter N finished" is retired — it invented prerequisites on pages whose commands run from a clean clone, and the reader who arrives from a search reads it as two hours of backtracking. Verify against `mise.toml`, `scripts/doctor.sh`, and the shell scripts before loosening a tier; being wrong in the permissive direction strands a reader mid-command.
+- **The incident domain illustrates; it is not the curriculum.** The committed seed (incidents, services, runbooks, logs) exists because no model can have memorised it, which makes a grounded answer checkable against a row — that is the whole reason this domain was chosen, not because incident response is what the course teaches. Where a human role carries the teaching (approval, escalation, paging), name the role rather than a character: "the approving engineer", "whoever is on call". Two checks hold the retired style out: `checkSceneHeadings` fails an H2 carrying a time of day, and `checkRetiredNarrative` fails prose that reintroduces the former persona or retailer brand. Both read outside code fences, so a capture may still print whatever it printed.
+- **Reasoning sits beside the instruction, not after it.** Define a term at first use in one clause. Give the reason next to every command, flag, and design choice, rather than leaving the reader to infer it three paragraphs later. Number a sequence whose order is a constraint, not a preference.
+- **Keep an anchor whenever a link depends on it.** Two mechanisms carry deep links, and both break silently. 29 H2s carry an explicit `{#kebab-slug}`, so rewording one of those headings without preserving its slug orphans every link that points at it. A further 109 inline `<a id="…"></a>` anchors open a paragraph or a list item, so deleting or merging that paragraph destroys the target even though no heading changed. Check both before rewriting a section, including the links inside `content/` itself.
+- **Close on the page's kind.** Course pages end with `## What you can do now`, chapter indexes with `## What this chapter proved`, and the four pure lookup pages — `0.4. Ecosystem`, `0.6. Resources`, `0.7. Troubleshooting`, `0.8. Glossary` — with `## How to use this page later`. The landing page has no closer. Every other page's final paragraph names the next page, usually as a `Continue to [Full page name](link)` line.
+- **Closing bullets state capability, not attendance.** `## What you can do now` is the section a skimmer is most likely to read, and the course says plainly that exercises are optional — so a bullet whose truth depends on the reader having typed something tells the skipper they achieved nothing. Write what they can now do, say, name, predict, or point at, keeping the specific noun the page taught: a bullet that could sit on any page is worse than the past-tense one it replaced. Past tense belongs in the exercise's own `Gate that proves completion`, and a bullet reporting a measurement the reader took on their own hardware is honestly personal and stays.
+- **An exercise declares all seven fields, in order.** A `## Your turn: …` section carries Mode, Goal, Files to touch, Preflight, Steps, Gate that proves completion, and Final state. A hands-on page states a prediction before its exercise, so the learner commits to an answer before the command supplies one.
+- **An optional exercise stays out of the sidebar, and says so in bold.** Three openers start an exercise: a `## Your turn: …` H2 for the ones the page is built around, and the inline `**Exercise:**` / `**Optional exercise:**` labels for the ones a reader should feel free to skip. Inline keeps optional work out of the table of contents, which is the point; the bold label is what lets a skimmer see it is optional without reading the sentence. `exerciseSections` matches all three, bare and bolded, so emphasising a label can never silently drop its seven fields out of checking.
+- **Mode is a promise about the working tree.** `inspect` changes nothing. `temporary experiment` requires a target-specific dirty preflight (`git diff --quiet -- <paths>` or `test ! -e <path>`) and target-specific cleanup (`git restore -- <paths>` or `rm -- <path>`); never restore a whole directory, which would discard unrelated learner work. `keep` leaves the change in the diff.
+- **A ```text block is a verbatim capture.** Paste what the command printed. Trimming must be declared in the surrounding prose ("trimmed to seven of the twenty-two package lines"); reordering, re-spacing, and hand-edited figures are never allowed. When a capture carries a count or a percentage, that figure must be derivable from a file in this repository, and `tools/internal/conventions` must derive it.
+- **Comment density is a deliverable.** Quoted Go carries the rationale comments that explain why a non-obvious choice was made. Remove such a comment only when its rationale stops being true, never to shorten an excerpt.
+- **A hands-on page reaches a runnable command within its first two H2 sections.**
+- **Use zero to three `{{% collapsible note "Deeper: …" %}}` blocks per page.** Never collapse definitions, commands, expected output, security bounds, cost, or destructive actions.
+- **Open each H2 with a concrete sentence of 25 words or fewer.** `checkHeadingOpeners` enforces it, counting what a reader actually reads — shortcodes stripped, links reduced to their label, up to the first full stop — and skipping sections that open on a list, table, fence, or shortcode. The habit that breaks it is systematic: the definition, its appositive gloss, and the enumerated consequences all stack before the first full stop. Split the sentence in two so the definition lands first; a dash or colon only helps when it becomes a full stop. Keep sentences readable and cross-links sparse.
+- **Every new or changed Mermaid diagram has adjacent `**Diagram in words:**` prose.**
+- **Use descriptive full-page link labels and define unfamiliar terms at first use.**
+- **Include shortcodes stand alone outside code fences and quote the smallest stable source region.**
+- **Never add a front-matter `url` override.** Hugo gives it precedence, so it shadows the reviewed slug and permalink route. Home alone omits `slug`; chapter sections and regular pages require one.
+- **Distinguish offline, live model, container, Kubernetes, cloud, destructive, and paid commands** before asking a learner to run them.
+- **Do not claim what the repository does not ship:** no dollar-denominated cost panel, no automatic live judge, no external paging integration, and no cryptographically immutable audit store.
+- **Pages do not grow.** A rewrite that adds a definition or a reason pays for it by cutting tease, restatement, self-congratulation, and stacked em-dash asides — the corpus is long enough already that a page which only gains words costs every reader who follows.
 
 ## Development commands
 
-Root tasks:
+Root task vocabulary:
 
 ```bash
 mise run install
 mise run install:platform
-mise run install:gcp
 mise run install:maintainer
 mise run doctor
 mise run doctor:model
@@ -88,114 +231,68 @@ mise run check:core
 mise run check
 mise run test
 mise run scan
-mise run build
 mise run build:docs
 mise run serve
-mise run gateway:host
-mise run gateway:host:start
-mise run gateway:host:stop
-mise run gateway:host:status
-mise run gateway:host:logs
-mise run gateway:host:auth
-mise run smoke:host
-mise run observability:up
-mise run observability:down
-mise run cluster:start
-mise run platform:install
-mise run platform:dev
-mise run promote
-mise run gke:smoke
 ```
 
-`mise run install` bootstraps the learner-facing core tools and environments. The platform and maintainer tiers are explicit so a first checkout does not install Kubernetes, cloud, and security tooling it does not yet need.
-
-Aggregate tasks run their children: `install`, `format`, `check`, and `build` each fan out, so `mise run build` builds the site **and** both container images and therefore needs Docker. Use `mise run build:docs` for the container-free documentation build. `install:core`, `doctor:base`, `watch`, and `scan` are aliases of `install`, `doctor`, `serve`, and `secure`; `install:tools:*` are hidden implementation details.
-
-Agent tasks from `agents/python/`:
+Agent module vocabulary:
 
 ```bash
+cd agents/go
 mise run check
 mise run test
-mise run redteam
-mise run mcp
-mise run mcp:http
-mise run a2a
-mise run data:reset
+mise run coverage
+mise run build
+mise run run
 mise run workflow
 mise run coordinator
+mise run web
+mise run a2a
+mise run mcp
+mise run mcp:http
+mise run config:check
+mise run data:reset
 ```
 
-`AGENT_ENTRYPOINT=agent|workflow|coordinator` selects the composition behind the single lazy `src/agent` package boundary. Use the task aliases above rather than raw `adk run` commands so model configuration and the repository `.env` are loaded consistently.
+Evaluation module vocabulary:
 
-The `eval:*` tasks (`eval`, `eval:workflow`, `eval:report`, `eval:mlflow`, `eval:cost`, `eval:ground`, `eval:ab`, `eval:retrieval`) call a configured model and stay outside the offline test gate — they are scheduled evidence in `eval.yml`, not CI gates. `eval:validate` is the only offline eval and runs in CI. The MLflow judge is optional and must use the configured agentgateway URL.
+```bash
+cd evals
+mise run eval:validate
+mise run check
+mise run test
+mise run build
+mise run eval
+mise run eval:judge-calibration
+mise run eval:ab -- --baseline "$BASELINE_ARTIFACT" --candidate "$CANDIDATE_ARTIFACT"
+```
+
+Set `BASELINE_ARTIFACT` and `CANDIDATE_ARTIFACT` to reviewed sanitized run files before `eval:ab`. `eval:validate` and artifact-only `eval:ab` are offline; `eval` and `eval:judge-calibration` call a configured generative model and stay outside offline test gates. Every other capability the harness exposes — the A2A transport, the workflow and triage-report evalsets, streaming, schema checks, and groundedness — is a flag on `mise run eval` rather than a task of its own, and `evals/README.md` documents each recipe.
 
 ## Local and cloud safety
 
-The host gateway is `infra/agentgateway/host/config.yaml`. Host quickstarts use the digest-pinned container wrapper exposed by the `gateway:host*` tasks; every published listener binds to `127.0.0.1`. On native Linux, the wrapper owns a bridge-address-only relay so its container can reach MCP, A2A, and Ollama while those upstream processes remain bound to host loopback. The raw agentgateway binary currently listens on all interfaces and is an advanced/manual path, not a learner quickstart.
+Host quickstarts use the digest-pinned gateway wrapper. Published listeners bind to loopback. On native Linux, the wrapper owns a bridge-address-only relay so the gateway container can reach host MCP, A2A, and Ollama without exposing those upstreams.
 
-Kubernetes begins in Chapter 6. Local Kubernetes is created only from `infra/k3d.yaml`, uses `registry.localhost:5050`, and is deployed from the repository root with:
+Do not run host observability while in-cluster observability is forwarded on the same ports. No profile creates an Ingress, LoadBalancer, or public application endpoint; clients use temporary port-forwards.
 
-```bash
-mise run platform:dev
-```
+Local Kubernetes starts only from `infra/k3d.yaml`. `mise run platform:dev` resolves the working tree through the source-identity tool; a dirty tree receives `unknown+dirty.<digest>` and no revision. `mise run platform:run` and release workflows require a clean exact revision. Raw Skaffold builds must supply the complete mode/identity/revision/tree/dirty/version/timestamp tuple, and the Dockerfile rejects missing, templated, or inconsistent release inputs.
 
-That task derives `AGENT_SOURCE_COMMIT` from `HEAD`; raw Skaffold commands must provide the same exact-source value because `infra/skaffold.yaml` refuses an untraceable image build.
+The GKE path stops at `tofu plan` unless the user explicitly approves deployment. It bills real money. `skaffold delete`, PVC deletion, cluster deletion, `tofu apply`, and `tofu destroy` require exact-context review; cloud apply and destroy require explicit approval.
 
-Do not start host Compose observability while the in-cluster stack is forwarded on the same ports. No profile creates an Ingress, LoadBalancer, or public application endpoint; clients use temporary port-forwards through agentgateway.
+## Maintainer recipes
 
-The GKE path stops at `tofu plan` unless the user explicitly approves deployment. The required `project_id` variable selects the project; the rendered GKE bundle derives its Workload Identity accounts, GCS bucket, DNS service IP, and Vertex project from OpenTofu outputs. The single zonal Spot-node design is production-shaped but interruptible and non-HA. It bills real money: `docs/7. Observability/7.3. Costs.md` owns the estimate and the date it was checked. Do not copy that figure anywhere else, and refresh variable prices before apply. `skaffold delete`, PVC deletion, `k3d cluster delete`, `tofu apply`, and `tofu destroy` require careful context/review; cloud apply/destroy requires explicit approval.
+- **Add a Go dependency:** change only the owning module, run `go mod tidy`, review both manifest and checksum diff, then run that module's check and test gates.
+- **Add a network port:** update the stable inventory, convention contract, executable owner, and ecosystem table.
+- **Add a course page:** preserve the page frame, explicit slug, chapter index entry, navigation entry, accessibility prose, and closing contract.
+- **Bump a coordinated pin:** update its authority, regenerate lock or digest evidence, search for compatibility copies, and run every affected profile.
+- **Change evaluation evidence:** coordinate harness schema, serialization tests, documentation, release qualifier, and workflow consumer in one change.
+- **Change state schema:** add forward migration, unknown-future rejection, backup/restore evidence, and rollback notes before changing prose.
 
-## Documentation workflow
-
-Every course page follows the same frame. `scripts/check_conventions.py` (via `mise run check:docs`) enforces the front matter, the FAQ headings, the opening block, the closing heading, the page kind, and the collapsible and link-label rules below, so a page cannot silently drift out of shape.
-
-```markdown
----
-description: <one sentence>
----
-
-# N.M. Title
-
-!!! abstract "In one glance"
-
-    - **You will:** <outcome, verb first, second person, plain words>
-    - **You need:** <a checkable precondition, or "Nothing beyond a terminal">
-    - **Time:** about <N> minutes, <concept | hands-on | reference | orientation>.
-
-## <question ending in ?>
-
-…
-
-## What proves this page worked?
-
-<the verification commands>
-
-**You are done when:**
-
-- <observable state>
-
-Continue to [<next page>](link) when <the condition that matters>.
-```
-
-- The closing H2 is exactly `What proves this page worked?`, or `What proves this chapter worked?` on a `docs/*/index.md`, or `How should you use this page later?` on a pure lookup page (0.5, 0.6, 0.7). Nothing links to those anchors, so the wording stays uniform on purpose.
-- Depth that is valuable but not needed on a first pass goes in a `??? note "Deeper: …"` collapsible, relocated word for word. Every summary starts with `Deeper:`. Zero to three per page.
-- Never collapse the subject's definition, the reason it matters, the command to run, the expected output, or anything that costs money, destroys data, or bounds a security claim. The arithmetic behind a cost may be collapsed; the sentence saying "this can be billed" or "this is not production" stays visible above the triangle.
-- On a hands-on page the learner must reach a runnable command within the first two H2 sections. `docs/2. Agents/2.1. First Agent.md` is the reference for that shape.
-- Admonition vocabulary is fixed: `abstract` for the page frame, `success` for end-of-page takeaways, `warning` for common mistakes, `danger` for destructive/costly/security actions, `tip` for an optional shortcut, `info` for skippable background, `note` for a neutral aside. The same message must use the same type everywhere it appears.
-- Prose rules: open each H2 with a concrete sentence of 25 words or fewer; keep sentences under ~35 words and at most one em-dash pair per paragraph; cap inline cross-links at two per paragraph and push the rest to a closing "Owned by …" line; define an unfamiliar term at first use in 15 words or fewer; use full page names as link labels, never a bare `[5.2]`.
-- Accessibility is content, not decoration: adjacent `**Diagram in words:**` prose must communicate every new or changed Mermaid diagram's actors, relationships, and sequence; never rely on color alone; link dense unfamiliar terms to glossary anchors. `ACCESSIBILITY.md` is the public contract; `docs/diagram-legacy.txt` is an exact-hash ratchet for previously reviewed diagrams, not permission for new exemptions.
-- Keep prose practical and question-led; finish technical pages with verification and, where relevant, teardown.
-- Use only `1.` for ordered Markdown list items.
-- A `--8<--` snippet include must sit inside a fenced code block. A bare include is rendered as Markdown, so a leading `#` comment in the region becomes an `<h1>`.
-- Never add machine-specific paths, credentials, floating image tags, stale registry names, or commands that depend on private dotfiles.
-- Distinguish offline tests, local model calls, hosted model calls, Kubernetes changes, and cloud changes before asking a learner to run anything.
-- Do not claim alerts, feedback endpoints, online scorers, public auth/TLS, HA, backups, or cost metrics unless the repository implements and validates them.
-- The public course is hosted at `https://agentops-open-course.fmind.dev/`. When changing repository, Pages, DNS, or source-link contracts, re-run the anonymous publication gate before claiming the surface still works.
-- Update `README.md`, public component READMEs, course prose, and this file together when a public contract changes.
+Release evidence is commit-scoped. Freeze the candidate, dispatch evaluation and platform evidence at that exact SHA, then dispatch release with the same SHA and fresh handoffs. Any push creates a new candidate.
 
 ## Definition of done
 
-Re-read the original request, inspect the final diff, and run:
+Re-read the request, inspect the scoped diff, and run:
 
 ```bash
 mise run install:maintainer
@@ -205,4 +302,6 @@ mise run test
 mise run scan
 ```
 
-The Python suite enforces at least 95% branch coverage. The complete gate renders both overlays and scans the repository; no model, cluster, or cloud call is part of it. Never suppress a real failure to force green. Do not call a live model, deploy Kubernetes/cloud resources, or commit unless the user explicitly asks.
+Also run `mise run check && mise run test` inside each changed Go module.
+
+The complete offline gate must not call a model, collector, cluster, paid API, or cloud service. Local green evidence does not prove hosted CI, deployed runtime, immutable release, or public publication. Never suppress a real failure, weaken a scorer, invent a coverage threshold, or claim an external boundary you did not observe.

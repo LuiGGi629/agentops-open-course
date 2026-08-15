@@ -1,8 +1,8 @@
 # Cheap GKE substrate
 
-This OpenTofu module targets an existing billing-enabled project supplied through the required `project_id` variable. It creates a zonal GKE Standard cluster with one Spot `e2-standard-2` node, a VPC-native subnet, Artifact Registry, an MLflow GCS bucket, and separate Workload Identity service accounts for agentgateway and MLflow. It creates no Cloud NAT, Ingress, or public LoadBalancer.
+This OpenTofu module targets an existing billing-enabled project supplied through the required `project_id` variable. It creates a zonal GKE Standard cluster with one Spot `e2-standard-2` node, a VPC-native subnet, Artifact Registry, and one Workload Identity service account for agentgateway. It creates no Cloud NAT, Ingress, or public LoadBalancer.
 
-Before planning, run `mise run install:gcp`, authenticate Application Default Credentials, run `GCP_PROJECT_ID=<project-id> mise run doctor:gcp` from the repository root, and set the same project plus your public `/32` in a gitignored `terraform.tfvars` based on `terraform.tfvars.example`. An approved disposable lab also snapshots the project's enabled APIs, service accounts, and IAM policy before planning:
+Before planning, install `gcloud` and `gke-gcloud-auth-plugin` from the same reviewed Cloud SDK or host package source, run `mise run install:platform`, authenticate Application Default Credentials, and run `GCP_PROJECT_ID=<project-id> mise run doctor:gcp` from the repository root. Set the same project plus your public `/32` in a gitignored `terraform.tfvars` based on `terraform.tfvars.example`. An approved disposable lab also snapshots the project's enabled APIs, service accounts, and IAM policy before planning:
 
 ```bash
 set -euo pipefail
@@ -22,9 +22,11 @@ tofu -chdir=infra/gcp validate
 tofu -chdir=infra/gcp plan -out=tfplan
 ```
 
-Every inventory command must succeed: an authentication or authorization error is not an empty result. Before applying with empty state, also prove that the exact cluster, network, subnet, repository, bucket, and three service-account names in the plan do not already exist. Review the plan and current GCP prices before a later, explicitly approved `tofu -chdir=infra/gcp apply tfplan`. `../scripts/render-gke.sh` resolves the Workload Identity service accounts, MLflow bucket, and Vertex project from OpenTofu outputs; the committed manifests contain fail-visible placeholders instead of a project ID.
+Every inventory command must succeed: an authentication or authorization error is not an empty result. Before applying with empty state, also prove that the exact cluster, network, subnet, repository, and two service-account names in the plan do not already exist. Review the plan and current GCP prices before a later, explicitly approved `tofu -chdir=infra/gcp apply tfplan`. `../scripts/render-gke.sh` resolves the Workload Identity service account, cluster DNS address, and Vertex project from OpenTofu outputs; the committed manifests contain fail-visible placeholders instead of a project ID.
 
-Spot VMs can stop at any time. The GKE overlay uses zonal standard persistent disks for the small PersistentVolumeClaims, while the GCS bucket preserves MLflow artifacts. [7.3. Costs](../../docs/7.%20Observability/7.3.%20Costs.md) owns the dated estimate and its assumptions; refresh every linked provider price immediately before applying.
+Spot VMs can stop at any time, and the GKE overlay keeps every workload's data on zonal standard persistent disks — including Tempo's trace blocks, which do not survive a deleted claim. [7.3. Costs](../../content/7.%20Observability/7.3.%20Costs.md) owns the dated estimate and its assumptions; refresh every linked provider price immediately before applying.
+
+The control-plane version is deliberately not pinned: the cluster enrolls in GKE's REGULAR release channel, Google selects and upgrades the Kubernetes version, and the node pool auto-upgrades behind it. A plan reviewed weeks ago can therefore apply onto a newer version than the one it was written against. `main.tf` records why a `min_master_version` floor would be a false pin rather than a fix, and `tests/course_profile.tftest.hcl` fails if one is added.
 
 ## How do you isolate an approved deployment?
 
@@ -62,24 +64,40 @@ cluster_zone="$(tofu -chdir=infra/gcp output -raw cluster_zone)"
 region="$(tofu -chdir=infra/gcp output -raw region)"
 network_name="$(tofu -chdir=infra/gcp output -raw network_name)"
 subnetwork_name="$(tofu -chdir=infra/gcp output -raw subnetwork_name)"
-bucket="$(tofu -chdir=infra/gcp output -raw mlflow_bucket_name)"
 repository="$(tofu -chdir=infra/gcp output -raw artifact_registry_repository)"
 repository_location="${repository%%-docker.pkg.dev/*}"
 repository_name="${repository##*/}"
 repository_resource="projects/${project_id}/locations/${repository_location}/repositories/${repository_name}"
 agentgateway_sa="$(tofu -chdir=infra/gcp output -raw agentgateway_service_account)"
-mlflow_sa="$(tofu -chdir=infra/gcp output -raw mlflow_service_account)"
 node_sa="$(tofu -chdir=infra/gcp output -raw node_service_account)"
 expected_context="gke_${project_id}_${cluster_zone}_${cluster_name}"
 test "$(kubectl config current-context)" = "${expected_context}"
 ```
 
-Capture every dynamically provisioned disk before deleting either namespace. GKE CSI disks are normally named `pvc-*`, so a `gke-agentops-*` name filter cannot prove their deletion:
+Capture every dynamically provisioned disk before deleting either namespace. GKE CSI disks are normally named `pvc-*`, so a `gke-agentops-*` name filter cannot prove their deletion. `infra/scripts/gcp-lab-audit.sh` performs this capture and the matching absence proof for a lab driven through its approval ledger, where `record <ledger-dir>` writes the inventory and `destroy <ledger-dir> <token>` verifies it. That lifecycle needs a ledger prepared before the apply, so the manual path documented here runs the equivalent commands directly:
 
 ```bash
-./infra/scripts/gcp-lab-audit.sh \
-  capture-pvs "${expected_context}" "${audit_dir}"
+kubectl --context "${expected_context}" get pv -o json >"${audit_dir}/pvs-last.json"
+jq -e '
+  all(.items[] | select(
+    .spec.claimRef.namespace == "agentops" or
+    .spec.claimRef.namespace == "kagent"
+  );
+    (.metadata.name | type == "string" and length > 0) and
+    (.spec.csi.volumeHandle | type == "string" and length > 0)
+  )
+' "${audit_dir}/pvs-last.json" >/dev/null
+jq -r '
+  .items[] |
+  select(
+    .spec.claimRef.namespace == "agentops" or
+    .spec.claimRef.namespace == "kagent"
+  ) |
+  [.metadata.name, .spec.claimRef.namespace, .spec.csi.volumeHandle] | @tsv
+' "${audit_dir}/pvs-last.json" | sort -u >"${audit_dir}/pvs-before-delete.tsv"
 ```
+
+The `jq -e` guard runs first because a claimed PersistentVolume with no name or no CSI handle would otherwise write a blank column that later checks would read as nothing to verify.
 
 Delete the workload data first, then the controller and its course-owned namespace:
 
@@ -102,16 +120,22 @@ kubectl --context "${expected_context}" \
   delete namespace kagent --wait=true --timeout=300s
 ```
 
-Wait until every PV name and every exact disk handle recorded in `pvs-before-delete.tsv` is absent. Parse the disk name from the last path segment of each handle and query it exactly with `gcloud compute disks list --project "${project_id}" --filter="name=<captured-name>"`. A failed inventory command fails cleanup; it is not evidence of absence.
-
-`force_destroy=false` deliberately blocks OpenTofu while the exact MLflow bucket contains objects. List them first; delete them only when their loss is approved and the bucket name still equals the state output:
+Wait until every PV name recorded in `pvs-before-delete.tsv` is gone from the cluster. The CSI controller that deletes the backing disks runs inside the cluster, so destroying the cluster while a claim still holds a volume orphans a billable disk that nothing is left to release:
 
 ```bash
-test "${bucket}" = "$(tofu -chdir=infra/gcp output -raw mlflow_bucket_name)"
-gcloud storage ls --recursive "gs://${bucket}/**"
-# Destructive, only after reviewing the exact object list:
-gcloud storage rm --recursive "gs://${bucket}/**"
+captured_pvs="$(jq -Rn '[inputs | split("\t") | .[0]] | unique' \
+  <"${audit_dir}/pvs-before-delete.tsv")"
+for _ in {1..60}; do
+  remaining="$(kubectl --context "${expected_context}" get pv -o json |
+    jq -c --argjson captured "${captured_pvs}" \
+      '[.items[]? | select(.metadata.name as $name | $captured | index($name))]')"
+  if [[ ${remaining} == "[]" ]]; then break; fi
+  sleep 5
+done
+test "${remaining}" = "[]"
 ```
+
+If that final `test` fails, `printf '%s\n' "${remaining}"` names the PersistentVolumes still bound; resolve them before destroying anything. The disk-side proof runs after the destroy plan applies, in the final inventory below. A failed inventory command fails cleanup; it is not evidence of absence.
 
 Create and apply a saved destroy plan instead of issuing an unreviewed destroy:
 
@@ -147,11 +171,6 @@ assert_empty "Artifact Registry repository" \
   --project "${project_id}" \
   --location "${repository_location}" \
   --filter="name=\"${repository_resource}\"" \
-  --format='value(name)'
-assert_empty "MLflow bucket" \
-  gcloud storage buckets list \
-  --project "${project_id}" \
-  --filter="name=${bucket}" \
   --format='value(name)'
 assert_empty "VPC network" \
   gcloud compute networks list \
@@ -189,13 +208,25 @@ assert_empty "VPC routes" \
   --project "${project_id}" \
   --filter="network~'/networks/${network_name}$'" \
   --format='value(name)'
-./infra/scripts/gcp-lab-audit.sh \
-  verify-disks "${project_id}" "${audit_dir}/pvs-before-delete.tsv"
+jq -Rr 'split("\t") | select(length == 3) | .[2] | split("/") | last' \
+  "${audit_dir}/pvs-before-delete.tsv" | sort -u >"${audit_dir}/captured-disks.txt"
+while IFS= read -r disk_name; do
+  assert_empty "captured persistent disk ${disk_name}" \
+    gcloud compute disks list \
+    --project "${project_id}" \
+    --filter="name=${disk_name}" \
+    --format='value(name)'
+done <"${audit_dir}/captured-disks.txt"
+assert_empty "GKE cluster persistent disks" \
+  gcloud compute disks list \
+  --project "${project_id}" \
+  --filter="labels.goog-k8s-cluster-name=${cluster_name}" \
+  --format='value(name)'
 gcloud iam service-accounts list --project "${project_id}" \
   --format='value(email)' | sort -u >"${audit_dir}/service-accounts-after.txt"
 gcloud projects get-iam-policy "${project_id}" \
   --format=json >"${audit_dir}/project-iam-after.json"
-for service_account in "${node_sa}" "${agentgateway_sa}" "${mlflow_sa}"; do
+for service_account in "${node_sa}" "${agentgateway_sa}"; do
   assert_empty "service account ${service_account}" \
     gcloud iam service-accounts list \
     --project "${project_id}" \
@@ -208,6 +239,8 @@ for service_account in "${node_sa}" "${agentgateway_sa}" "${mlflow_sa}"; do
     "${audit_dir}/project-iam-after.json"
 done
 ```
+
+Those two disk checks are only as strong as the capture behind them. The first proves absence for the exact handles written to `pvs-before-delete.tsv`, and the second for the disks GKE labelled with the cluster name; a disk created outside the cluster and never recorded passes both. Recapture the PersistentVolumes if you deploy anything after the first capture.
 
 The module deliberately leaves APIs enabled (`disable_on_destroy=false`) because it cannot know whether another project owner enabled them first. Restore only the exact set this lab added:
 

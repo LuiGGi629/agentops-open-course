@@ -14,7 +14,6 @@ for overlay in local gke; do
 	manifest="${tmp_dir}/${overlay}.yaml"
 	if [[ "${overlay}" == "gke" ]]; then
 		GCP_PROJECT_ID=agentops-course-check \
-			MLFLOW_BUCKET_NAME=agentops-course-check-mlflow \
 			GKE_CLUSTER_DNS_IP=10.30.0.10 \
 			"${infra_dir}/scripts/render-gke.sh" >"${manifest}"
 	else
@@ -55,25 +54,28 @@ for overlay in local gke; do
 		yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "agentgateway")
       | .automountServiceAccountToken' "${manifest}"
 	)"
-	mlflow_automount="$(
-		yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "mlflow")
+	tempo_automount="$(
+		yq -r 'select(.kind == "ServiceAccount" and .metadata.name == "tempo")
       | .automountServiceAccountToken' "${manifest}"
 	)"
-	mlflow_artifact_root="$(
-		yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow")
-      | .spec.template.spec.containers[]
-      | select(.name == "mlflow")
-      | .env[]
-      | select(.name == "MLFLOW_DEFAULT_ARTIFACT_ROOT")
-      | .value' "${manifest}"
+	tempo_claim="$(
+		yq -r 'select(.kind == "Deployment" and .metadata.name == "tempo")
+      | .spec.template.spec.volumes[]
+      | select(.name == "data")
+      | .persistentVolumeClaim.claimName' "${manifest}"
 	)"
-	mlflow_artifacts_destination="$(
-		yq -r 'select(.kind == "Deployment" and .metadata.name == "mlflow")
+	tempo_data_mount="$(
+		yq -r 'select(.kind == "Deployment" and .metadata.name == "tempo")
       | .spec.template.spec.containers[]
-      | select(.name == "mlflow")
-      | .env[]
-      | select(.name == "MLFLOW_ARTIFACTS_DESTINATION")
-      | .value' "${manifest}"
+      | select(.name == "tempo")
+      | .volumeMounts[]
+      | select(.name == "data")
+      | .mountPath' "${manifest}"
+	)"
+	tempo_block_path="$(
+		yq -r 'select(.kind == "ConfigMap" and (.metadata.name | test("^tempo-config")))
+      | .data."config.yaml"' "${manifest}" |
+			yq -r '.storage.trace.local.path'
 	)"
 	unbounded_tmp_volumes="$(
 		yq -r 'select(
@@ -90,12 +92,12 @@ for overlay in local gke; do
 	assert_eq "${overlay} MCP fsGroup" "${mcp_fs_group}" "10001"
 	assert_eq "${overlay} MCP state read-only" "${mcp_state_read_only}" "true"
 	assert_eq "${overlay} gateway token automount" "${gateway_automount}" "false"
-	assert_eq "${overlay} MLflow token automount" "${mlflow_automount}" "false"
-	assert_eq "${overlay} MLflow artifact root" "${mlflow_artifact_root}" "mlflow-artifacts:/"
-	if [[ "${overlay}" == "gke" ]]; then
-		assert_eq "GKE MLflow artifact destination" "${mlflow_artifacts_destination}" "gs://agentops-course-check-mlflow"
-	else
-		assert_eq "local MLflow artifact destination" "${mlflow_artifacts_destination}" "/var/lib/mlflow/artifacts"
-	fi
+	assert_eq "${overlay} Tempo token automount" "${tempo_automount}" "false"
+	assert_eq "${overlay} Tempo trace claim" "${tempo_claim}" "tempo"
+	assert_eq "${overlay} Tempo data mount" "${tempo_data_mount}" "/var/tempo"
+	# Both overlays keep trace blocks on the claim: Tempo's only storage destination
+	# here is that PersistentVolumeClaim, so local and GKE cannot diverge into one
+	# cluster writing traces to a bucket and the other to a disk.
+	assert_eq "${overlay} Tempo block path" "${tempo_block_path}" "/var/tempo/blocks"
 	[[ -z "${unbounded_tmp_volumes}" ]]
 done

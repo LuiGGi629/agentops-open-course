@@ -1,10 +1,18 @@
 # https://mise.jdx.dev
-# Root orchestrator: builds the docs (Zensical) and delegates to the Python agent
-# (agents/python), a self-contained project with its own mise.toml.
+# Root orchestrator: builds the docs (Hugo) and delegates to the production
+# agent, black-box evaluations, and repository tools Go modules.
 # Git hooks (lefthook.yml) and CI (.github/workflows) call these same tasks.
 
 [tools]
-uv = "0.12.0"
+hugo-extended = "0.164.0"
+# The Go toolchain is pinned here rather than in agents/go/mise.toml so one table stays the
+# authority: Hugo Modules need `go` for the Hextra module, agents/go needs it for the taught
+# runtime, evaluation harness, and repository maintenance commands.
+# mise merges parent configs, so `cd agents/go && mise run check` resolves these same pins.
+# Keep `go` equal to the `go` directive in agents/go/go.mod.
+go = "1.26.5"
+golangci-lint = "2.12.2"
+gotestsum = "1.13.0"
 dprint = "0.55.2"
 lefthook = "2.1.10"
 gitleaks = "8.30.1"
@@ -12,15 +20,14 @@ actionlint = "1.7.12"
 k3d = "5.9.0"
 kubectl = "1.36.3"
 helm = "4.2.3"
-helmfile = "1.7.1"
+helmfile = "1.7.3"
 skaffold = "2.24.0"
 kubeconform = "0.8.0"
 kube-linter = "0.8.3"
 opentofu = "1.12.5"
 tflint = "0.64.0"
-trivy = "0.72.0"
+trivy = "0.73.0"
 "aqua:prometheus/prometheus" = "3.13.2" # ships promtool for the Chapter 7 alert-rule drill
-sqlite = "3.53.4"
 shellcheck = "0.11.0"
 shfmt = "3.13.1"
 sops = "3.13.3" # SOPS-encrypted secrets in git (Chapter 6); only needed to run infra/scripts/secrets.sh
@@ -29,7 +36,7 @@ ripgrep = "15.2.0"
 lychee = "0.24.2"
 jq = "1.8.2"
 gh = "2.97.0"
-gcloud = "578.0.0"
+zizmor = "1.29.0"
 "github:mikefarah/yq" = "4.53.3"
 "github:agentgateway/agentgateway" = "1.4.1"
 
@@ -48,6 +55,11 @@ lockfile_platforms = [
 [settings.task]
 run_auto_install = false # fail fast in hooks instead of silently installing a missing tool
 
+[env]
+# SQLite is reconstructed from one verified upstream source archive instead of
+# executing a moving asdf plugin. Keep its generated CLI project-local.
+_.path = ".agents/bin"
+
 [tasks.install]
 # `install:core` is kept as an alias, not a second task: scripts/check-licenses.sh and older
 # course text name it, and two tasks with the same description made `mise tasks` unreadable.
@@ -55,38 +67,37 @@ alias = ["i", "install:core"]
 description = "Install the learner-facing docs, agent, and git-hook dependencies"
 run = [
   "mise run install:tools:core",
-  "uv sync --locked",
+  # The Hextra theme is a Hugo Module pinned in go.mod; this materializes it into the
+  # local module cache so the first build does not have to.
+  "GOFLAGS=-mod=readonly go mod download",
   "lefthook install",
-  "cd agents/python && mise run install",
+  "cd agents/go && mise run install",
+  "cd evals && mise run install",
+  "cd tools && mise run install",
 ]
 
 [tasks."install:tools:core"]
 hide = true # implementation detail of install:*; a learner picks a tier, never a tool list
 description = "Install only the tools used by learner and contributor core tasks"
-run = "mise install uv dprint lefthook gitleaks actionlint trivy sqlite shellcheck shfmt lychee jq"
-
-[tasks."install:platform"]
-description = "Install the separate MLflow server, local platform, and GKE plan dependencies"
 run = [
-  "mise run install:tools:platform",
-  "uv sync --directory infra/mlflow --locked",
-  "./scripts/install-helm-diff.sh",
+  "mise install -y --locked hugo-extended go golangci-lint gotestsum dprint lefthook gitleaks actionlint zizmor trivy shellcheck shfmt lychee jq",
+  "./scripts/install-sqlite.sh",
 ]
 
-[tasks."install:gcp"]
-description = "Install the optional Google Cloud CLI and GKE kubectl authentication plugin"
+[tasks."install:platform"]
+description = "Install the local platform and GKE plan dependencies"
 run = [
-  "mise install gcloud",
-  "gcloud components install gke-gcloud-auth-plugin --quiet",
+  "mise run install:tools:platform",
+  "./scripts/install-helm-diff.sh",
 ]
 
 [tasks."install:tools:platform"]
 hide = true # implementation detail of install:platform
 description = "Install tools used by the local platform and optional GKE plan"
-run = "mise install uv k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint aqua:prometheus/prometheus sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
+run = "mise install -y --locked k3d kubectl helm helmfile skaffold kubeconform kube-linter opentofu tflint aqua:prometheus/prometheus sops age ripgrep github:mikefarah/yq github:agentgateway/agentgateway"
 
 [tasks."install:maintainer"]
-description = "Install every dependency used by the complete maintainer validation"
+description = "Install every repository-managed dependency used by maintainer validation"
 # Nested mise commands must not read a contributor's global tool catalog. A
 # project-local config directory keeps project discovery intact while removing
 # global config and conf.d files from this clean-room installer.
@@ -95,9 +106,8 @@ run = [
   # Bare `mise install` also installs tools from a user's global config. Keep
   # this tier project-scoped; the validation tier owns repository dependencies
   # and this outer tier adds only cloud/release administration tools.
-  "mise install gh",
+  "mise install -y --locked gh",
   "mise run install:validation",
-  "mise run install:gcp",
 ]
 
 [tasks."install:validation"]
@@ -105,13 +115,12 @@ description = "Install every account-free dependency used by CI and local valida
 env = { MISE_CONFIG_DIR = ".agents/tmp/mise-config" }
 run = [
   "mise run install",
-  "cd agents/python && mise run install:eval",
   "mise run install:platform",
 ]
 
 [tasks."install:accessibility"]
-description = "Install the optional Chromium build and system libraries used by the browser accessibility smoke"
-run = "uv run --locked --script scripts/accessibility_browser.py --install-browser --with-deps"
+description = "Verify that a system Chrome or Chromium executable is available for the browser smoke"
+run = "command -v google-chrome-stable >/dev/null || command -v google-chrome >/dev/null || command -v chromium >/dev/null"
 
 [tasks.doctor]
 # `doctor` and `doctor:base` were byte-identical tasks. One task, two names: the bare form is
@@ -139,55 +148,89 @@ run = "./scripts/doctor.sh gcp"
 
 [tasks."config:check"]
 description = "Validate the agent configuration and print it with secrets masked"
-run = "cd agents/python && mise run config:check"
+run = "cd agents/go && mise run config:check"
+
+[tasks."config:generate"]
+description = "Regenerate the root environment example from the Go Config contract"
+run = "cd agents/go && mise run config:generate"
+
+[tasks."check:env-example"]
+description = "Verify the root environment example matches the Go Config contract"
+run = "cd agents/go && mise run check:env-example"
 
 [tasks.serve]
 # `watch` was a byte-identical second task; it stays as an alias so the standard task
 # vocabulary (install, format, check, test, secure, build, watch) still resolves.
 alias = ["s", "w", "watch"]
-description = "Serve the documentation locally with live reload (Zensical) on :8003"
+description = "Serve the documentation locally with live reload (Hugo) on :8003"
+depends = ["tools:built"]
 # Not :8000. That port belongs to the raw MCP server in the stable network contract
 # (AGENTS.md), and a docs preview left running would otherwise shadow the ADK web UI a
 # learner opens in Chapter 2.1 — presenting as "the agent did not start".
-run = "uv run zensical serve --dev-addr 127.0.0.1:8003"
+# The authoring contracts run once before the preview: `hugo server` never runs the
+# convention checker, so a preview on its own can render a page the docs gate rejects.
+# It gates startup only — a rebuild after an edit is not re-checked, so `mise run
+# check:docs` in a second terminal is still the working loop.
+run = [
+  "tools/bin/conventions docs",
+  "hugo server --bind 127.0.0.1 --port 8003",
+]
 
 [tasks.build]
 # Aggregates like format and check do. Before this, `mise run build` built only the site, so
-# building "everything" before a deploy silently shipped a stale agent image. Both image
-# children need Docker; use build:docs for the container-free documentation build.
+# building "everything" before a deploy silently shipped a stale agent image. The image child
+# needs Docker; use build:docs for the container-free documentation build. Tempo, Loki, and the
+# collector are consumed as digest-pinned upstream releases, so nothing here builds them.
 alias = "b"
-description = "Build every release artifact: the documentation site and both container images"
-depends = ["build:docs", "build:agent-image", "build:mlflow-image"]
+description = "Build every release artifact: the documentation site and the agent image"
+depends = ["build:docs", "build:agent-image"]
 
 [tasks."build:docs"]
-description = "Build the static documentation site (Zensical → site/)"
-run = [
-  "uv run zensical build",
-  "uv run python scripts/docs_routes.py site",
-]
+description = "Build the static documentation site (Hugo → site/)"
+# --panicOnWarning, refLinksErrorLevel, and the native navigation gate form the
+# strict documentation build contract. No GOFLAGS prefix: Hugo replaces the variable with
+# its own `-modcacherw` before invoking `go`, so one here would only look like protection.
+# `check:docs` owns the guard that actually catches a rewritten manifest.
+run = "hugo --minify --panicOnWarning --destination site --cleanDestinationDir"
 
 [tasks."build:agent-image"]
 description = "Build the non-root AgentOps Agent image"
+# This body uses bash syntax (`<<<`, `[[ ]]`). mise runs inline bodies with
+# `sh -c -o errexit`, which is dash on Debian-family hosts, so the default made
+# the task fail with `Syntax error: redirection unexpected`. Name bash and keep
+# mise's own errexit flag. `unix_default_inline_shell_args` cannot fix this:
+# mise ignores that setting outside a global config.
+shell = "bash -c -o errexit"
 run = """
+build_mode="${AGENT_BUILD_MODE:-development}"
+case "$build_mode" in
+  development) build_version=development ;;
+  release) build_version="${AGENT_BUILD_VERSION:-$(tr -d '\n' < VERSION)}" ;;
+  *) printf 'unknown AGENT_BUILD_MODE: %s\n' "$build_mode" >&2; exit 1 ;;
+esac
+source_json="$(cd tools && go run ./cmd/source-identity --root .. --mode "$build_mode")"
+source_identity="$(jq -er '.display' <<<"$source_json")"
+source_revision="$(jq -er '.revision // ""' <<<"$source_json")"
+source_tree_digest="$(jq -er '.tree_digest' <<<"$source_json")"
+# Task bodies cannot source scripts/lib.sh, so this inlines its json_flag helper:
+# `jq -e` calls a false boolean a failure, which would abort every clean checkout.
+source_dirty="$(jq -er '.dirty | select(type == "boolean") | tostring' <<<"$source_json")"
+if [[ -n "${AGENT_SOURCE_COMMIT:-}" && "$AGENT_SOURCE_COMMIT" != "$source_identity" ]]; then
+  printf 'AGENT_SOURCE_COMMIT %s does not match resolved source %s\n' "$AGENT_SOURCE_COMMIT" "$source_identity" >&2
+  exit 1
+fi
+created="$(git show -s --format=%cI HEAD)"
 docker build \
-  --build-arg "AGENT_SOURCE_COMMIT=$(git rev-parse HEAD)" \
-  --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
-  --build-arg "OCI_VERSION=$(uv version --short)" \
-  --file agents/python/Dockerfile \
+  --build-arg "AGENT_BUILD_MODE=$build_mode" \
+  --build-arg "AGENT_SOURCE_COMMIT=$source_identity" \
+  --build-arg "AGENT_SOURCE_REVISION=$source_revision" \
+  --build-arg "AGENT_SOURCE_TREE_DIGEST=$source_tree_digest" \
+  --build-arg "AGENT_SOURCE_DIRTY=$source_dirty" \
+  --build-arg "OCI_CREATED=$created" \
+  --build-arg "OCI_VERSION=$build_version" \
+  --file agents/go/Dockerfile \
   --tag agentops-agent:dev \
   agents
-"""
-
-[tasks."build:mlflow-image"]
-description = "Build the locked self-hosted MLflow image"
-run = """
-docker build \
-  --build-arg "AGENT_SOURCE_COMMIT=$(git rev-parse HEAD)" \
-  --build-arg "OCI_CREATED=$(git show -s --format=%cI HEAD)" \
-  --build-arg "OCI_VERSION=$(uv version --short)" \
-  --file infra/mlflow/Dockerfile \
-  --tag "agentops-mlflow:$(./scripts/mlflow-version.sh)" \
-  infra/mlflow
 """
 
 [tasks.promote]
@@ -224,25 +267,36 @@ description = "Format all course sources, including optional OpenTofu infrastruc
 depends = ["format:core", "format:tofu"]
 
 [tasks."format:core"]
-description = "Format docs, config, shell scripts, and the Python agent"
-depends = ["format:dprint", "format:python", "format:shell"]
+description = "Format docs, config, shell scripts, and every Go module"
+depends = ["format:dprint", "format:evals", "format:go", "format:shell", "format:tools"]
 
 [tasks."format:dprint"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format Markdown and configuration files"
 run = "dprint fmt"
 
-[tasks."format:python"]
-description = "Format the Python reference agent"
-run = [
-  "cd agents/python && mise run format:python .",
-  "./scripts/repository-python.sh format",
-]
+[tasks."format:go"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
+description = "Format the Go reference agent"
+run = "cd agents/go && mise run format"
+
+[tasks."format:evals"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
+description = "Format the standalone Go evaluation harness"
+run = "cd evals && mise run format"
+
+[tasks."format:tools"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
+description = "Format native repository tools"
+run = "cd tools && mise run format"
 
 [tasks."format:shell"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format repository shell scripts"
 run = "shfmt -w scripts infra/scripts"
 
 [tasks."format:tofu"]
+hide = true # a leaf of `format`; a learner picks a scope, never a formatter
 description = "Format the OpenTofu GCP module"
 run = "tofu -chdir=infra/gcp fmt -recursive"
 
@@ -255,26 +309,80 @@ depends = ["check:infra", "check:licenses", "check:source", "check:vuln"]
 # Deliberately out of check:core and off the per-commit hook: a dependency audit is a function of
 # the lockfile and the advisory feed, not of the current diff, and it needs the network — which
 # would make an offline commit impossible. It stays in the maintainer gate and in CI.
-description = "Audit every lock-synchronized Python dependency profile against published advisories"
-run = "./scripts/check-vulnerabilities.sh"
+description = "Audit every Go module against published advisories"
+depends = ["check:vuln:evals", "check:vuln:go", "check:vuln:tools"]
+
+[tasks."check:vuln:go"]
+hide = true # a leaf of `check:vuln`; the aggregate is the audit a learner runs
+# One owner per ecosystem: govulncheck is the only gate that audits agents/go, and it is
+# reachability-aware and owns the production module.
+description = "Audit the Go reference agent against the Go vulnerability database"
+run = "cd agents/go && mise run check:vuln"
+
+[tasks."check:vuln:evals"]
+hide = true # a leaf of `check:vuln`; the aggregate is the audit a learner runs
+description = "Audit the standalone evaluation harness against the Go vulnerability database"
+run = "cd evals && mise run check:vuln"
+
+[tasks."check:vuln:tools"]
+hide = true # a leaf of `check:vuln`; the aggregate is the audit a learner runs
+description = "Audit native repository tooling against the Go vulnerability database"
+run = "cd tools && mise run check:vuln"
 
 [tasks."check:core"]
 description = "Run the model-, container-, cluster-, and cloud-free course validation"
 depends = ["check:licenses:core", "check:source"]
 
+[tasks."tools:built"]
+hide = true # a preflight, not a step a learner chooses
+description = "Build the repository tool binaries before a task shells out to one"
+# This builds rather than asserts, and the difference is the whole point. Asserting
+# `[ -x tools/bin/conventions ]` passes against yesterday's binary, so every consumer —
+# check:docs first among them — validated the corpus against whichever rules were
+# compiled last. A gate that can pass against rules nobody is running is not a gate,
+# and this exact drift has bitten before.
+#
+# The build is free when nothing changed: tools/mise.toml's build task declares its
+# sources and outputs, so mise skips it and prints "sources up-to-date".
+#
+# tools/bin/ is gitignored and run_auto_install is off, so without a Go toolchain the
+# nested build fails with a bare "command not found" that names neither the cause nor
+# the cure. Checking for `go` first turns that into one sentence with the remedy in it.
+run = """
+if ! command -v go >/dev/null 2>&1; then
+  printf 'the repository tool binaries need the Go toolchain, which is not on PATH\\n' >&2
+  printf "run 'mise run install' to install it and build them into tools/bin, then retry this task\\n" >&2
+  exit 1
+fi
+mise run -C tools build
+"""
+
 [tasks."check:source"]
+hide = true # a fan-out of `check`/`check:core`, never typed directly
 description = "Validate shared course sources without infrastructure or license profiles"
 depends = [
+  "tools:built",
   "check:data",
   "check:docs",
   "check:freshness",
   "check:format",
   "check:links",
-  "check:python",
+  "check:modules",
   "check:release-metadata",
   "check:shell",
   "check:skills",
   "check:workflows",
+]
+
+[tasks."check:modules"]
+hide = true # a fan-out of `check`/`check:core`, never typed directly
+# golangci-lint holds a process lock by default. Keep each module's full check
+# intact, but run the three linters serially inside this one dependency.
+description = "Run all Go module source checks without parallel linter contention"
+run = [
+  "mise run check:go",
+  "mise run check:evals",
+  "mise run check:tools",
 ]
 
 [tasks."check:data"]
@@ -283,34 +391,77 @@ run = "cd agents/data && mise run check"
 
 [tasks."check:docs"]
 description = "Test authoring contracts, build the course site, and validate rendered routes"
+depends = ["tools:built"]
+# Hugo resolves the Hextra module itself and will rewrite the root go.mod and go.sum when
+# hugo.toml's imports drift from the manifest. GOFLAGS cannot stop it: Hugo overwrites the
+# variable with its own `-modcacherw` before invoking `go`, so a `-mod=readonly` prefix here
+# would only look like protection. Comparing the files across the build is the check that
+# actually fails, and it stays correct while the manifest is legitimately being edited.
 run = [
-  "uv run python -m unittest scripts/test_check_conventions.py",
-  "uv run python -m unittest infra/scripts/test_platform_backup_drill.py",
-  "uv run python -m unittest scripts/test_release_attestation.py",
-  "uv run python -m unittest scripts/test_release_evidence.py",
-  "uv run python -m unittest scripts/test_release_freshness.py",
-  "uv run python -m unittest scripts/test_release_promote.py",
-  "uv run python -m unittest scripts/test_release_reconcile.py",
-  "uv run python scripts/check_conventions.py docs",
-  "uv run zensical build",
-  "uv run python scripts/docs_routes.py site",
-  "uv run python scripts/check_conventions.py rendered site",
+  "tools/bin/conventions docs",
+  """
+snapshot="$(mktemp -d)"
+trap 'rm -rf "${snapshot}"' EXIT
+cp go.mod go.sum "${snapshot}/"
+hugo --minify --panicOnWarning --destination site --cleanDestinationDir
+if ! cmp -s go.mod "${snapshot}/go.mod" || ! cmp -s go.sum "${snapshot}/go.sum"; then
+  printf 'the documentation build rewrote go.mod or go.sum; reconcile hugo.toml imports with the manifest\\n' >&2
+  exit 1
+fi
+""",
+  "tools/bin/conventions rendered site",
 ]
+
+[tasks."watch:docs"]
+description = "Re-run the authoring contracts whenever a content page changes"
+depends = ["tools:built"]
+# `serve` gates its own startup on the contracts and then never re-checks them, so a
+# preview happily renders a page the docs gate rejects. This is the other half of the
+# authoring loop: run it beside `mise run serve` and an edit that breaks a contract
+# says so while the page is still open. It checks the contracts only — the Hugo build
+# and the rendered-route pass belong to `check:docs`, which is what CI runs.
+#
+# watchexec is fetched on demand rather than pinned in [tools], the same way the load
+# tasks fetch k6: this is an authoring convenience, not a dependency of any gate.
+run = "mise x watchexec@2.5.1 -- watchexec --watch content --watch data --exts md,yaml --restart -- tools/bin/conventions docs"
+
+[tasks."docs:captures"]
+description = "Regenerate data/captures.yaml from one real run of all three test suites"
+# Maintainer-only, and deliberately not wired into `check` or `test`: it runs the suites,
+# so a gate that depended on it would run them twice. `check:docs` reads the committed
+# manifest instead, and fails when a page quotes a figure the manifest does not carry.
+run = "./scripts/generate-captures.sh"
 
 [tasks."check:accessibility"]
 description = "Build and exercise the representative documentation and web-client accessibility surfaces"
 run = [
   "mise run build:docs",
-  "uv run --locked --script scripts/accessibility_browser.py",
+  "tools/bin/accessibility",
 ]
 
 [tasks."check:freshness"]
 description = "Test the read-only external freshness reporter without network access"
-run = "uv run python -m unittest scripts/test_freshness_report.py"
+run = "cd tools && go test ./internal/freshness"
 
 [tasks."check:format"]
 description = "Check Markdown and configuration formatting"
 run = "dprint check"
+
+[tasks."check:go"]
+description = "Format-check and lint the Go reference agent"
+run = "cd agents/go && mise run check"
+
+[tasks."check:evals"]
+description = "Format-check, lint, and validate the standalone Go evaluation harness offline"
+run = [
+  "cd evals && mise run check:format",
+  "cd evals && mise run check:lint",
+  "cd evals && mise run eval:validate",
+]
+
+[tasks."check:tools"]
+description = "Format-check and lint native repository tools"
+run = "cd tools && mise run check"
 
 [tasks."check:infra"]
 description = "Render and validate the local and GKE infrastructure"
@@ -318,11 +469,16 @@ run = "./scripts/check-infra.sh"
 
 [tasks."check:links"]
 description = "Check repository-local Markdown links without network access"
-run = "lychee --offline README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'docs/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
+# --root-dir resolves absolute destinations like `/images/5-3-approval-form.png`. It points at
+# assets/, not static/, because Hextra's image render hook resolves a leading-slash destination
+# through resources.Get first — so a course capture lives under assets/images/ and is published
+# only when a page references it. Pointing lychee at static/ would report every real capture as
+# a dead link; pointing the pages at static/ would publish captures nothing renders.
+run = "lychee --offline --root-dir '{{config_root}}/assets' README.md AGENTS.md SUPPORT.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md ACCESSIBILITY.md GOVERNANCE.md CHANGELOG.md 'content/**/*.md' 'agents/**/*.md' 'infra/**/*.md' 'skills/**/*.md' 'scripts/**/*.md'"
 
 [tasks."check:skills"]
 description = "Validate the installable Agent Skills under skills/"
-run = "uv run python scripts/check_conventions.py skills"
+run = "tools/bin/conventions skills"
 
 [tasks."check:licenses"]
 description = "Verify repository and every lock-synchronized dependency profile license"
@@ -332,45 +488,100 @@ run = "./scripts/check-licenses.sh full"
 description = "Verify repository, documentation, and agent dependency licenses"
 run = "./scripts/check-licenses.sh core"
 
-[tasks."check:python"]
-description = "Format-check, lint, and type-check every tracked Python source"
-run = [
-  "cd agents/python && mise run check",
-  "./scripts/repository-python.sh check",
-  "uv run python scripts/check_conventions.py repository-python",
-]
-
 [tasks."check:release-metadata"]
 description = "Verify package, citation, changelog, and optional tag versions agree"
-run = "uv run python scripts/check_conventions.py release-metadata"
+run = "tools/bin/conventions release-metadata"
 
 [tasks."check:shell"]
 description = "Lint repository shell scripts"
 run = [
   "shfmt -d scripts infra/scripts",
   "shellcheck scripts/*.sh infra/scripts/*.sh",
+  # shellcheck never sees an inline mise task body; parse each one separately.
+  "scripts/check-task-shell.sh",
   "scripts/test-lib.sh",
+  "scripts/test-doctor.sh",
+  "scripts/test-install-helm-diff.sh",
+  "scripts/test-install-sqlite.sh",
   "scripts/test-chaos-drill.sh",
   "infra/scripts/test-gcp-lab-audit.sh",
+  "infra/scripts/test-platform-backup-drill.sh",
   "infra/scripts/test-smoke-gke-model.sh",
 ]
 
 [tasks."check:workflows"]
-description = "Lint GitHub Actions workflows"
-run = "actionlint .github/workflows/*.yml"
+description = "Lint and security-review GitHub Actions workflows"
+run = [
+  "actionlint .github/workflows/*.yml",
+  "zizmor --offline --persona=regular --strict-collection .",
+]
 
 [tasks.test]
 alias = "t"
-description = "Run the Python agent test suite"
-run = "cd agents/python && mise run test"
+description = "Run every Go module test suite"
+depends = ["test:evals", "test:go", "test:tools"]
+
+[tasks."test:go"]
+hide = true # a leaf of `test`; a learner runs the suite, not one module of it
+description = "Run the Go reference agent test suite"
+run = "cd agents/go && mise run test"
+
+[tasks."test:evals"]
+hide = true # a leaf of `test`; a learner runs the suite, not one module of it
+description = "Run the standalone evaluation harness test suite"
+run = "cd evals && mise run test"
+
+[tasks."test:tools"]
+hide = true # a leaf of `test`; a learner runs the suite, not one module of it
+description = "Run native repository-tool tests"
+run = "cd tools && mise run test"
+
+[tasks.redteam]
+description = "Run deterministic offline adversarial guardrail regressions"
+run = "cd agents/go && go test -race ./policy -run 'Injection|Redact|PII|Credential|Prompt'"
+
+[tasks."eval:validate"]
+description = "Validate all committed evaluation assets without a model"
+run = "cd evals && mise run eval:validate"
+
+[tasks.eval]
+description = "Run the model-backed evaluation against the Go agent"
+run = "cd evals && mise run eval"
+
+[tasks."eval:judge-calibration"]
+description = "Measure gateway-judge agreement against reviewed labels"
+run = "cd evals && mise run eval:judge-calibration"
+
+[tasks."eval:ab"]
+description = "Compare two git-pinned prompt evaluation artifacts"
+usage = '''
+flag "--baseline <path>" help="Sanitized eval artifact from the baseline Git revision"
+flag "--candidate <path>" help="Sanitized eval artifact from the candidate Git revision"
+'''
+run = '''
+cd evals
+mise run eval:ab -- \
+  --baseline "$usage_baseline" \
+  --candidate "$usage_candidate"
+'''
 
 [tasks."course:evidence"]
 description = "Run deterministic learner gates and create a sanitized completion manifest"
-run = "uv run python scripts/course_evidence.py create"
+run = "tools/bin/course-evidence create"
 
 [tasks."course:evidence:verify"]
 description = "Verify a completion manifest from its exact clean source revision"
-run = "uv run python scripts/course_evidence.py verify"
+run = "tools/bin/course-evidence verify"
+
+[tasks."course:certificate"]
+description = "Render a shareable self-attested certificate from a completion manifest"
+# No `depends`, matching its two siblings: all three read what `create` already
+# wrote, and none of them re-runs a gate to draw a picture of one.
+usage = '''
+flag "--name <name>" help="Name printed on the certificate"
+flag "--tier <tier>" help="Capstone tier claimed: bronze, silver, or gold"
+'''
+run = 'tools/bin/course-certificate --name "$usage_name" --tier "$usage_tier"'
 
 [tasks."gateway:host"]
 description = "Run the loopback-only host agentgateway container in the foreground"
@@ -406,7 +617,7 @@ run = [
 
 [tasks."client:web"]
 description = "Serve the minimal A2A web client (offline, no build step) on :8001"
-run = "python3 -m http.server 8001 --directory clients/web"
+run = "tools/bin/static-server --host 127.0.0.1 --port 8001 --directory clients/web"
 
 # k6 is intentionally not in [tools] (optional load path, AGPL-3.0); `mise x` runs the
 # pinned ephemeral binary documented in load/README.md and docs 7.2.
@@ -424,14 +635,73 @@ run = "mise x k6@2.1.0 -- k6 run load/a2a-send.js"
 
 [tasks."model:fake"]
 description = "Run a deterministic OpenAI-compatible fake model on :11434 for platform-only load tests"
-run = "uv run --script load/fake_model.py"
+run = "tools/bin/fake-model"
+
+[tasks."agent:built"]
+hide = true # a preflight, not a step a learner chooses
+description = "Rebuild the agent binary so its stamped identity matches the working tree"
+# The harness refuses a binary whose embedded tree digest is not the tree it is
+# evaluating, which is the guarantee that a run's evidence names the source it ran
+# against. Left to the caller, that guarantee reads as a failure on any tree edited
+# since the last build — so the tasks that need it build it. The agent's own build
+# task deliberately declares no `sources`, because the stamped digest covers content,
+# infrastructure, and evaluation inputs too; it costs a few seconds and is correct.
+run = "mise run -C agents/go build"
+
+[tasks."eval:offline"]
+description = "Run the four required evaluation cases against the scripted fixture: no model, no weights, no wait"
+depends = ["tools:built", "agent:built"]
+# The scripted fixture walks each required case's exact trajectory, so the harness,
+# the transports, and the trajectory assertions are all exercised — and nothing about
+# the model is. That distinction is the whole point: this is a maintainer- and
+# CI-facing task that proves the harness, the transports, and the trajectory
+# assertions with no model, and it says nothing about the agent's judgement.
+# Port 11435 keeps it clear of a real Ollama on :11434.
+#
+# The transport is A2A because two of the four required cases propose a guarded
+# write, and `agent web` — the REST surface — freezes writes by construction: its
+# caller-supplied user id is not authentication, so an approval taken there would
+# name an approver nobody verified. A2A is the write-owning boundary, so it is the
+# only surface on which "the agent asked before acting" is a question that can be
+# asked at all. See `evals/README.md` for the read-only REST recipe.
+#
+# The named-entity model points at the same fixture: A2A readiness probes the PII
+# model catalog, and the fixture answers it, which keeps that guard's code path live
+# without a second endpoint and without an Ollama on this host.
+shell = "bash -c"
+run = """
+set -euo pipefail
+tools/bin/fake-model --port 11435 --script tools/testdata/ops-script.json &
+fixture=$!
+trap 'kill "${fixture}" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do
+  curl -fsS http://127.0.0.1:11435/healthz >/dev/null 2>&1 && break
+  sleep 0.1
+done
+cd evals && OPENAI_BASE_URL=http://127.0.0.1:11435/v1 OPENAI_API_KEY=offline \\
+  AGENT_MODEL=agentops-fake AGENT_MODEL_PROVIDER=openai-compatible \\
+  AGENT_PII_MODEL_BASE_URL=http://127.0.0.1:11435/v1 \\
+  go run ./cmd/agentops-eval run --evalset ops.evalset.json --entrypoint agent \\
+  --transport a2a --repeat 1 --min-pass-rate 0 \\
+  --required-cases investigation-recalls-context,remediation-loads-skill,restart-needs-approval,resolve-needs-approval,restart-approval-verified \\
+  --output offline-results.json
+"""
 
 [tasks."observability:up"]
 description = "Start and readiness-check the hardened local observability stack"
+# Compose resolves its own `.env` relative to the compose file's directory, so the root
+# `.env` never reaches the `${TEMPO_PORT}`-style interpolations in
+# infra/observability/compose.yaml. Loading it into the task environment instead feeds
+# compose and both shell scripts from one place; passing `--env-file` to compose would
+# reach compose only, and `--project-directory .` would re-root every bind mount.
+env = { _.file = { path = ".env", redact = true } }
 run = "./infra/scripts/observability-up.sh"
 
 [tasks."observability:down"]
 description = "Stop local observability services while preserving their volumes"
+# Same environment as observability:up, so teardown resolves the identical project,
+# network, and ports that startup published.
+env = { _.file = { path = ".env", redact = true } }
 run = [
   "docker compose -f infra/observability/compose.yaml down",
   "./scripts/check-observability.sh stopped",
@@ -451,10 +721,41 @@ run = [
 
 [tasks."platform:dev"]
 description = "Build, push, and reconcile the local platform; leave workloads for explicit teardown"
-run = [
-  "test \"$(kubectl config current-context)\" = k3d-local",
-  "cd infra && AGENT_SOURCE_COMMIT=\"$(git rev-parse HEAD)\" SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev --filename skaffold.yaml --profile local --cleanup=false",
-]
+shell = "bash -c -o errexit" # `<<<` is bash-only; see build:agent-image
+run = """
+test "$(kubectl config current-context)" = k3d-local
+source_json="$(cd tools && go run ./cmd/source-identity --root .. --mode development)"
+export AGENT_BUILD_MODE=development
+export AGENT_SOURCE_COMMIT="$(jq -er '.display' <<<"$source_json")"
+export AGENT_SOURCE_REVISION="$(jq -er '.revision // ""' <<<"$source_json")"
+export AGENT_SOURCE_TREE_DIGEST="$(jq -er '.tree_digest' <<<"$source_json")"
+# Task bodies cannot source scripts/lib.sh, so this inlines its json_flag helper:
+# `jq -e` calls a false boolean a failure, which would abort every clean checkout.
+export AGENT_SOURCE_DIRTY="$(jq -er '.dirty | select(type == "boolean") | tostring' <<<"$source_json")"
+export AGENT_IMAGE_TAG="development-${AGENT_SOURCE_TREE_DIGEST#sha256:}"
+export OCI_CREATED="$(git show -s --format=%cI HEAD)"
+export OCI_VERSION=development
+cd infra
+SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold dev --filename skaffold.yaml --profile local --cleanup=false
+"""
+
+[tasks."platform:run"]
+description = "Build and reconcile one clean release-bearing candidate on the local platform"
+shell = "bash -c -o errexit" # `<<<` is bash-only; see build:agent-image
+run = """
+test "$(kubectl config current-context)" = k3d-local
+source_json="$(cd tools && go run ./cmd/source-identity --root .. --mode release)"
+export AGENT_BUILD_MODE=release
+export AGENT_SOURCE_COMMIT="$(jq -er '.display' <<<"$source_json")"
+export AGENT_SOURCE_REVISION="$(jq -er '.revision' <<<"$source_json")"
+export AGENT_SOURCE_TREE_DIGEST="$(jq -er '.tree_digest' <<<"$source_json")"
+export AGENT_SOURCE_DIRTY=false
+export AGENT_IMAGE_TAG="$AGENT_SOURCE_REVISION"
+export OCI_CREATED="$(git show -s --format=%cI HEAD)"
+export OCI_VERSION="$(tr -d '\n' < VERSION)"
+cd infra
+SKAFFOLD_DEFAULT_REPO=registry.localhost:5050 skaffold run --filename skaffold.yaml --profile local
+"""
 
 [tasks."state:backup"]
 description = "Snapshot the agent SQLite state online-safely (SQLite backup API)"
@@ -494,5 +795,9 @@ run = [
 
 [tasks.clean]
 alias = "n"
-description = "Delete the built site and the root .venv; rerun `mise run install` afterwards"
-run = "rm -rf site/ .venv/"
+description = "Delete local build outputs; rerun `mise run install` afterwards"
+# public/ and _vendor/ are not written by any task, which is exactly why they are swept
+# here: a bare `hugo` run (no --destination) leaves public/, and a stray `hugo mod vendor`
+# leaves _vendor/, which then shadows the go.mod-pinned theme and makes local builds
+# disagree with CI. Both are ignored, so nothing warns you they are there.
+run = "rm -rf site/ public/ _vendor/ agents/go/bin agents/go/coverage.out evals/bin evals/coverage.out tools/bin"

@@ -1,6 +1,6 @@
 ---
 name: agentops-telemetry
-description: Instrument an LLM agent with OpenTelemetry traces, metrics, and logs so you can see why a turn behaved as it did, with user content kept out of spans by default. Use when an agent is a black box in production, when you need per-turn traces of model and tool calls, or when wiring an agent to MLflow, Prometheus, Grafana, or Loki.
+description: Instrument an LLM agent with OpenTelemetry traces, metrics, and logs so you can see why a turn behaved as it did, with user content kept out of spans by default. Use when an agent is a black box in production or when wiring it to Tempo, Prometheus, Grafana, or Loki.
 ---
 
 # AgentOps Telemetry
@@ -11,7 +11,7 @@ Trace an agent the way you trace a distributed system: one correlated record of 
 
 - An agent misbehaves in production and you can only see the final output.
 - You need to correlate a model call, its tool calls, tokens, and latency for one turn.
-- You are exporting agent telemetry to MLflow (traces), Prometheus (metrics), or Loki (logs).
+- You are exporting agent telemetry to Tempo, Prometheus, Grafana, or Loki.
 - You must instrument without leaking user prompts or model responses into span storage.
 
 ## Steps
@@ -24,9 +24,10 @@ Trace an agent the way you trace a distributed system: one correlated record of 
 
 ## Reference implementation
 
-From the AgentOps Open Course (agent modules live under `agents/python/src/agent/`):
+From the AgentOps Open Course:
 
-- `telemetry.py` — OTLP setup and a redacting, bounded, dedup log bridge; content capture off by default.
+- `agents/go/telemetry/` — OTLP setup and a redacting, bounded log bridge with content capture off by default.
+- `evals/evidence.go` — separate sanitized run/case/score traces and metrics for evaluation.
 - `infra/observability/` — OTel Collector, Prometheus, Grafana, Loki, and a shipped dashboard.
 - Course chapters `7.1. Tracing` and `7.2. Monitoring`.
 

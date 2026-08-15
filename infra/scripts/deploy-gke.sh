@@ -7,25 +7,30 @@
 # shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/lib.sh"
 
-for command_name in docker git helmfile kubeconform kubectl skaffold tofu; do
+for command_name in docker git helmfile jq kubeconform kubectl skaffold tofu; do
 	require_cmd "${command_name}" platform
 done
-require_cmd gcloud gcp
+require_host_cmd gcloud "install the Google Cloud SDK from a reviewed host package source"
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_dir}" || exit
-head_commit="$(git rev-parse --verify 'HEAD^{commit}')"
-[[ ${head_commit} =~ ^[0-9a-f]{40}$ ]] ||
-	fail "HEAD did not resolve to a full commit SHA"
-working_tree_status="$(git status --porcelain)"
-[[ -z ${working_tree_status} ]] ||
-	fail "GKE deployment requires a clean working tree"
-source_commit="${AGENT_SOURCE_COMMIT:-${head_commit}}"
-[[ ${source_commit} =~ ^[0-9a-f]{40}$ ]] ||
-	fail "AGENT_SOURCE_COMMIT must be a full lowercase commit SHA"
-[[ ${source_commit} == "${head_commit}" ]] ||
-	fail "AGENT_SOURCE_COMMIT does not match HEAD"
+[[ -x tools/bin/source-identity ]] ||
+	fail "tools/bin/source-identity is missing; run mise run install first"
+source_identity_json="$(tools/bin/source-identity --root . --mode release)"
+source_commit="$(jq -er '.revision' <<<"${source_identity_json}")"
+[[ -z ${AGENT_SOURCE_COMMIT:-} || ${AGENT_SOURCE_COMMIT} == "${source_commit}" ]] ||
+	fail "AGENT_SOURCE_COMMIT does not match the resolved clean source"
+export AGENT_BUILD_MODE=release
 export AGENT_SOURCE_COMMIT="${source_commit}"
+export AGENT_SOURCE_REVISION="${source_commit}"
+export AGENT_IMAGE_TAG="${source_commit}"
+export AGENT_SOURCE_TREE_DIGEST
+export AGENT_SOURCE_DIRTY=false
+export OCI_CREATED
+export OCI_VERSION
+AGENT_SOURCE_TREE_DIGEST="$(jq -er '.tree_digest' <<<"${source_identity_json}")"
+OCI_CREATED="$(git show -s --format=%cI HEAD)"
+OCI_VERSION="$(tr -d '\n' <VERSION)"
 
 project_id="$(tofu -chdir=infra/gcp output -raw project_id)"
 cluster_name="$(tofu -chdir=infra/gcp output -raw cluster_name)"

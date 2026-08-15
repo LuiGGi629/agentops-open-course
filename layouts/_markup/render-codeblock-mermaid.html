@@ -1,0 +1,23 @@
+{{- /*
+  Overrides Hextra's Mermaid render hook for one reason: the theme names every
+  diagram "Diagram", so a screen reader announces fifty-five identical images and
+  the accessibility smoke's label assertion could not fail.
+
+  A fence may declare its own name with a block attribute, which Goldmark exposes
+  here because hugo.toml enables markup.goldmark.parser.attribute.block:
+
+      ```mermaid {ariaLabel="The kagent reconcile loop"}
+
+  Without one it falls back to the page, which is still a name a reader can act on.
+  Either way the adjacent `**Diagram in words:**` prose — required on every diagram
+  by tools/internal/conventions — carries the content itself.
+*/ -}}
+{{- $label := .Attributes.arialabel | default .Attributes.ariaLabel -}}
+{{- with $label | default (printf "Diagram on %s" .Page.Title) -}}
+<div role="img" aria-label="{{ . }}">
+  <pre class="mermaid hx:mt-6">
+    {{ $.Inner | htmlEscape | safeHTML }}
+  </pre>
+</div>
+{{- end -}}
+{{- .Page.Store.Set "hasMermaid" true -}}

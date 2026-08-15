@@ -24,15 +24,9 @@ configMapGenerator:
       - alertmanager.yml=alertmanager-config.yaml
 
 patches:
-  - target:
-      group: kagent.dev
-      version: v1alpha2
-      kind: ModelConfig
-      name: agentgateway
-    patch: |-
-      - op: replace
-        path: /spec/model
-        value: qwen3:4b-instruct
+  # No ModelConfig patch here: the base already declares qwen3:4b-instruct, and the
+  # replacements block below carries that base value into AGENT_MODEL. The GKE
+  # overlay owns the override, because it is the one that changes the model.
   # Host Ollama exception: host.k3d.internal resolves to the Docker bridge
   # gateway outside any pod/namespace selector, so the rule must be IP-based.
   # It stays scoped to the Ollama port instead of pinning a bridge CIDR that
@@ -52,6 +46,34 @@ patches:
           ports:
             - port: 11434
               protocol: TCP
+  # The co-hosted PII webhook calls Ollama directly. It must not recurse through
+  # agentgateway, and the base agent egress stays default-deny for every other port.
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: agent-egress
+    patch: |-
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+          ports:
+            - port: 11434
+              protocol: TCP
+  - target:
+      group: kagent.dev
+      version: v1alpha2
+      kind: Agent
+      name: agentops-agent
+    patch: |-
+      - op: add
+        path: /spec/byo/deployment/env/-
+        value:
+          name: AGENT_PII_MODEL_BASE_URL
+          value: http://host.k3d.internal:11434/v1
 
 replacements:
   # Select both lists by their semantic names, so reordering either manifest

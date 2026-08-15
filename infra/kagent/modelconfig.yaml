@@ -7,7 +7,10 @@ metadata:
     app.kubernetes.io/part-of: agentops-open-course
 spec:
   provider: OpenAI
-  model: gemini-3.5-flash
+  # Open-weight by default, matching values.yaml's providers.openAI.model. The GKE
+  # overlay replaces it with the proprietary model, so the substrate that needs an
+  # account is the one that asks for it.
+  model: qwen3:4b-instruct
   apiKeySecret: agentgateway-client
   apiKeySecretKey: OPENAI_API_KEY
   openAI:

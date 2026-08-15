@@ -9,7 +9,7 @@ resources:
   - state-backup.yaml
   - agentgateway.yaml
   - mcp.yaml
-  - mlflow.yaml
+  - tempo.yaml
   - loki.yaml
   - otel-collector.yaml
   - network-policies.yaml
@@ -25,3 +25,7 @@ configMapGenerator:
     namespace: agentops
     files:
       - config.yaml=loki-config.yaml
+  - name: tempo-config
+    namespace: agentops
+    files:
+      - config.yaml=tempo-config.yaml

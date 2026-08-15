@@ -6,6 +6,17 @@ repo_dir="$(cd -- "${scripts_dir}/../.." && pwd)"
 # shellcheck source=scripts/lib.sh
 source "${repo_dir}/scripts/lib.sh"
 
+# Deploy and smoke must derive the same full revision. A fake live image alone
+# cannot catch one side silently returning to a shortened tag. The patterns are
+# ANSI-C quoted so the searched-for `${...}` stays literal without escaping.
+grep -Fq $'export AGENT_IMAGE_TAG="${source_commit}"' "${scripts_dir}/deploy-gke.sh" ||
+	fail "deploy no longer publishes the full source revision as its image tag"
+grep -Fq $'source_tag="${head_commit}"' "${scripts_dir}/smoke-gke-model.sh" ||
+	fail "smoke no longer expects the full source revision as its image tag"
+if grep -Fq -- '--short' "${scripts_dir}/deploy-gke.sh" "${scripts_dir}/smoke-gke-model.sh"; then
+	fail "deploy or smoke shortened the source revision"
+fi
+
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf -- "${tmp_dir}"' EXIT
 mkdir -p "${tmp_dir}/bin"
@@ -61,6 +72,23 @@ elif [[ ${arguments} == *' get deployment/agentgateway '* ]]; then
             }
           }
         }'
+elif [[ ${arguments} == ' kustomize infra/k8s/overlays/gke ' ]]; then
+	# The smoke reads the GKE model owners from the render rather than from the base
+	# files, because the base carries the open-weight default and the overlay patches
+	# the proprietary one in. Emit the two documents it selects from that stream.
+	jq -cn --arg model "${FAKE_SOURCE_MODEL:?}" '{
+      apiVersion: "kagent.dev/v1alpha2", kind: "Agent",
+      metadata: {name: "agentops-agent"},
+      spec: {byo: {deployment: {env: [
+        {name: "AGENT_MODEL", value: $model},
+        {name: "AGENT_A2A_MAX_LLM_CALLS", value: env.FAKE_SOURCE_A2A_MAX_LLM_CALLS}
+      ]}}}
+    }'
+	printf -- '---\n'
+	jq -cn --arg model "${FAKE_SOURCE_MODEL:?}" '{
+      apiVersion: "kagent.dev/v1alpha2", kind: "ModelConfig",
+      metadata: {name: "agentgateway"}, spec: {model: $model}
+    }'
 elif [[ ${arguments} == *' get configmap/agentgateway-config-test '* ]]; then
 	jq -cn --arg config "${FAKE_GATEWAY_CONFIG:?}" '{data: {"config.yaml": $config}}'
 elif [[ ${arguments} == *' get agent.kagent.dev/agentops-agent '* ]]; then
@@ -72,7 +100,10 @@ elif [[ ${arguments} == *' get agent.kagent.dev/agentops-agent '* ]]; then
             byo: {
               deployment: {
                 image: $image,
-                env: [{name: "AGENT_MODEL", value: $model}]
+                env: [
+                  {name: "AGENT_MODEL", value: $model},
+                  {name: "AGENT_A2A_MAX_LLM_CALLS", value: env.FAKE_SOURCE_A2A_MAX_LLM_CALLS}
+                ]
               }
             }
           }
@@ -98,7 +129,10 @@ elif [[ ${arguments} == *' get deployment/agentops-agent '* ]]; then
                 containers: [{
                   name: "agentops-agent",
                   image: $image,
-                  env: [{name: "AGENT_MODEL", value: $model}]
+                  env: [
+                    {name: "AGENT_MODEL", value: $model},
+                    {name: "AGENT_A2A_MAX_LLM_CALLS", value: env.FAKE_SOURCE_A2A_MAX_LLM_CALLS}
+                  ]
                 }]
               }
             }
@@ -134,6 +168,13 @@ set -euo pipefail
 payload=""
 response_file=""
 url=""
+increment_model_requests() {
+	local increment="$1"
+	local current=0
+
+	[[ ! -f ${FAKE_MODEL_REQUEST_COUNT:?} ]] || current="$(<"${FAKE_MODEL_REQUEST_COUNT}")"
+	printf '%s\n' "$((current + increment))" >"${FAKE_MODEL_REQUEST_COUNT}"
+}
 while (($# > 0)); do
 	case "$1" in
 	--data)
@@ -162,10 +203,17 @@ case "${url}" in
 http://127.0.0.1:35020/metrics)
 	tool_calls=0
 	[[ ! -f ${FAKE_MCP_COUNT:?} ]] || tool_calls="$(<"${FAKE_MCP_COUNT}")"
-	printf 'agentgateway_mcp_requests_total{method="tools/call",resource_type="tool",resource="get_incident"} %s\n' \
-		"${tool_calls}" >"${response_file}"
+	{
+		printf 'agentgateway_mcp_requests_total{method="tools/call",resource_type="tool",resource="get_incident"} %s\n' \
+			"${tool_calls}"
+		if [[ -f ${FAKE_MODEL_REQUEST_COUNT:?} ]]; then
+			printf 'agentgateway_requests_total{protocol="llm",route="llm"} %s\n' \
+				"$(<"${FAKE_MODEL_REQUEST_COUNT}")"
+		fi
+	} >"${response_file}"
 	;;
 http://127.0.0.1:34000/v1/chat/completions)
+	increment_model_requests 1
 	request_count=0
 	[[ ! -f ${FAKE_CURL_STATE:?} ]] || request_count="$(<"${FAKE_CURL_STATE}")"
 	request_count=$((request_count + 1))
@@ -192,6 +240,7 @@ http://127.0.0.1:34000/v1/chat/completions)
 	fi
 	;;
 http://127.0.0.1:31001/)
+	increment_model_requests "${FAKE_A2A_MODEL_CALLS:-2}"
 	jq -e '
       .method == "message/send"
       and (.id | startswith("gke-model-smoke-"))
@@ -226,15 +275,36 @@ export PATH="${tmp_dir}/bin:${PATH}"
 export FAKE_CURL_STATE="${tmp_dir}/request-count"
 export FAKE_A2A_IDS="${tmp_dir}/a2a-ids"
 export FAKE_MCP_COUNT="${tmp_dir}/mcp-count"
+export FAKE_MODEL_REQUEST_COUNT="${tmp_dir}/model-request-count"
 export FAKE_PORT_FORWARD_PID="${tmp_dir}/port-forward-pid"
 export FAKE_PORT_FORWARD_ACTIVE="${tmp_dir}/port-forward-active"
 export FAKE_DEPLOYMENT_STATE="${tmp_dir}/deployment-reads"
+export GCP_MODEL_CALL_BUDGET=6
 FAKE_GATEWAY_CONFIG="$(<"${repo_dir}/infra/agentgateway/gke/config.yaml")"
 export FAKE_GATEWAY_CONFIG
-FAKE_SOURCE_TAG="$(git -C "${repo_dir}" rev-parse --short=7 HEAD)"
+FAKE_SOURCE_TAG="$(git -C "${repo_dir}" rev-parse HEAD)"
 export FAKE_SOURCE_TAG
-FAKE_SOURCE_MODEL="$(yq -er '.spec.model' "${repo_dir}/infra/kagent/modelconfig.yaml")"
+# The GKE plane's model is the overlay patch value, not the base default: the base
+# declares the open-weight model so an overlay-free apply cannot select a paid one.
+FAKE_SOURCE_MODEL="$(
+	yq -er '
+      .patches[]
+      | select(.target.kind == "ModelConfig")
+      | .patch
+      | from_yaml
+      | .[0].value
+    ' "${repo_dir}/infra/k8s/overlays/gke/kustomization.yaml"
+)"
 export FAKE_SOURCE_MODEL
+FAKE_SOURCE_A2A_MAX_LLM_CALLS="$(
+	yq -er '
+      .spec.byo.deployment.env[]
+      | select(.name == "AGENT_A2A_MAX_LLM_CALLS")
+      | .value
+    ' "${repo_dir}/infra/kagent/agent.yaml"
+)"
+[[ ${FAKE_SOURCE_A2A_MAX_LLM_CALLS} == 4 ]]
+export FAKE_SOURCE_A2A_MAX_LLM_CALLS
 FAKE_SOURCE_GATEWAY_IMAGE="$(
 	yq -er '
       select(.kind == "Deployment" and .metadata.name == "agentgateway")
@@ -251,7 +321,7 @@ export AGENT_MODEL="qwen3:4b-instruct"
 
 head_commit="$(git -C "${repo_dir}" rev-parse HEAD)"
 output="$("${scripts_dir}/smoke-gke-model.sh")"
-[[ ${output} == "GKE model tool loop and read-only A2A retrieval passed for ${FAKE_SOURCE_MODEL} at ${head_commit}" ]]
+[[ ${output} == "GKE model tool loop and read-only A2A retrieval passed for ${FAKE_SOURCE_MODEL} at ${head_commit}; model requests 4/6" ]]
 [[ $(<"${FAKE_CURL_STATE}") == 2 ]]
 
 assert_port_forward_stopped() {
@@ -269,7 +339,7 @@ assert_port_forward_stopped
 rm -f -- "${FAKE_CURL_STATE}"
 printf '7\n' >"${FAKE_MCP_COUNT}"
 output="$("${scripts_dir}/smoke-gke-model.sh")"
-[[ ${output} == "GKE model tool loop and read-only A2A retrieval passed for ${FAKE_SOURCE_MODEL} at ${head_commit}" ]]
+[[ ${output} == "GKE model tool loop and read-only A2A retrieval passed for ${FAKE_SOURCE_MODEL} at ${head_commit}; model requests 4/6" ]]
 [[ $(<"${FAKE_MCP_COUNT}") == 8 ]]
 assert_port_forward_stopped
 
@@ -361,5 +431,34 @@ if "${scripts_dir}/smoke-gke-model.sh" >/dev/null 2>"${dirty_error}"; then
 	fail "dirty GKE source was accepted"
 fi
 grep -Fq -- "GKE smoke requires a clean working tree" "${dirty_error}"
+unset FAKE_GIT_DIRTY
+
+rm -f -- "${FAKE_CURL_STATE}" "${FAKE_DEPLOYMENT_STATE}" "${FAKE_MODEL_REQUEST_COUNT}"
+printf '0\n' >"${FAKE_MCP_COUNT}"
+export FAKE_A2A_MODEL_CALLS=5
+model_delta_error="${tmp_dir}/model-delta-error"
+if "${scripts_dir}/smoke-gke-model.sh" >/dev/null 2>"${model_delta_error}"; then
+	fail "a provider model-request delta above the approved budget was accepted"
+fi
+grep -Fq -- "model-request counter delta 7 exceeds GCP_MODEL_CALL_BUDGET 6" "${model_delta_error}"
+unset FAKE_A2A_MODEL_CALLS
+
+rm -f -- "${FAKE_CURL_STATE}" "${FAKE_DEPLOYMENT_STATE}" "${FAKE_MODEL_REQUEST_COUNT}"
+printf '0\n' >"${FAKE_MCP_COUNT}"
+export GCP_MODEL_CALL_BUDGET=5
+budget_error="${tmp_dir}/budget-error"
+if "${scripts_dir}/smoke-gke-model.sh" >/dev/null 2>"${budget_error}"; then
+	fail "a GCP model-call budget below the six-call worst case was accepted"
+fi
+grep -Fq -- "GCP_MODEL_CALL_BUDGET 5 is below the smoke worst case 6" "${budget_error}"
+
+rm -f -- "${FAKE_CURL_STATE}" "${FAKE_DEPLOYMENT_STATE}" "${FAKE_MODEL_REQUEST_COUNT}"
+printf '0\n' >"${FAKE_MCP_COUNT}"
+unset GCP_MODEL_CALL_BUDGET
+missing_budget_error="${tmp_dir}/missing-budget-error"
+if "${scripts_dir}/smoke-gke-model.sh" >/dev/null 2>"${missing_budget_error}"; then
+	fail "a GKE model smoke without GCP_MODEL_CALL_BUDGET was accepted"
+fi
+grep -Fq -- "GCP_MODEL_CALL_BUDGET must be a positive integer" "${missing_budget_error}"
 
 printf 'GKE model smoke context, payload, retrieval, and fail-closed checks passed\n'

@@ -4,11 +4,10 @@
   "excludes": [
     "**/*-lock.json",
     "**/node_modules",
-    "**/.venv",
     "**/site",
     "**/bin",
     "**/dist",
-    "uv.lock",
+    "assets/json/search-data.json",
     ".git"
   ],
   "markdown": {

@@ -4,7 +4,7 @@ The AgentOps Open Course should be usable without a mouse, without color percept
 
 ## Current support
 
-- The rendered site uses semantic headings, labeled navigation and search, visible keyboard focus from the Material theme, and a skip-to-content link.
+- The rendered site uses semantic headings, labeled navigation and search, visible keyboard focus from the Hextra theme, and a skip-to-content link.
 - The dependency-free web client labels its endpoint, message, approval rationale, and cancellation controls; streaming and terminal task states use a polite live region.
 - Commands, expected output, warnings, and completion criteria are written as text. Color is never the only intended signal.
 - Contributor policy requires every new or changed Mermaid diagram to have adjacent prose that communicates the same actors, relationships, and sequence.
@@ -14,7 +14,7 @@ The AgentOps Open Course should be usable without a mouse, without color percept
 
 `mise run check:docs` enforces the structural floor before a change can publish:
 
-- Every new or changed Mermaid block needs adjacent `**Diagram in words:**` prose. `docs/diagram-legacy.txt` stores exact hashes for previously reviewed diagrams, so changing one cannot inherit a broad exemption and deleting one removes its hash.
+- Every Mermaid block needs adjacent `**Diagram in words:**` prose, without exception. A hash allowlist used to exempt diagrams reviewed before the rule existed; every one of them now carries prose, so the allowlist and its file are gone and the rule holds for the whole corpus.
 - The rendered site must give the document a language, exactly one main landmark and H1 per page, and accessible names to non-fragment links.
 - The homepage must expose its existing description through Open Graph, Twitter, canonical URL, and Course structured metadata; the custom 404 must provide a named recovery route.
 - The dependency-free client must retain native labels, one main landmark and H1, polite status announcements, visible focus, narrow-layout reflow, forced-colors behavior, and a reduced-motion fallback.
@@ -33,7 +33,7 @@ The audit also reviewed keyboard reachability, visible focus, skip navigation, s
 
 ## Known limits
 
-The source, rendered-HTML, and representative Chromium checks above are release gates. Manual Chrome and accessibility-tree evidence is not yet repeated for every candidate; [issue #112](https://github.com/MLOps-Courses/agentops-open-course/issues/112) owns a fresh v1-candidate audit. Firefox, Safari, VoiceOver, NVDA, and Orca remain best-effort because the project does not have a repeatable test environment for those combinations. Report barriers with the exact combination so the support matrix can grow from evidence.
+The source, rendered-HTML, and representative Chromium checks above are release gates. Manual Chrome and accessibility-tree evidence is not yet repeated for every candidate; a fresh manual audit against the v1 candidate is still outstanding, and this file records its result when it happens. Firefox, Safari, VoiceOver, NVDA, and Orca remain best-effort because the project does not have a repeatable test environment for those combinations. Report barriers with the exact combination so the support matrix can grow from evidence.
 
 The default indigo theme supplies the current color palette, but a theme or custom-style change still requires another contrast and keyboard audit. Mermaid support varies across screen readers, so diagrams never carry unique information.
 
@@ -41,7 +41,7 @@ PDF and offline ebook formats are not currently published. The repository Markdo
 
 ## How to report a barrier
 
-[Open an accessibility issue](https://github.com/MLOps-Courses/agentops-open-course/issues/new) with:
+[Open an accessibility issue](https://github.com/MLOps-Courses/agentops-open-course-go/issues/new) with:
 
 - the page URL or source path;
 - the browser, operating system, and assistive technology involved;

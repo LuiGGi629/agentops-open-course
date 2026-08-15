@@ -1,5 +1,4 @@
 locals {
-  mlflow_bucket_name = coalesce(var.mlflow_bucket_name, "${var.project_id}-mlflow-artifacts")
   labels = {
     app        = "agentops-open-course"
     managed_by = "opentofu"
@@ -84,27 +83,6 @@ resource "google_artifact_registry_repository" "agentops" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_storage_bucket" "mlflow" {
-  name                        = local.mlflow_bucket_name
-  project                     = var.project_id
-  location                    = upper(var.region)
-  storage_class               = "STANDARD"
-  uniform_bucket_level_access = true
-  public_access_prevention    = "enforced"
-  force_destroy               = false
-  labels                      = local.labels
-
-  versioning {
-    enabled = false
-  }
-
-  soft_delete_policy {
-    retention_duration_seconds = 0
-  }
-
-  depends_on = [google_project_service.required]
-}
-
 resource "google_container_cluster" "agentops" {
   name     = var.cluster_name
   project  = var.project_id
@@ -124,6 +102,13 @@ resource "google_container_cluster" "agentops" {
     services_secondary_range_name = "agentops-services"
   }
 
+  # The control-plane version deliberately floats, with no min_master_version
+  # floor: that field is a creation-time minimum rather than a pin (GKE upgrades
+  # the master past it on the channel cadence), and GKE removes patch versions
+  # from a channel, so an exact value pinned today stops being creatable within
+  # months. This module's only gate is a credential-free mocked plan, which
+  # could not notice the rot. Reproducibility comes from this source and
+  # .terraform.lock.hcl; the nodes follow the master through auto_upgrade below.
   release_channel {
     channel = "REGULAR"
   }
