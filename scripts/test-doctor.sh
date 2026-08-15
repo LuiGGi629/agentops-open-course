@@ -129,6 +129,15 @@ case "${url}" in
 esac
 EOF
 chmod +x "${tmp_dir}/bin/curl"
+# `doctor model` requires the Ollama binary on the host, and CI runners have none. The
+# profile only probes that the command exists — the version it reports comes from the
+# fake curl above — so a presence stub first on PATH makes the result identical on a
+# workstation that runs models and on a runner that never will.
+cat >"${tmp_dir}/bin/ollama" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "${tmp_dir}/bin/ollama"
 run_model_doctor() (
 	cd "${repo_dir}"
 	PATH="${tmp_dir}/bin:${PATH}" "${doctor_path}" model
