@@ -17,15 +17,60 @@ import (
 	"github.com/MLOps-Courses/agentops-open-course/evals"
 )
 
-const usage = `agentops-eval validates assets and runs black-box agent evaluations.
+// commands is the subcommand list, in the order a learner meets them, with the one
+// line each contributes to `agentops-eval help`. The same line prints above that
+// subcommand's own flags, so the two views cannot drift apart.
+var commands = []struct{ name, purpose string }{
+	{"validate", "check every committed evalset, domain reference, dashboard, and the import boundary"},
+	{"run", "run a model-backed evaluation and write a sanitized run artifact"},
+	{"calibrate", "measure the configured judge against the labeled calibration set"},
+	{"compare", "compare two run artifacts and fail on a deterministic regression"},
+	{"retrieval", "compare keyword and semantic runbook retrieval over an isolated MCP runtime"},
+}
 
-Usage:
-  agentops-eval validate [flags]
-  agentops-eval run [flags]
-  agentops-eval calibrate [flags]
-  agentops-eval compare [flags]
-  agentops-eval retrieval [flags]
-`
+func usage() string {
+	lines := []string{"agentops-eval validates assets and runs black-box agent evaluations.", "", "Usage:"}
+	for _, command := range commands {
+		lines = append(lines, fmt.Sprintf("  agentops-eval %-10s[flags]  %s", command.name, command.purpose))
+	}
+	return strings.Join(append(lines, "", "Run `agentops-eval <command> --help` for that command's flags.", ""), "\n")
+}
+
+func purposeOf(name string) string {
+	for _, command := range commands {
+		if command.name == name {
+			return command.purpose
+		}
+	}
+	return ""
+}
+
+// parseFlags parses one subcommand's arguments and answers `--help` itself.
+//
+// Every subcommand discards the flag package's own output so that a bad flag is
+// reported once, by main, rather than printed twice. That also swallowed `--help`:
+// Parse returns flag.ErrHelp having written nothing, and the learner saw the bare
+// line "flag: help requested" and exit code 1 from a command this course tells them
+// to run. Printing the defaults here and reporting the request as handled fixes that
+// without turning a flag package into a CLI framework.
+func parseFlags(flags *flag.FlagSet, arguments []string, stdout io.Writer) (bool, error) {
+	flags.SetOutput(io.Discard)
+	err := flags.Parse(arguments)
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, flag.ErrHelp) {
+		return false, err
+	}
+	if _, writeErr := fmt.Fprintf(
+		stdout, "agentops-eval %s: %s\n\nFlags:\n", flags.Name(), purposeOf(flags.Name()),
+	); writeErr != nil {
+		return true, writeErr
+	}
+	flags.SetOutput(stdout)
+	flags.PrintDefaults()
+	return true, nil
+}
 
 func main() {
 	if err := execute(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -50,16 +95,15 @@ func execute(ctx context.Context, arguments []string, stdout, stderr io.Writer) 
 	case "retrieval":
 		return retrievalCommand(ctx, arguments[1:], stdout, stderr)
 	case "help", "-h", "--help":
-		_, err := io.WriteString(stdout, usage)
+		_, err := io.WriteString(stdout, usage())
 		return err
 	default:
-		return fmt.Errorf("unknown command %q\n%s", arguments[0], usage)
+		return fmt.Errorf("unknown command %q\n%s", arguments[0], usage())
 	}
 }
 
 func retrievalCommand(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
 	flags := flag.NewFlagSet("retrieval", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	dataDir := flags.String("data-dir", "", "immutable agent data directory")
 	output := flags.String("output", "retrieval-results.json", "sanitized retrieval artifact")
@@ -71,7 +115,7 @@ func retrievalCommand(ctx context.Context, arguments []string, stdout, stderr io
 		"embedding-model-digest", os.Getenv("EVAL_EMBEDDING_MODEL_DIGEST"), "optional immutable embedding model digest",
 	)
 	requestTimeout := flags.Duration("request-timeout", 5*time.Minute, "one retrieval-tool request deadline")
-	if err := flags.Parse(arguments); err != nil {
+	if handled, err := parseFlags(flags, arguments, stdout); err != nil || handled {
 		return err
 	}
 	if *requestTimeout < 0 {
@@ -104,13 +148,12 @@ func retrievalCommand(ctx context.Context, arguments []string, stdout, stderr io
 
 func compareCommand(arguments []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("compare", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	baselinePath := flags.String("baseline", "", "reviewed baseline artifact")
 	candidatePath := flags.String("candidate", "", "candidate artifact")
 	output := flags.String("output", "prompt-comparison.json", "sanitized comparison artifact")
 	requireDistinctSource := flags.Bool("require-distinct-source", false, "require artifacts from different Git revisions")
-	if err := flags.Parse(arguments); err != nil {
+	if handled, err := parseFlags(flags, arguments, stdout); err != nil || handled {
 		return err
 	}
 	if *baselinePath == "" || *candidatePath == "" {
@@ -140,17 +183,16 @@ func compareCommand(arguments []string, stdout io.Writer) error {
 		return err
 	}
 	if !comparison.DeterministicPass {
-		return errors.New("candidate regressed a deterministic score or pass rate")
+		return errors.New("candidate regressed a deterministic score or its deterministic pass rate")
 	}
 	return nil
 }
 
 func validateCommand(ctx context.Context, arguments []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("validate", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	dataDir := flags.String("data-dir", "", "immutable agent data directory")
-	if err := flags.Parse(arguments); err != nil {
+	if handled, err := parseFlags(flags, arguments, stdout); err != nil || handled {
 		return err
 	}
 	paths := assetPaths(*moduleDir, *dataDir)
@@ -163,7 +205,6 @@ func validateCommand(ctx context.Context, arguments []string, stdout io.Writer) 
 
 func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Writer) (returnErr error) {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	dataDir := flags.String("data-dir", "", "immutable agent data directory")
 	evalsetPath := flags.String("evalset", "ops.evalset.json", "evalset path relative to eval-dir")
@@ -192,7 +233,7 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	// validation. A single comma-separated value lets the last one win, which is what
 	// makes every flag recipe in README.md a real override of the taught command.
 	requiredCases := flags.String("required-cases", "", "comma-separated case ids that must pass in every sample; empty clears them")
-	if err := flags.Parse(arguments); err != nil {
+	if handled, err := parseFlags(flags, arguments, stdout); err != nil || handled {
 		return err
 	}
 	source, err := resolveCheckout(ctx)
@@ -269,6 +310,21 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	previous, hasPrevious := previousRunArtifact(outputPath)
 	artifact, err := evals.Run(ctx, config)
 	if err != nil {
+		// Defense in depth for a run that costs hours: whatever was graded before the
+		// failure is written out so a fatal path never discards all of it. It goes to
+		// its own path, because an exit code does not survive into an uploaded CI
+		// artifact and the file has to carry the distinction on its own.
+		if len(artifact.Cases) > 0 {
+			partialPath, writeErr := writePartialArtifact(outputPath, artifact)
+			if writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
+			// Named on stderr because nothing else points at it: the release path is
+			// untouched, so a learner would otherwise have no reason to look for it.
+			if _, printErr := fmt.Fprintln(stderr, "agentops-eval: partial evidence written to", partialPath); printErr != nil {
+				return errors.Join(err, printErr)
+			}
+		}
 		return err
 	}
 	if hasPrevious {
@@ -294,6 +350,25 @@ func runCommand(ctx context.Context, arguments []string, stdout, stderr io.Write
 	return nil
 }
 
+// writePartialArtifact publishes the case samples a failed run had already graded,
+// beside the release artifact rather than over it, and returns where it landed.
+//
+// Two separate reasons keep it off the release path. It must not clobber the last
+// complete run, which is the only cost baseline and often the only evidence anyone
+// still has; and `results.json` is the name CI uploads and a human reads, so a
+// truncated file under that name is read as the run. The prefix rather than a suffix
+// is what puts it inside the repository's existing `evals/*-results.json` ignore
+// rule: a failed run must not leave a learner an untracked file to explain.
+//
+// The artifact refuses the claim as well as the name — it carries the sample count
+// the whole evalset was asked for, so RunArtifact.Passed() is false on it — because
+// a reader who renames the file must still be told what it is.
+func writePartialArtifact(outputPath string, artifact evals.RunArtifact) (string, error) {
+	directory, name := filepath.Split(outputPath)
+	path := filepath.Join(directory, "partial-"+name)
+	return path, evals.WriteJSONArtifact(path, artifact)
+}
+
 // previousRunArtifact treats an unreadable or older results file as "no
 // previous run". A cost comparison is a courtesy, never a reason to fail.
 func previousRunArtifact(path string) (evals.RunArtifact, bool) {
@@ -306,11 +381,10 @@ func previousRunArtifact(path string) (evals.RunArtifact, bool) {
 
 func calibrateCommand(ctx context.Context, arguments []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("calibrate", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
 	moduleDir := flags.String("eval-dir", detectEvalDir(), "evaluation module directory")
 	calibrationPath := flags.String("calibration", "judge-calibration.json", "labeled calibration set")
 	output := flags.String("output", "judge-calibration-results.json", "sanitized calibration artifact")
-	if err := flags.Parse(arguments); err != nil {
+	if handled, err := parseFlags(flags, arguments, stdout); err != nil || handled {
 		return err
 	}
 	source, err := resolveCheckout(ctx)

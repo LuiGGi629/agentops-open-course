@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +21,56 @@ func TestCompareCommandRequiresExplicitArtifacts(t *testing.T) {
 	err := compareCommand(nil, &output)
 	if err == nil || !strings.Contains(err.Error(), "explicit --baseline and --candidate") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestHelpPrintsTheFlagsOfEveryCommand pins the smallest thing a CLI owes a learner.
+// Every subcommand discards the flag package's output, which also swallowed `--help`:
+// the course tells learners to run these commands, and `run --help` printed nothing
+// but "flag: help requested" and exited 1.
+func TestHelpPrintsTheFlagsOfEveryCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range commands {
+		t.Run(command.name, func(t *testing.T) {
+			t.Parallel()
+			for _, flag := range []string{"--help", "-h"} {
+				var stdout, stderr bytes.Buffer
+				if err := execute(t.Context(), []string{command.name, flag}, &stdout, &stderr); err != nil {
+					t.Fatalf("execute(%s %s) error = %v, want the flags printed", command.name, flag, err)
+				}
+				printed := stdout.String()
+				if !strings.Contains(printed, command.purpose) || !strings.Contains(printed, "-eval-dir") {
+					t.Fatalf("execute(%s %s) printed %q, want its purpose and its flags", command.name, flag, printed)
+				}
+			}
+		})
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := execute(t.Context(), []string{"help"}, &stdout, &stderr); err != nil {
+		t.Fatalf("execute(help) error = %v", err)
+	}
+	for _, command := range commands {
+		if !strings.Contains(stdout.String(), command.name) || !strings.Contains(stdout.String(), command.purpose) {
+			t.Fatalf("execute(help) printed %q, want %q named with its purpose", stdout.String(), command.name)
+		}
+	}
+}
+
+// TestRunHelpNamesTheFlagsTheCourseTeaches keeps the taught command discoverable from
+// the command itself rather than only from README.md.
+func TestRunHelpNamesTheFlagsTheCourseTeaches(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	if err := execute(t.Context(), []string{"run", "--help"}, &stdout, &stderr); err != nil {
+		t.Fatalf("execute(run --help) error = %v", err)
+	}
+	for _, name := range []string{"-evalset", "-repeat", "-min-pass-rate", "-required-cases", "-judge", "-output"} {
+		if !strings.Contains(stdout.String(), name) {
+			t.Fatalf("execute(run --help) printed %q, want it to name %q", stdout.String(), name)
+		}
 	}
 }
 
@@ -141,6 +193,76 @@ func TestPreviousRunArtifactTreatsAMissingFileAsNoBaseline(t *testing.T) {
 	if _, found := previousRunArtifact(filepath.Join(t.TempDir(), "results.json")); found {
 		t.Fatal("a missing results file was reported as a previous run")
 	}
+}
+
+// TestPartialArtifactNeverOverwritesTheReleaseArtifact pins both halves of where a
+// failed run's evidence goes. It used to be written over `--output`, which destroyed
+// the last complete run — the only cost baseline the harness keeps, and often the only
+// evidence anyone still had — and put a truncated document under the name CI uploads
+// and a human reads.
+func TestPartialArtifactNeverOverwritesTheReleaseArtifact(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	outputPath := filepath.Join(directory, "results.json")
+	if err := evals.WriteJSONArtifact(outputPath, runArtifactFixture(2, 2)); err != nil {
+		t.Fatalf("WriteJSONArtifact(complete run) error = %v", err)
+	}
+	published, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := writePartialArtifact(outputPath, runArtifactFixture(2, 1))
+	if err != nil {
+		t.Fatalf("writePartialArtifact() error = %v", err)
+	}
+	if want := filepath.Join(directory, "partial-results.json"); path != want {
+		t.Fatalf("partial artifact path = %q, want %q", path, want)
+	}
+	kept, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(published, kept) {
+		t.Fatalf("results.json = %s, want the previous complete run untouched: %s", kept, published)
+	}
+	complete, err := evals.LoadRunArtifact(outputPath)
+	if err != nil || !complete.Passed() {
+		t.Fatalf("LoadRunArtifact(results.json) = %+v, %v; want the complete passing run", complete, err)
+	}
+	// The partial file is real evidence and readable as such — it just cannot claim
+	// the run passed, whoever reads it and under whatever name.
+	partial, err := evals.LoadRunArtifact(path)
+	if err != nil {
+		t.Fatalf("LoadRunArtifact(partial) error = %v", err)
+	}
+	if partial.Passed() {
+		t.Fatalf("partial artifact = %+v, want a run that graded one case of two to report a failure", partial)
+	}
+}
+
+// runArtifactFixture is a run of `expected` case samples of which `graded` finished,
+// each one passing. Equal counts describe a complete run; fewer describe the artifact
+// a failed run hands back.
+func runArtifactFixture(expected, graded int) evals.RunArtifact {
+	artifact := evals.RunArtifact{
+		SchemaVersion: evals.RunArtifactSchemaVersion, RunID: "run",
+		Source:    evals.SourceEvidence{Revision: strings.Repeat("a", 40)},
+		Model:     evals.ModelEvidence{Provider: "provider", Name: "model"},
+		EvalSet:   evals.EvalSetEvidence{ID: "set", Digest: "digest"},
+		Transport: "rest", ExpectedCaseSamples: expected,
+		Summary: evals.RunSummary{
+			Passed: graded, PassRate: 1, MinimumPassRate: 1, RequiredCasesPassed: true,
+		},
+	}
+	for sample := 1; sample <= graded; sample++ {
+		artifact.Cases = append(artifact.Cases, evals.CaseResult{
+			ID: fmt.Sprintf("case-%d", sample), Sample: 1, Passed: true,
+			Scores: map[string]float64{"trajectory": 1},
+		})
+	}
+	return artifact
 }
 
 // The taught command carries four required cases, and `mise run eval -- ...` appends to

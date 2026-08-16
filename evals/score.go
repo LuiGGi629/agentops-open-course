@@ -17,6 +17,24 @@ type Score struct {
 	Stochastic bool `json:"-"`
 }
 
+// JudgeScoreName is the serialized name of the gateway judge's verdict.
+const JudgeScoreName = "judge"
+
+// stochasticScoreNames is the serialized half of the Stochastic flag above.
+//
+// A published artifact keeps only each score's name and value, so a reader of two
+// artifacts — `eval:ab` is the one that matters — has no other way to tell a model's
+// verdict from a rule's. Naming them here, beside the flag they mirror, is what lets
+// a new stochastic scorer be added in one place rather than found by grep.
+var stochasticScoreNames = map[string]struct{}{JudgeScoreName: {}}
+
+// IsStochasticScoreName reports whether a serialized score name was produced by a
+// second model rather than by a rule.
+func IsStochasticScoreName(name string) bool {
+	_, found := stochasticScoreNames[name]
+	return found
+}
+
 func validateScoreValue(name string, value float64) error {
 	if name == "" || !finiteUnitInterval(value) {
 		return errors.New("score needs a name and a finite value between 0 and 1")

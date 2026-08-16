@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// RunArtifactSchemaVersion is 5: schema 4 gained per-case `duration_ms` and the
-// summary gained `case_consistency`. Both are counts and durations, so the
-// sanitization boundary is unchanged — see TestRunArtifactCarriesNoContent.
-const RunArtifactSchemaVersion = 5
+// RunArtifactSchemaVersion is 6: schema 5 gained `expected_case_samples`, which is
+// the count a truncated artifact needs to admit that it is one. It is a count, so
+// the sanitization boundary is unchanged — see TestRunArtifactCarriesNoContent.
+const RunArtifactSchemaVersion = 6
 
 type ModelEvidence struct {
 	Provider string `json:"provider"`
@@ -83,6 +83,15 @@ type RunArtifact struct {
 	Cases         []CaseResult    `json:"cases"`
 	Summary       RunSummary      `json:"summary"`
 	SchemaVersion int             `json:"schema_version"`
+	// ExpectedCaseSamples is how many case samples the run was asked for — the evalset's
+	// case count times `--repeat` — and it is stamped before the first case runs.
+	//
+	// It is the only field that can tell a complete artifact from one a failed run left
+	// behind. Every other number describes the rows that exist: a run that died on case
+	// two of sixteen writes a summary over case one, and a pass rate of 1 over one case
+	// is indistinguishable from a clean run of the whole evalset. Passed() reads this
+	// first, so the file itself refuses to claim a run that never finished.
+	ExpectedCaseSamples int `json:"expected_case_samples"`
 }
 
 type ClientFactory func(context.Context, EvalCase, int) (AgentClient, func() error, error)
@@ -128,6 +137,9 @@ func Run(ctx context.Context, config RunnerConfig) (RunArtifact, error) {
 		Transport:     config.Transport,
 		StartedAt:     clock().UTC(),
 		Cases:         make([]CaseResult, 0, len(config.EvalSet.Cases)*repeat),
+		// Stamped here rather than at the end, so the artifact a failed run hands back
+		// carries the same expectation as a complete one and cannot read as complete.
+		ExpectedCaseSamples: len(config.EvalSet.Cases) * repeat,
 	}
 	runCtx, endRun, err := config.Recorder.StartRun(ctx, RunEvidence{
 		RunID: config.RunID, Source: config.Source,
@@ -143,7 +155,16 @@ func Run(ctx context.Context, config RunnerConfig) (RunArtifact, error) {
 		for _, evalCase := range config.EvalSet.Cases {
 			result, err := runCase(runCtx, config, evalCase, sample)
 			if err != nil {
-				return RunArtifact{}, fmt.Errorf("case %q sample %d: %w", evalCase.ID, sample, err)
+				// Hand back the cases that did finish rather than dropping them. A
+				// model-backed run costs hours, and the caller can write them out as
+				// triage evidence. It is never release evidence: the summary describes
+				// the samples that ran, not the evalset the run was asked for. The
+				// artifact says so itself — its `expected_case_samples` still names the
+				// whole evalset, so Passed() is false however well the rows read — and
+				// the error remains the outcome the caller must act on.
+				artifact.Summary = summarizeCases(artifact.Cases, config.RequiredCases, config.MinimumPassRate)
+				artifact.CompletedAt = clock().UTC()
+				return artifact, fmt.Errorf("case %q sample %d: %w", evalCase.ID, sample, err)
 			}
 			artifact.Cases = append(artifact.Cases, result)
 		}
@@ -154,8 +175,24 @@ func Run(ctx context.Context, config RunnerConfig) (RunArtifact, error) {
 	return artifact, nil
 }
 
+// Passed reports a run that cleared both thresholds over the whole evalset.
+//
+// Completeness is tested first because the two thresholds cannot test it: both are
+// computed over the samples the artifact holds, and `required_cases_passed` is a
+// lookup that only ever sees the required cases that ran. An artifact of one passing
+// case out of sixteen satisfies both.
 func (a RunArtifact) Passed() bool {
-	return a.Summary.PassRate >= a.Summary.MinimumPassRate && a.Summary.RequiredCasesPassed
+	return a.Complete() && a.Summary.PassRate >= a.Summary.MinimumPassRate && a.Summary.RequiredCasesPassed
+}
+
+// Complete reports that the artifact holds every case sample its run was asked for.
+//
+// An unstamped expectation is not a complete run: it is an artifact written before
+// the field existed or assembled by hand, and neither can say what it was meant to
+// cover. Reading that as incomplete is the direction that cannot publish a false
+// pass.
+func (a RunArtifact) Complete() bool {
+	return a.ExpectedCaseSamples > 0 && len(a.Cases) == a.ExpectedCaseSamples
 }
 
 func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample int) (result CaseResult, err error) {
@@ -186,12 +223,33 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 	for _, invocation := range evalCase.Conversation {
 		question := invocation.UserContent.Text()
 		turn, err := sendInvocation(caseCtx, client, sessionID, invocation, previous)
+		if errors.Is(err, errNothingToConfirm) {
+			// The agent declined to propose the guarded action, so there is nothing for
+			// the human to approve and the remaining turns cannot be replayed. That is
+			// behavior, not infrastructure: the case stops here and scores as a failed
+			// confirmation, which is what keeps a model's refusal scoreable instead of
+			// aborting the run and discarding every case that already passed.
+			//
+			// The previous turn's own confirmation score has already failed for the same
+			// reason, and merge() keeps the lowest, so recording it again changes nothing
+			// there — it is what makes the outcome explicit for any evalset whose earlier
+			// turn carries no required confirmation.
+			evaluated.merge(NewBinaryScore(
+				"confirmation", false, "the agent never proposed the guarded action this turn answers",
+			))
+			break
+		}
 		if err != nil {
 			return CaseResult{}, err
 		}
 		previous = turn
 		if turn.Failed() {
-			// Remote error codes are provider-controlled and can contain echoed content.
+			// A refused confirmation is graded above; a provider failure is not. The
+			// difference is who produced it: an error code comes from the gateway or the
+			// runtime rather than from the agent's reasoning, so scoring it would record
+			// an outage as a model regression. Remote error codes are also
+			// provider-controlled and can contain echoed content, which is why the error
+			// carries none of it.
 			return CaseResult{}, errors.New("provider turn failed")
 		}
 		evaluated.usage, err = evaluated.usage.add(turn.Usage)
@@ -212,6 +270,9 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 		answers = append(answers, turn.Text)
 		references = append(references, invocation.FinalResponse.Text())
 	}
+	// A case that stopped early is still judged, on the turns that did happen:
+	// `eval:ab` refuses two artifacts whose samples carry different score names, so
+	// dropping the verdict here would make a refused confirmation uncomparable.
 	if config.Judge != nil {
 		verdict, err := config.Judge.Judge(caseCtx, JudgeInput{
 			Questions: questions, Answers: answers, ReferenceAnswers: references,
@@ -219,7 +280,7 @@ func runCase(ctx context.Context, config RunnerConfig, evalCase EvalCase, sample
 		if err != nil {
 			return CaseResult{}, fmt.Errorf("judge: %w", err)
 		}
-		evaluated.merge(NewStochasticBinaryScore("judge", verdict.Passed, verdict.Rationale))
+		evaluated.merge(NewStochasticBinaryScore(JudgeScoreName, verdict.Passed, verdict.Rationale))
 	}
 	result = CaseResult{
 		ID: evalCase.ID, Sample: sample, Passed: evaluated.passed(),
@@ -262,8 +323,9 @@ func sendInvocation(
 	}
 	if previous.AwaitingConfirmation == nil {
 		// Not an infrastructure failure: the agent declined to propose the guarded
-		// action, so there is nothing to approve. Reporting it as a failed case
-		// rather than a crashed run is what keeps a model's refusal scoreable.
+		// action, so there is nothing to approve. runCase grades this as a failed
+		// confirmation rather than crashing the run, which is what keeps a model's
+		// refusal scoreable.
 		return Turn{}, errNothingToConfirm
 	}
 	return client.Confirm(ctx, sessionID, previous, invocation.Confirmation.Approved(), invocation.Confirmation.Rationale)

@@ -11,7 +11,7 @@ The wire shapes this module pins were recovered from the discarded Python scaffo
 ## What the harness proves
 
 - **One scorer, two transports.** REST events and A2A stream updates are normalized and folded into the same typed `Turn`, so a single scorer grades either deployment surface. A transport-equivalence test holds that promise in place. A2A is read over `message/stream` rather than `message/send`: storing a task discards the per-event metadata ADK attaches on the way, and that metadata is where every token a run spent is counted.
-- **Deterministic scoring first.** Trajectory, refusal, approval, write-authority, injection, and PII scores are computed from tool calls and tool evidence — no model votes on them. The judge adds one more score; it never replaces these.
+- **Deterministic scoring first.** `trajectory`, `refusal`, `confirmation`, `authority`, and `safety` are computed from tool calls and tool evidence — no model votes on them, and `--require-grounded` and `--require-schema` add `groundedness` and `schema`. `safety` covers both halves of a forbidden turn — a forbidden tool call and forbidden output — which is what the injection and PII cases assert; the committed checks carry no field that separates the two, so splitting them into `injection` and `pii` would be a pair of names with no evidence behind them. The judge adds one more score; it never replaces these.
 - **A judge you have measured.** `eval:judge-calibration` replays a twelve-case labeled set, balanced across three answer categories rather than across labels, through the configured judge and prints how often it agreed with the human labels. The number is a measurement, not a gate: you decide what agreement your course, model, and risk require.
 - **The agent you think you are testing.** Before any case runs, the harness asks the compiled binary (or the resolved image ID) for its `version` tuple and compares the revision, dirty flag, and source-tree digest with this checkout. A binary built before your last edit is refused.
 - **One runtime per case.** Every case gets its own agent process (or container) and its own throwaway state directory, so case 9 cannot pass because case 3 warmed something up.
@@ -20,12 +20,12 @@ The wire shapes this module pins were recovered from the discarded Python scaffo
 
 ## The four tasks
 
-| Task                     | Model? | What it does                                                                                                                      |
-| ------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `eval:validate`          | no     | Validates every committed evalset, domain reference, report example, dashboard, and the import boundary.                          |
-| `eval`                   | yes    | Runs the 16-case operations evalset three times with the judge, writes `results.json`, and fails below the floor.                 |
-| `eval:judge-calibration` | yes    | Prints the judge's agreement with the labeled set and writes `judge-calibration-results.json`.                                    |
-| `eval:ab`                | no     | Compares two `results.json` artifacts captured from two Git revisions and fails on a deterministic-score or pass-rate regression. |
+| Task                     | Model? | What it does                                                                                                      |
+| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------- |
+| `eval:validate`          | no     | Validates every committed evalset, domain reference, report example, dashboard, and the import boundary.          |
+| `eval`                   | yes    | Runs the 16-case operations evalset three times with the judge, writes `results.json`, and fails below the floor. |
+| `eval:judge-calibration` | yes    | Prints the judge's agreement with the labeled set and writes `judge-calibration-results.json`.                    |
+| `eval:ab`                | no     | Compares two `results.json` artifacts captured from two Git revisions and fails on a rule-decided regression.     |
 
 The offline gate is the ordinary Go vocabulary:
 
@@ -117,11 +117,13 @@ mise run eval:ab -- \
   --candidate ../../agentops-candidate/evals/results.json
 ```
 
+`deterministic_pass` in the comparison artifact folds over rule-decided scores only, and every input to it works the same way. A rule-decided score that dropped fails it, and so does `newly_flaky_cases` — the cases whose rule-decided outcome went from consistent to a coin toss, which a pass rate hides. The judged verdict fails none of them: it is reported as a score delta, and the cases the judge became inconsistent about are listed separately as `newly_flaky_judged_cases`. `mise run eval` runs with `--judge`, so on 16 cases and three samples a single flipped verdict from a 4B model would otherwise be enough to call a candidate a regression.
+
 Both worktrees must resolve the same model configuration, temperature, seed data, and runtime class. Review the source diff to confirm the instruction is the intended variable; the harness cannot prove that a commit changed nothing else.
 
 ## Committed assets
 
-- `ops.evalset.json` — the operations evalset, 15 cases.
+- `ops.evalset.json` — the operations evalset, 16 cases.
 - `workflow.evalset.json` — bounded workflow evalset, 3 cases.
 - `triage-report.evalset.json` — structured report evalset, 3 cases.
 - `judge-calibration.json` — twelve labeled judge cases, balanced across good, bad, and hallucinated answers; the label split is 8 fail to 4 pass.
@@ -135,8 +137,9 @@ Every model-backed run writes the same shape to `--output` (`results.json` by de
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "run_id": "uuid",
+  "expected_case_samples": 3,
   "source": { "revision": "full-git-sha", "dirty": false },
   "model": { "provider": "provider", "name": "model", "digest": "optional-digest" },
   "evalset": { "id": "evalset-id", "digest": "sha256" },
@@ -149,10 +152,12 @@ Every model-backed run writes the same shape to `--output` (`results.json` by de
       "sample": 1,
       "passed": true,
       "scores": { "trajectory": 1, "judge": 1 },
-      "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "model_calls": 1 }
+      "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2, "model_calls": 1 },
+      "duration_ms": 1234
     }
   ],
   "summary": {
+    "case_consistency": [{ "id": "case-id", "passed": 3, "samples": 3 }],
     "passed": 1,
     "failed": 0,
     "pass_rate": 1,
@@ -161,6 +166,12 @@ Every model-backed run writes the same shape to `--output` (`results.json` by de
   }
 }
 ```
+
+`duration_ms` is wall clock for one sample, including the judge call when one runs, and `case_consistency` is how many samples of each case passed out of how many ran. A pass rate cannot express the second: a case that passes two runs in three is not a passing case with a rounding error, and `--repeat` was bought to tell those apart.
+
+`expected_case_samples` is how many case samples the run was asked for — the evalset's case count times `--repeat` — and it is what tells a complete artifact from a truncated one. Every other number describes the rows that are present, so a run that died on case two of sixteen leaves a summary whose pass rate and `required_cases_passed` both read clean over the single case that ran. The harness reads this field first and reports such an artifact as a failed run.
+
+That is also why a failed run does not touch `results.json`. Whatever was graded before the failure is written to `partial-results.json` beside it — named on stderr, git-ignored, and triage evidence only — so the last complete run survives as both the cost baseline and the file a human reads.
 
 A dirty checkout reports `"revision": ""` and `"dirty": true`: a working tree with uncommitted edits is not the commit it sits on, and the artifact says so rather than naming a commit it did not run.
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -390,6 +391,96 @@ func TestCompareRunsIgnoresSerializedRequiredCaseOutcome(t *testing.T) {
 	}
 	if !comparison.DeterministicPass {
 		t.Fatal("matching passing case results were overridden by an unverified serialized summary")
+	}
+}
+
+// TestCompareRunsNeverFailsADeterministicComparisonOnAJudgedVerdict pins the meaning
+// of the field's name. `mise run eval` runs with `--judge`, so every sample carries a
+// verdict from a 4B model; one flipped verdict moved both the score average and the
+// headline pass rate, and a field named `deterministic_pass` turned red because a
+// second model changed its mind.
+func TestCompareRunsNeverFailsADeterministicComparisonOnAJudgedVerdict(t *testing.T) {
+	t.Parallel()
+
+	baseline, candidate := comparisonFixtures()
+	baseline.Cases[0].Scores[JudgeScoreName] = 1
+	candidate.Cases[0].Scores[JudgeScoreName] = 0
+	// A failed judge score is a failed sample, which is what the artifact must say.
+	candidate.Cases[0].Passed = false
+
+	comparison, err := CompareRuns(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareRuns() error = %v", err)
+	}
+	// The verdict is still reported: it is the cheapest signal that answer quality moved.
+	if comparison.ScoreDeltas[JudgeScoreName] != -1 || comparison.PassRateDelta != -1 {
+		t.Fatalf("comparison = %+v, want the judged regression reported", comparison)
+	}
+	if !comparison.DeterministicPass {
+		t.Fatal("a flipped judged verdict failed the deterministic comparison")
+	}
+
+	// A rule-decided score still fails it, which is the half that must not weaken.
+	candidate.Cases[0].Scores["trajectory"] = 0
+	comparison, err = CompareRuns(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareRuns(regressed trajectory) error = %v", err)
+	}
+	if comparison.DeterministicPass {
+		t.Fatal("a regressed deterministic score passed the deterministic comparison")
+	}
+}
+
+// TestCompareRunsKeepsJudgedFlakinessOutOfTheDeterministicVerdict pins the half of
+// that meaning a single-sample comparison cannot reach. `mise run eval` repeats every
+// case three times, so a 4B judge that flips one verdict makes the case judged-flaky,
+// and flakiness is the last input that still fails `deterministic_pass`.
+func TestCompareRunsKeepsJudgedFlakinessOutOfTheDeterministicVerdict(t *testing.T) {
+	t.Parallel()
+
+	baseline, candidate := comparisonFixtures()
+	// Two samples of one case, scored the way a judged run records them. The baseline
+	// is consistent; the candidate's second sample differs by the verdict alone.
+	baseline.Cases = []CaseResult{judgedSample(1, true), judgedSample(2, true)}
+	candidate.Cases = []CaseResult{judgedSample(1, true), judgedSample(2, false)}
+
+	comparison, err := CompareRuns(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareRuns() error = %v", err)
+	}
+	if !comparison.DeterministicPass {
+		t.Fatalf("comparison = %+v, want a flipped judged verdict reported rather than gating", comparison)
+	}
+	if len(comparison.NewlyFlakyCases) != 0 {
+		t.Fatalf("newly flaky cases = %v, want the rule-decided column empty", comparison.NewlyFlakyCases)
+	}
+	// Reported rather than dropped: the score delta averages the flip away, and the
+	// case name is the only place a reader sees that the case became a coin toss.
+	if !slices.Equal(comparison.NewlyFlakyJudgedCases, []string{"case"}) {
+		t.Fatalf("newly flaky judged cases = %v, want [case]", comparison.NewlyFlakyJudgedCases)
+	}
+
+	// The same flip in a rule-decided score is the half that must still fail.
+	candidate.Cases[1].Scores["trajectory"] = 0
+	comparison, err = CompareRuns(baseline, candidate)
+	if err != nil {
+		t.Fatalf("CompareRuns(flaky trajectory) error = %v", err)
+	}
+	if !slices.Equal(comparison.NewlyFlakyCases, []string{"case"}) || comparison.DeterministicPass {
+		t.Fatalf("comparison = %+v, want a rule-decided coin toss to fail the comparison", comparison)
+	}
+}
+
+// judgedSample is one sample carrying both halves of a judged run: a rule-decided
+// score and a verdict. `passed` follows the verdict, which is what the artifact says.
+func judgedSample(sample int, judged bool) CaseResult {
+	verdict := 0.0
+	if judged {
+		verdict = 1
+	}
+	return CaseResult{
+		ID: "case", Sample: sample, Passed: judged,
+		Scores: map[string]float64{"trajectory": 1, JudgeScoreName: verdict},
 	}
 }
 
