@@ -4,6 +4,10 @@
 baseURL = "https://agentops-open-course.fmind.dev/"
 title = "AgentOps Open Course"
 locale = "en"
+# This drives the machine-readable surfaces — the RSS `<copyright>` element and page
+# metadata. It does NOT drive the footer: Hextra's footer partial renders the `copyright`
+# translation string, so the visible attribution on all 84 content pages lives in i18n/en.yaml.
+# Both are kept, because both are read, and they must agree.
 copyright = "Copyright © MLOps Courses"
 
 # Hugo has no single `strict: true`. It is assembled from three parts: this setting,
