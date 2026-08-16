@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.1] - 2026-08-16
+
+A full-repository review, and the corrections it earned. The course now says what the code does, the learner gate installs what it needs, and eight checks that could not fail can fail again.
+
+### 🐛 Bug Fixes
+
+- _(tooling)_ Install ripgrep in the learner tier, which `check:core` required and no install step supplied
+- _(agent)_ Mask the uncovered tail of a staggered PII span instead of forwarding it to the model
+- _(agent)_ Honor the per-tool deadline in the filesystem-backed reads, and say what it cannot preempt
+- _(evals)_ Score a declined confirmation as a failed case instead of aborting the run and discarding its evidence
+- _(evals)_ Keep the stochastic judge out of the verdict a field named `deterministic_pass` reports
+- _(observability)_ Plot the error ratio the alert actually tests, instead of one floored at a rate no lab reaches
+- _(docs)_ Credit the course rather than the theme in the footer of every published page
+- _(ci)_ Stop Dependabot opening pull requests the compatibility holds are designed to reject
+
+### 🔒 Gates
+
+- _(tools)_ Close the fence-length hole that disabled a page's remaining prose checks after a nested block
+- _(tools)_ Compare the doctor tiers against the arrays the script declares, and report a name it no longer has
+- _(tools)_ Read both workflow extensions, walk the corpus that exists, and grade retention per upload step
+- _(tools)_ Validate the routes the site serves today, not only the addresses it retired
+- _(evals)_ Refuse to let a truncated run report itself as a passing one
+
+### 📚 Documentation
+
+- Replace the coverage-floor rationale with the true one in all six places that stated it
+- Record that the site is published from this repository, and that its slugs are now frozen
+- Correct the surfaces that cannot complete a guarded write, and name the one that can
+- State the platform support tiers and the unverified Kubernetes path where the path is chosen
+- Give every Agent Skill a source and an install command
+
 ## [0.9.0] - 2026-08-16
 
 The course is now taught in Go. The complete Python course is preserved on the `python` branch and every URL it published still resolves.
@@ -183,7 +214,8 @@ The course is now taught in Go. The complete Python course is preserved on the `
 
 - Publish AgentOps Open Course
 
-[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.9.0...HEAD
+[unreleased]: https://github.com/MLOps-Courses/agentops-open-course/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.9.1
 [0.9.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.9.0
 [0.7.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.7.0
 [0.6.0]: https://github.com/MLOps-Courses/agentops-open-course/releases/tag/v0.6.0
