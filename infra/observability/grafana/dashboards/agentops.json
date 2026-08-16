@@ -74,6 +74,7 @@
         },
         "overrides": []
       },
+      "description": "The recording rule AgentErrorBudgetBurn alerts on, plotted unchanged, so the panel and the page agree. An idle lab divides 0 by 0 and renders No data — which is the honest answer, and the same NaN the alert relies on to stay silent without traffic.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -83,7 +84,7 @@
       "id": 3,
       "targets": [
         {
-          "expr": "sum(rate(agentops_calls_total{status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(agentops_calls_total[5m])), 1)",
+          "expr": "agentops:calls:error_ratio_rate5m",
           "legendFormat": "error ratio",
           "refId": "A"
         }

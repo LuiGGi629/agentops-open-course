@@ -18,9 +18,15 @@
 groups:
   - name: agentops-slo
     rules:
-      # Error ratio across all agent spans, the same series the dashboard
-      # plots. 0/0 yields NaN on an idle lab, so no alert fires without
-      # traffic instead of a false 0% or 100%.
+      # Error ratio across all agent spans. The dashboard's "Agent error
+      # ratio" panel plots this recording rule by name rather than repeating
+      # the expression, so the number a learner watches and the number
+      # AgentErrorBudgetBurn tests are the same series and cannot disagree.
+      # The denominator is deliberately unguarded: 0/0 yields NaN on an idle
+      # lab, so no alert fires and the panel renders "No data" instead of a
+      # false 0% or 100%. Flooring it at 1 (one call per *second*) would scale
+      # the ratio down by up to 100x at this lab's own traffic rate, which
+      # reads as a healthy agent while the alert pages.
       - record: agentops:calls:error_ratio_rate5m
         expr: |-
           sum(rate(agentops_calls_total{status_code="STATUS_CODE_ERROR"}[5m]))

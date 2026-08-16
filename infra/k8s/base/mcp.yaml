@@ -43,6 +43,25 @@ spec:
               value: "8000"
             - name: MCP_TRANSPORT
               value: streamable-http
+            # The DNS-rebinding allowlist, deliberately narrower than the
+            # binary's own DefaultAllowedHosts: the override REPLACES the
+            # defaults outright, so naming only agentgateway and agentops-mcp
+            # drops the loopback and host.docker.internal entries that exist
+            # for the host quickstart and mean nothing in a cluster. 6.4 states
+            # this list as the third layer keeping non-gateway callers off
+            # :8000, and it stays exact.
+            #
+            # The cost is real and belongs here rather than in a bug report:
+            # `kubectl port-forward svc/agentops-mcp 8000:8000` bypasses the
+            # NetworkPolicy, so the Host guard is the only layer left, and a
+            # client dialling http://localhost:8000 presents `localhost:8000`
+            # and is answered 421. That is the guard working, not a
+            # misconfiguration. To load-test or curl the raw server through a
+            # port-forward, present an authority that IS on this list — alias
+            # it to loopback (`127.0.0.1 agentops-mcp` in /etc/hosts) and point
+            # the tool at http://agentops-mcp:8000, which `agentops-mcp:*`
+            # matches. Widening this list to make the tool's default URL work
+            # would trade the chapter's security property for one less env var.
             - name: MCP_ALLOWED_HOSTS
               value: agentgateway,agentgateway:*,agentgateway.agentops.svc.cluster.local,agentgateway.agentops.svc.cluster.local:*,agentops-mcp,agentops-mcp:*,agentops-mcp.agentops.svc.cluster.local,agentops-mcp.agentops.svc.cluster.local:*
             - name: AGENT_DATA_DIR

@@ -14,6 +14,11 @@
 //   RATE      raw iterations per second (each iteration sends 2 GETs), default 10
 //   DURATION  scenario duration, default 30s
 //   MCP_HEALTH_URL / A2A_HEALTH_URL / GATEWAY_HEALTH_URL
+//   MCP_HOST_HEADER  authority to present to the MCP server, unset by default.
+//     The MCP server refuses any Host not on MCP_ALLOWED_HOSTS with 421, so a
+//     port-forward dialled as localhost:8000 never reaches a handler. Set this
+//     to an allowlisted authority (agentops-mcp:8000 in the cluster) and the
+//     URL can stay on loopback; see load/README.md.
 
 import http from 'k6/http';
 import { check } from 'k6';
@@ -21,6 +26,7 @@ import { check } from 'k6';
 const MCP_HEALTH_URL = __ENV.MCP_HEALTH_URL || 'http://localhost:8000/healthz';
 const A2A_HEALTH_URL = __ENV.A2A_HEALTH_URL || 'http://localhost:8080/healthz';
 const GATEWAY_HEALTH_URL = __ENV.GATEWAY_HEALTH_URL || 'http://localhost:3001/healthz';
+const MCP_HOST_HEADER = __ENV.MCP_HOST_HEADER;
 
 export const options = {
   scenarios: {
@@ -45,7 +51,15 @@ export const options = {
     },
   },
   thresholds: {
-    // Latency budgets — starting points for localhost, tune to your hardware.
+    // Latency budgets, measured rather than guessed: the laptop run recorded
+    // in 7.2. Monitoring read raw p(95)=7.13ms against gateway p(95)=10.4ms,
+    // which is where that page's three milliseconds of proxy overhead come
+    // from. 50ms is about seven times that raw baseline and 100ms about ten
+    // times the gateway one, so each budget catches a collapse rather than
+    // that 3ms — the overhead is read off the summary, not enforced here. They
+    // stay two separate numbers so a gateway regression is measured against
+    // the gateway instead of hiding under a floor shared with the raw
+    // endpoints. Tune both to your hardware.
     http_req_failed: ['rate<0.01'],
     'http_req_duration{op:raw_health}': ['p(95)<50'],
     'http_req_duration{op:gateway_health}': ['p(95)<100'],
@@ -53,8 +67,14 @@ export const options = {
 };
 
 export function rawHealth() {
-  for (const url of [MCP_HEALTH_URL, A2A_HEALTH_URL]) {
-    const res = http.get(url, { tags: { op: 'raw_health' } });
+  // Only the MCP server enforces a Host allowlist, so only its request carries
+  // the override; an empty object leaves the request exactly as it was before.
+  const targets = [
+    [MCP_HEALTH_URL, MCP_HOST_HEADER ? { Host: MCP_HOST_HEADER } : {}],
+    [A2A_HEALTH_URL, {}],
+  ];
+  for (const [url, headers] of targets) {
+    const res = http.get(url, { headers, tags: { op: 'raw_health' } });
     check(res, { 'raw healthz is 200': (r) => r.status === 200 });
   }
 }

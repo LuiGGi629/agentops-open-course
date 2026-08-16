@@ -11,8 +11,8 @@
 #
 # What Dependabot does NOT cover here, and is therefore updated by hand (see AGENTS.md "Pinned
 # contracts" and the quarterly docs-freshness issue): the `[tools]` pins in mise.toml plus
-# mise.lock, the Helm chart versions in infra/helmfile.yaml, and the image digests inside
-# infra/k8s/**.
+# mise.lock, the Helm chart versions in infra/helmfile.yaml, the image digests inside
+# infra/k8s/**, and the compatibility holds in agents/go/go.mod and tools/go.mod (ignored below).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -38,12 +38,30 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     open-pull-requests-limit: 5
+    ignore:
+      # ADK Go owns this family, and agents/go/go.mod records the ceiling as structured
+      # `// compatibility hold: owner=google.golang.org/adk/v2@<version> constraint=<version>`
+      # comments. check:freshness reports MISMATCH — and CI fails — unless the required
+      # version still matches the recorded constraint AND the manifest still requires the
+      # owner at its recorded version. Dependabot rewrites the require line but never the
+      # hold comment, so every pull request it can open here is red by construction: one
+      # module on its own breaks the constraint, and ADK on its own breaks the owner
+      # version. `exclude-patterns` alone did not prevent this, because excluding a
+      # dependency from a group makes Dependabot open a separate pull request for it
+      # rather than none — which is how five permanently red ones accumulated.
+      # These move by hand and together, prompted by the quarterly freshness report's
+      # "Go module compatibility holds" table, and validated by `agents/go` check + test.
+      - dependency-name: github.com/openai/openai-go/v3
+      - dependency-name: go.opentelemetry.io/otel*
+      - dependency-name: google.golang.org/adk/v2
+      - dependency-name: google.golang.org/genai
     groups:
       go-agent-dependencies:
         patterns:
           - "*"
         exclude-patterns:
-          # Coordinated pins reviewed on their own, never inside the weekly batch.
+          # The same four as the ignore list above, restated as the batch boundary: if a
+          # hold is ever lifted, these still must not ride into the weekly batch unreviewed.
           - "github.com/openai/openai-go/v3"
           - "go.opentelemetry.io/otel*"
           - "google.golang.org/adk/v2"
@@ -98,6 +116,20 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     open-pull-requests-limit: 5
+    ignore:
+      # Same mechanism as /agents/go above, one family down: chromedp owns cdproto, and
+      # tools/go.mod records the ceiling as a structured
+      # `// compatibility hold: owner=chromedp@<version> constraint=<pseudo-version suffix>`
+      # comment. check:freshness reports MISMATCH — and CI fails — unless the pinned
+      # cdproto pseudo-version still contains the recorded constraint AND chromedp itself
+      # is still required at the recorded version. Dependabot rewrites the require line
+      # but never the hold comment, so both single-module bumps it can open here are red
+      # by construction: cdproto on its own breaks the constraint, chromedp on its own
+      # breaks the owner version. They move by hand and together, prompted by the
+      # quarterly freshness report's "Go module compatibility holds" table, and validated
+      # by the real Chrome accessibility acceptance run the hold names as its validator.
+      - dependency-name: github.com/chromedp/cdproto
+      - dependency-name: github.com/chromedp/chromedp
     groups:
       repository-tool-dependencies:
         patterns:

@@ -22,6 +22,12 @@
 //   TOOL      read-only tool name, default list_incidents
 //   RATE      tool calls per minute, default 60
 //   DURATION  scenario duration, default 60s
+//   MCP_HOST_HEADER  authority to present to the MCP server, unset by default.
+//     Only needed when MCP_URL points straight at the raw server: its
+//     DNS-rebinding guard answers 421 to any Host not on MCP_ALLOWED_HOSTS, and
+//     a port-forward dialled as localhost:8000 presents exactly that. Set this
+//     to an allowlisted authority (agentops-mcp:8000 in the cluster) and the
+//     URL can stay on loopback; see load/README.md.
 
 import http from 'k6/http';
 import { check, fail } from 'k6';
@@ -29,6 +35,7 @@ import { Counter } from 'k6/metrics';
 
 const MCP_URL = __ENV.MCP_URL || 'http://localhost:3000/mcp';
 const TOOL = __ENV.TOOL || 'list_incidents';
+const MCP_HOST_HEADER = __ENV.MCP_HOST_HEADER;
 
 const rateLimited = new Counter('mcp_rate_limited');
 
@@ -61,6 +68,8 @@ function post(payload, extraHeaders, op) {
       // MCP streamable HTTP requires accepting both JSON and SSE responses.
       Accept: 'application/json, text/event-stream',
     },
+    // Empty unless MCP_HOST_HEADER is set, so the default run is unchanged.
+    MCP_HOST_HEADER ? { Host: MCP_HOST_HEADER } : {},
     extraHeaders,
   );
   return http.post(MCP_URL, JSON.stringify(payload), { headers, tags: { op } });
