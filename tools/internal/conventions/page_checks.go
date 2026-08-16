@@ -272,7 +272,15 @@ func checkExercises(where, text string) []Problem {
 				problems = append(problems, problem(where, "line %d: exercise is missing %s", block.start, strings.Join(alternatives, " or ")))
 			}
 		}
+		// The mode is a closed set, and the safety rules below only run for one of its
+		// values. A mode spelled any other way matches nothing here and quietly takes a
+		// temporary experiment out of the dirty-preflight and cleanup rules, so an
+		// unrecognized value is reported instead of skipped. The `**Mode**:` guard keeps
+		// an exercise that omits the field to the one problem it already earns above.
 		mode := exerciseMode.FindStringSubmatch(section)
+		if mode == nil && strings.Contains(section, "**Mode**:") {
+			problems = append(problems, problem(where, "line %d: exercise mode must be one of `inspect`, `temporary experiment`, `keep`, or `capstone carry-forward`", block.start))
+		}
 		if mode != nil && mode[1] == "temporary experiment" {
 			if !strings.Contains(section, "git diff --quiet --") && !strings.Contains(section, "test ! -e ") {
 				problems = append(problems, problem(where, "line %d: temporary experiment needs a target-specific dirty preflight", block.start))

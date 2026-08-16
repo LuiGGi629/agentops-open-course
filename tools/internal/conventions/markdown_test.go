@@ -3,6 +3,7 @@ package conventions
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -212,6 +213,26 @@ func TestCheckExercisesPreservesTemporaryAndProbabilisticFailures(t *testing.T) 
 	}
 }
 
+// A mode outside the closed set matches nothing, and the dirty-preflight and cleanup
+// rules only run for `temporary experiment`. An unrecognized spelling therefore used to
+// buy an exercise its way out of both rules while every required field was present.
+func TestCheckExercisesRejectsAnUnknownMode(t *testing.T) {
+	unknown := `## Your turn: what changes?
+
+- **Mode**: ` + "`sandbox experiment`" + `
+- **Goal**: Change one thing.
+- **Files to touch**: example.go.
+- **Preflight**: Start clean.
+- **Steps**: Change it, then run the gate.
+- **Gate that proves completion**: The test is red.
+- **Final state**: Restore it.
+`
+	messages := problemMessages(checkExercises("content/example.md", unknown))
+	if !strings.Contains(messages, "exercise mode must be one of") {
+		t.Fatalf("unknown exercise mode was accepted: %s", messages)
+	}
+}
+
 func TestCheckDiagramAlternatives(t *testing.T) {
 	diagram := "```mermaid\nflowchart LR\nA --> B\n```\n"
 	runPageRuleCases(t, checkDiagramAlternatives, []pageRuleCase{
@@ -225,6 +246,89 @@ func TestCheckDiagramAlternatives(t *testing.T) {
 			want: "needs adjacent `**Diagram in words:**` prose",
 		},
 	})
+}
+
+// One scanner now answers where a fenced block starts and ends, so the line sets and
+// the block bodies cannot drift apart. These are the cases where a length-blind toggle
+// and a CommonMark scanner disagree.
+func TestScanFencesTracksDelimiterCharacterAndLength(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		text    string
+		outside []int
+		inside  []int
+	}{
+		{
+			// The four-backtick block quotes a three-backtick example. The inner opener
+			// is content, not a delimiter, so the parity survives it.
+			name:    "longer fence quoting a shorter opener",
+			text:    "before\n````markdown\n```go\ncode\n```\n````\nafter\n",
+			outside: []int{1, 7, 8},
+			inside:  []int{3, 4, 5},
+		},
+		{
+			name:    "tilde block quoting backticks",
+			text:    "~~~text\n```go\n~~~\nafter\n",
+			outside: []int{4, 5},
+			inside:  []int{2},
+		},
+		{
+			name:    "closing fence longer than the opener",
+			text:    "```go\ncode\n``````\nafter\n",
+			outside: []int{4, 5},
+			inside:  []int{2},
+		},
+		{
+			name:    "unterminated fence at end of file",
+			text:    "before\n```go\ncode\nmore\n",
+			outside: []int{1},
+			inside:  []int{3, 4, 5},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := lineNumbers(linesOutsideFences(test.text)); !slices.Equal(got, test.outside) {
+				t.Errorf("outside = %v, want %v", got, test.outside)
+			}
+			if got := lineNumbers(linesInsideFences(test.text)); !slices.Equal(got, test.inside) {
+				t.Errorf("inside = %v, want %v", got, test.inside)
+			}
+		})
+	}
+}
+
+// fencedBlocks reads the same scan, so the inner opener cannot become a block of its own.
+func TestFencedBlocksIgnoreAQuotedOpener(t *testing.T) {
+	text := "````markdown\n```go\ncode\n```\n````\n"
+	if blocks := fencedBlocks(text, "go"); len(blocks) != 0 {
+		t.Fatalf("quoted opener became a Go block: %#v", blocks)
+	}
+	blocks := fencedBlocks(text, "markdown")
+	if len(blocks) != 1 || blocks[0].start != 1 || blocks[0].end != 5 {
+		t.Fatalf("blocks = %#v", blocks)
+	}
+	if want := []string{"```go", "code", "```"}; !slices.Equal(blocks[0].body, want) {
+		t.Fatalf("body = %#v, want %#v", blocks[0].body, want)
+	}
+}
+
+// The parity bug's real cost was silence downstream: every rule that walks the lines
+// outside fences stopped applying to the rest of the page after one nested block.
+func TestPageRulesStillApplyAfterANestedFence(t *testing.T) {
+	// One unmatched inner opener is all it took: the old toggle left the page parked
+	// inside a fence, so nothing after this block was ever inspected again.
+	text := "````markdown\n```go\n````\n\nExactly 16 tests pass.\n"
+	problems := checkExactCountClaims("content/example.md", text)
+	if len(problems) != 1 || !strings.Contains(problems[0].Message, "line 5:") {
+		t.Fatalf("problems = %#v", problems)
+	}
+}
+
+func lineNumbers(lines []numberedLine) []int {
+	numbers := make([]int, len(lines))
+	for index, line := range lines {
+		numbers[index] = line.number
+	}
+	return numbers
 }
 
 func TestExactCountClaimsIgnoreFences(t *testing.T) {

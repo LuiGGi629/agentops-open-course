@@ -15,6 +15,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// workflowFiles lists every GitHub Actions workflow the repository ships, sorted.
+//
+// GitHub honors both `.yml` and `.yaml`, so a check that globs only one of them is a
+// gate a single file rename walks around: the Pages-deployment and artifact-retention
+// contracts both used to glob `*.yml` alone and would have reported green on a `.yaml`
+// workflow that broke them. Both go through here now. The other two readers,
+// checkLocalActionCheckouts and checkWorkflowShellExpressions, walk the directory with
+// os.ReadDir and already filter on both extensions themselves; they stay that way because
+// they report an unreadable directory as a problem, which this glob deliberately cannot.
+// So the rule is the invariant, not the function: a workflow reader honors both extensions.
+func workflowFiles(root string) []string {
+	var paths []string
+	for _, extension := range []string{"*.yml", "*.yaml"} {
+		matches, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", extension))
+		paths = append(paths, matches...)
+	}
+	slices.Sort(paths)
+	return paths
+}
+
 func checkLocalActionCheckouts(root string) []Problem {
 	directory := filepath.Join(root, ".github", "workflows")
 	entries, err := os.ReadDir(directory)
@@ -71,11 +91,10 @@ func checkLocalActionCheckouts(root string) []Problem {
 const pagesDeployJob = "deploy"
 
 func checkPagesDeployment(root string) []Problem {
-	paths, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
-	if err != nil || len(paths) == 0 {
+	paths := workflowFiles(root)
+	if len(paths) == 0 {
 		return []Problem{problem(".github/workflows", "could not read the workflow directory")}
 	}
-	slices.Sort(paths)
 	var problems []Problem
 	var deployers []string
 	for _, path := range paths {

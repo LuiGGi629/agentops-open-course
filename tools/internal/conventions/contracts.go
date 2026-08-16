@@ -8,11 +8,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 func compareContract(where, label, expected, actual string) []Problem {
@@ -240,20 +243,48 @@ func checkArtifactRetentionContract(root string, pages pageSet) []Problem {
 	}
 	limit, _ := strconv.Atoi(match[1])
 	var problems []Problem
-	workflows, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
-	slices.Sort(workflows)
-	retentionPattern := regexp.MustCompile(`(?m)^\s*retention-days:\s*(\d+)\s*$`)
-	for _, path := range workflows {
-		text, _ := readFile(path)
-		values := retentionPattern.FindAllStringSubmatch(text, -1)
+	// Pair each retention value with the step that sets it, rather than counting the two
+	// literals per file: a workflow with two uploads and one retention-days used to
+	// balance out to a pass, and an over-limit value named no job an author could go fix.
+	for _, path := range workflowFiles(root) {
 		where := relative(root, path)
-		if strings.Count(text, "uses: actions/upload-artifact@") != len(values) {
-			problems = append(problems, problem(where, "every upload-artifact step must declare one retention-days value"))
+		content, readErr := readFile(path)
+		if readErr != nil {
+			problems = append(problems, problem(where, "could not read workflow: %v", readErr))
+			continue
 		}
-		for _, value := range values {
-			days, _ := strconv.Atoi(value[1])
-			if days > limit {
-				problems = append(problems, problem(where, "Actions artifact retention %d days exceeds the %d-day policy", days, limit))
+		var workflow struct {
+			Jobs map[string]struct {
+				Steps []struct {
+					With struct {
+						// The value is `any` because YAML admits both `retention-days: 7` and a
+						// quoted expression; anything that is not a plain number is reported
+						// rather than silently read as zero.
+						RetentionDays any `yaml:"retention-days"`
+					} `yaml:"with"`
+					Uses string `yaml:"uses"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if parseErr := yaml.Unmarshal([]byte(content), &workflow); parseErr != nil {
+			problems = append(problems, problem(where, "could not parse workflow: %v", parseErr))
+			continue
+		}
+		for _, name := range slices.Sorted(maps.Keys(workflow.Jobs)) {
+			for _, step := range workflow.Jobs[name].Steps {
+				if !strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
+					continue
+				}
+				days, ok := step.With.RetentionDays.(int)
+				if !ok {
+					problems = append(problems, problem(where,
+						"job %q uploads an artifact without a numeric retention-days value", name))
+					continue
+				}
+				if days > limit {
+					problems = append(problems, problem(where,
+						"job %q keeps Actions artifact retention %d days, which exceeds the %d-day policy", name, days, limit))
+				}
 			}
 		}
 	}

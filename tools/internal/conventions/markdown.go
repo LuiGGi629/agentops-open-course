@@ -68,6 +68,24 @@ type fencedBlock struct {
 	end   int
 }
 
+// fenceRole says what a scanned line is to the fence structure around it.
+type fenceRole int
+
+const (
+	fenceBody fenceRole = iota
+	fenceOpen
+	fenceClose
+)
+
+// scannedLine is one source line as the single fence scanner sees it.
+type scannedLine struct {
+	text     string
+	language string // the info string, on an opening delimiter only
+	number   int
+	role     fenceRole
+	inside   bool
+}
+
 func splitLines(text string) []string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	return strings.Split(text, "\n")
@@ -77,45 +95,69 @@ func linesOutsideFences(text string) []numberedLine { return linesByFence(text, 
 
 func linesInsideFences(text string) []numberedLine { return linesByFence(text, true) }
 
+// scanFences is the one place this package decides where a fenced block starts and ends.
+//
+// Two scanners used to answer that question differently. fencedBlocks tracked the
+// opening delimiter's character and run length, as CommonMark requires; linesByFence
+// toggled a boolean on any line starting with three backticks or three tildes. A legal
+// four-backtick block quoting a three-backtick example therefore flipped the parity for
+// the rest of the page, and every per-page rule that walks the lines outside fences
+// silently stopped applying from there on. One scanner cannot disagree with itself.
+func scanFences(text string) []scannedLine {
+	lines := splitLines(text)
+	scanned := make([]scannedLine, 0, len(lines))
+	delimiter := ""
+	for index, line := range lines {
+		entry := scannedLine{number: index + 1, text: line, inside: delimiter != ""}
+		match := fencePattern.FindStringSubmatch(line)
+		switch {
+		case delimiter == "" && match != nil:
+			delimiter = match[1]
+			entry.role, entry.language = fenceOpen, match[2]
+		// A closing fence repeats the opener's character, runs at least as long, and
+		// carries no info string. Anything else is content of the block still open.
+		case delimiter != "" && match != nil && match[2] == "" &&
+			match[1][0] == delimiter[0] && len(match[1]) >= len(delimiter):
+			delimiter = ""
+			entry.role = fenceClose
+		}
+		scanned = append(scanned, entry)
+	}
+	return scanned
+}
+
 func linesByFence(text string, inside bool) []numberedLine {
-	fenced := false
 	result := make([]numberedLine, 0)
-	for index, line := range splitLines(text) {
-		trimmed := strings.TrimLeft(line, " \t")
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			fenced = !fenced
+	for _, line := range scanFences(text) {
+		// Both delimiter lines belong to neither set: they are the block's punctuation,
+		// so they are neither its content nor the prose around it.
+		if line.role != fenceBody || line.inside != inside {
 			continue
 		}
-		if fenced == inside {
-			result = append(result, numberedLine{number: index + 1, text: line})
-		}
+		result = append(result, numberedLine{number: line.number, text: line.text})
 	}
 	return result
 }
 
 func fencedBlocks(text, language string) []fencedBlock {
 	var result []fencedBlock
-	var delimiter, blockLanguage string
+	var blockLanguage string
 	start := 0
 	body := make([]string, 0)
-	for index, line := range splitLines(text) {
-		number := index + 1
-		match := fencePattern.FindStringSubmatch(line)
-		if delimiter == "" {
-			if match != nil {
-				delimiter, blockLanguage, start = match[1], match[2], number
-				body = body[:0]
-			}
-			continue
-		}
-		if match != nil && match[2] == "" && match[1][0] == delimiter[0] && len(match[1]) >= len(delimiter) {
+	for _, line := range scanFences(text) {
+		switch line.role {
+		case fenceOpen:
+			blockLanguage, start = line.language, line.number
+			body = body[:0]
+		case fenceClose:
 			if blockLanguage == language {
-				result = append(result, fencedBlock{start: start, end: number, body: slices.Clone(body)})
+				result = append(result, fencedBlock{start: start, end: line.number, body: slices.Clone(body)})
 			}
-			delimiter = ""
-			continue
+		case fenceBody:
+			if line.inside {
+				body = append(body, line.text)
+			}
 		}
-		body = append(body, line)
 	}
 	return result
 }

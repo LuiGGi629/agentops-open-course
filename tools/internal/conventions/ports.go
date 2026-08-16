@@ -53,8 +53,13 @@ func checkPortContracts(root string, pages pageSet) []Problem {
 	}
 	const ecosystemWhere = "content/0. Overview/0.4. Ecosystem.md"
 	heading := `{{% collapsible note "Deeper: every port the course binds" %}}`
-	_, section, _ := strings.Cut(pages[ecosystemWhere], heading)
-	section, _, _ = strings.Cut(section, "\n## ")
+	// Read the section through the shared cutter, which names the heading a rename has to
+	// preserve. Cutting inline reported the same rename as "every port is missing", which
+	// sends an author to the port table instead of to the line that actually moved.
+	section, missing := sectionAfterHeading(ecosystemWhere, pages[ecosystemWhere], heading)
+	if len(missing) > 0 {
+		return append(problems, missing...)
+	}
 	documented := make(map[int]bool)
 	for _, match := range regexp.MustCompile("`:(\\d+)`").FindAllStringSubmatch(section, -1) {
 		value, err := strconv.Atoi(match[1])

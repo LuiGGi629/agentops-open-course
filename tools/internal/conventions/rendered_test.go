@@ -174,6 +174,67 @@ kind = "section"
 	}
 }
 
+// The ratchet used to validate only the ledger's keys — the pre-Hugo addresses — while
+// the successor column, which is every URL the live site serves today, was read only to
+// special-case the home page. A page renamed after the Hugo move therefore broke a
+// reader's bookmark with the gate still green.
+func TestCheckReleasedRoutesValidatesTheSuccessorColumn(t *testing.T) {
+	plant := func(t *testing.T, slug string) (string, string, pageSet) {
+		t.Helper()
+		root := t.TempDir()
+		site := filepath.Join(root, "site")
+		ledger, readErr := os.ReadFile(filepath.Join("..", "..", "testdata", "conventions", "released-urls", "ledger.json"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		files := map[string]string{
+			"data/released-urls.json":               string(ledger),
+			"content/_index.md":                     "---\ntitle: Home\ndescription: x\n---\n",
+			"content/2. Agents/_index.md":           "---\ntitle: Agents\ndescription: x\nslug: 2-agents\n---\n",
+			"content/2. Agents/2.1. First Agent.md": "---\ntitle: First\ndescription: x\nslug: " + slug + "\naliases:\n  - \"/2. Agents/2.1. First Agent.html\"\n---\n",
+			"site/index.html":                       "<html></html>",
+			"site/2-agents/index.html":              "<html></html>",
+			"site/2-agents/" + slug + "/index.html": "<html></html>",
+			"site/2. Agents/2.1. First Agent.html":  "<html></html>",
+		}
+		for path, content := range files {
+			fullPath := filepath.Join(root, filepath.FromSlash(path))
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pages, loadErr := loadPages(root)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		return root, site, pages
+	}
+
+	root, site, pages := plant(t, "2-1-first-agent")
+	if problems := checkReleasedRoutes(root, site, pages); len(problems) != 0 {
+		t.Fatalf("consistent ledger problems = %#v", problems)
+	}
+
+	// The rename the ledger was supposed to catch: the page moves, the ledger does not.
+	renamed, renamedSite, renamedPages := plant(t, "2-1-first")
+	messages := problemMessages(checkReleasedRoutes(renamed, renamedSite, renamedPages))
+	if !strings.Contains(messages, "is no page's permalink") {
+		t.Fatalf("renamed page was accepted: %s", messages)
+	}
+
+	// A successor that no longer renders is the same broken bookmark, one step later.
+	if err := os.Remove(filepath.Join(site, "2-agents", "2-1-first-agent", "index.html")); err != nil {
+		t.Fatal(err)
+	}
+	messages = problemMessages(checkReleasedRoutes(root, site, pages))
+	if !strings.Contains(messages, "did not render into the site") {
+		t.Fatalf("unrendered successor was accepted: %s", messages)
+	}
+}
+
 func renderedRouteFixture(canonical string, links ...string) string {
 	var anchors strings.Builder
 	for _, link := range links {

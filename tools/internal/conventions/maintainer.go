@@ -8,8 +8,10 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -84,6 +86,25 @@ func hookTaskContract(text string) string {
 	return "pre-commit=" + collect(before) + "; pre-push=" + collect(after)
 }
 
+// doctorTiers maps each profile bullet on the System page onto the scripts/doctor.sh
+// arrays that profile adds.
+//
+// The page documents deltas — "each heavier profile adds its own tier on top" — so
+// every entry lists what one `add_*_tier` function contributes, not the cumulative
+// list a profile ends up checking: `model` runs the base tier and then adds
+// `model_host_tools`, and both `platform` and `gcp` run the base and gateway tiers
+// before adding their own.
+var doctorTiers = []struct {
+	name   string
+	arrays []string
+}{
+	{"base", []string{"base_managed_tools", "base_host_tools"}},
+	{"model", []string{"model_host_tools"}},
+	{"gateway", []string{"gateway_managed_tools", "gateway_host_tools"}},
+	{"platform", []string{"platform_tools"}},
+	{"gcp", []string{"gcp_platform_tools", "gcp_host_tools"}},
+}
+
 func doctorToolArrays(text string) map[string]map[string]bool {
 	result := make(map[string]map[string]bool)
 	pattern := regexp.MustCompile(`(?ms)^readonly -a (\w+)=\((.*?)\)$`)
@@ -154,15 +175,40 @@ func checkMaintainerDrift(root string, pages pageSet) []Problem {
 		problems = append(problems, problem(systemWhere, "doctor tool tiers must include the source-owned arrays"))
 	}
 	arrays := doctorToolArrays(doctor)
-	expected := map[string]map[string]bool{
-		"base": arrays["base_tools"], "model": arrays["model_tools"], "gateway": arrays["gateway_tools"],
-		"platform": arrays["platform_tools"], "gcp": make(map[string]bool),
+	// Resolve every tier through the arrays the script really declares, and report a
+	// name that is not there instead of comparing the prose against a nil set. Four of
+	// these lookups once named arrays a rename had already retired, so the base, model,
+	// and gateway bullets compared against nothing and could say anything at all.
+	expected := make(map[string]map[string]bool, len(doctorTiers))
+	consumed := make(map[string]bool, len(doctorTiers))
+	for _, tier := range doctorTiers {
+		wanted := make(map[string]bool)
+		resolved := true
+		for _, name := range tier.arrays {
+			consumed[name] = true
+			set, ok := arrays[name]
+			if !ok {
+				problems = append(problems, problem("scripts/doctor.sh",
+					"doctor %s tier reads %s, which the script no longer declares", tier.name, name))
+				resolved = false
+				continue
+			}
+			maps.Copy(wanted, set)
+		}
+		// A tier whose arrays could not be resolved is left uncompared: the missing array
+		// is already reported, and grading the prose against a partial set would only add
+		// a second, misleading drift message.
+		if resolved {
+			expected[tier.name] = wanted
+		}
 	}
-	for name := range arrays["gcp_platform_tools"] {
-		expected["gcp"][name] = true
-	}
-	for name := range arrays["gcp_tools"] {
-		expected["gcp"][name] = true
+	// The same hole from the other side: a tool array the script declares that no tier
+	// consumes is a profile this page never documents.
+	for _, name := range slices.Sorted(maps.Keys(arrays)) {
+		if strings.HasSuffix(name, "_tools") && !consumed[name] {
+			problems = append(problems, problem("scripts/doctor.sh",
+				"doctor array %s belongs to no documented tier", name))
+		}
 	}
 	known := make(map[string]bool)
 	for _, set := range expected {
@@ -170,9 +216,13 @@ func checkMaintainerDrift(root string, pages pageSet) []Problem {
 			known[value] = true
 		}
 	}
-	for tier, wanted := range expected {
-		prefix := "- **" + tier + "**"
-		if tier == "base" {
+	for _, tier := range doctorTiers {
+		wanted, ok := expected[tier.name]
+		if !ok {
+			continue
+		}
+		prefix := "- **" + tier.name + "**"
+		if tier.name == "base" {
 			prefix = "The base doctor checks"
 		}
 		line := ""
@@ -189,7 +239,7 @@ func checkMaintainerDrift(root string, pages pageSet) []Problem {
 			}
 		}
 		if !mapsEqual(wanted, documented) {
-			problems = append(problems, problem(systemWhere, "doctor %s tool list drifted: expected %v, found %v", tier, sortedKeys(wanted), sortedKeys(documented)))
+			problems = append(problems, problem(systemWhere, "doctor %s tool list drifted: expected %v, found %v", tier.name, sortedKeys(wanted), sortedKeys(documented)))
 		}
 	}
 	workflow, _ := readFile(filepath.Join(root, ".github", "workflows", "ci.yml"))

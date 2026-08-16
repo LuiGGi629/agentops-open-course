@@ -236,7 +236,11 @@ func checkGCPRunbook(root string) []Problem {
 func checkSkaffoldRunbooks(root string) []Problem {
 	badProfile := regexp.MustCompile(`\bskaffold\s+(?:run|delete)\s+-p\s+(?:local|gke)\b`)
 	var problems []Problem
-	for _, directory := range []string{"docs", "infra"} {
+	// The corpus is the course pages and the infrastructure runbooks, which is where a
+	// learner copies a Skaffold command from. This walked "docs" until now — the MkDocs
+	// source directory the Python course kept its pages in, which has never existed in
+	// this repository — so no course page was ever covered by the rule.
+	for _, directory := range []string{"content", "infra"} {
 		base := filepath.Join(root, directory)
 		_ = filepath.WalkDir(base, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() || filepath.Ext(path) != ".md" {

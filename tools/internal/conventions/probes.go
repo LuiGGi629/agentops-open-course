@@ -273,6 +273,16 @@ func checkProbeService(workload string, contract probeContract, service *manifes
 // cannot enter the course without a reviewed probe contract. It reads source
 // manifests, not rendered overlays: the ipBlock exceptions the overlays patch
 // in are invisible here and stay owned by scripts/check-infra.sh.
+//
+// The sweep reads `.yaml` only, and the naming that makes that safe is enforced
+// here rather than assumed: every Kubernetes manifest in the repository is
+// `.yaml`, and scripts/check-infra.sh names its inputs by that spelling too. A
+// workload added as `.yml` would be rendered by kustomize — which reads whatever
+// its kustomization.yaml lists — while remaining invisible to this inventory, so
+// it would ship with no reviewed probe contract and no failure. Accepting both
+// extensions would close that hole for this one check while leaving the split
+// convention for every other tool to rediscover; rejecting the spelling closes it
+// once, at the name.
 func checkProbeInventory(root string) []Problem {
 	expected := make(map[string]bool, len(probeContracts))
 	for workload := range probeContracts {
@@ -285,7 +295,15 @@ func checkProbeInventory(root string) []Problem {
 			if err != nil {
 				return err
 			}
-			if entry.IsDir() || filepath.Ext(path) != ".yaml" {
+			if entry.IsDir() {
+				return nil
+			}
+			if filepath.Ext(path) == ".yml" {
+				problems = append(problems, problem(relative(root, path),
+					"Kubernetes manifests must be named .yaml; a .yml workload is rendered by kustomize but invisible to the probe inventory"))
+				return nil
+			}
+			if filepath.Ext(path) != ".yaml" {
 				return nil
 			}
 			where := relative(root, path)

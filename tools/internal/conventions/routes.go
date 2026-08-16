@@ -439,5 +439,29 @@ func checkReleasedRoutes(root, siteRoot string, pages pageSet) []Problem {
 			problems = append(problems, problem(where, "published route %q did not render a redirect into the site", route))
 		}
 	}
+
+	// The successor column is the live half of the ratchet, and it used to be read only
+	// to special-case the home page. That left the ledger protecting the pre-Hugo
+	// addresses while every URL the site serves today went unchecked: renaming a page's
+	// slug moved its permalink, the ledger kept pointing at the old one, and the check
+	// still passed. A successor must therefore still be a permalink some page owns, and
+	// must still render — so a rename either updates this ledger or fails here.
+	routes, _ := buildPageRoutes(pages)
+	live := make(map[string]bool, len(routes))
+	for _, route := range routes {
+		live[route.Path] = true
+	}
+	for _, route := range slices.Sorted(maps.Keys(ledger.Successors)) {
+		successor := ledger.Successors[route]
+		if !live[successor] {
+			problems = append(problems, problem(where,
+				"route %q records successor %q, which is no page's permalink; a rename must update this ledger", route, successor))
+			continue
+		}
+		if _, statErr := os.Stat(routeFile(siteRoot, successor)); statErr != nil {
+			problems = append(problems, problem(where,
+				"route %q records successor %q, which did not render into the site", route, successor))
+		}
+	}
 	return problems
 }

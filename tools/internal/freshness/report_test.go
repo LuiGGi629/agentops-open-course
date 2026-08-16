@@ -145,7 +145,23 @@ func TestStaticImageInventoryIncludesWorkflowAndProductionInfraScriptAuthorities
 	}
 }
 
-func TestDependabotAgentBatchExcludesCompatibilityFamilies(t *testing.T) {
+// TestDependabotLeavesTheCompatibilityFamiliesAlone pins both halves of the
+// agent's Dependabot contract, because either half alone is insufficient.
+//
+// Excluding a dependency from a group does not stop Dependabot from proposing
+// it: it opens a separate pull request for it instead of folding it into the
+// batch. Those four families are held at versions agents/go/go.mod records as
+// structured compatibility-hold comments, which Dependabot never rewrites, so
+// every such pull request fails check:freshness by construction — that is how
+// five permanently red ones accumulated. The `ignore` list is what actually
+// stops them; the `exclude-patterns` list keeps them out of the weekly batch if
+// a hold is ever lifted. Both are asserted so neither can be dropped by hand.
+//
+// The /tools entry carries the same exposure through tools/go.mod's chromedp
+// hold, so its `ignore` list is pinned too — cdproto for the constraint half and
+// chromedp for the owner half, since a bump of either one alone turns the hold
+// into a MISMATCH.
+func TestDependabotLeavesTheCompatibilityFamiliesAlone(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -161,15 +177,29 @@ func TestDependabotAgentBatchExcludesCompatibilityFamilies(t *testing.T) {
 			} `yaml:"groups"`
 			Ecosystem string `yaml:"package-ecosystem"`
 			Directory string `yaml:"directory"`
+			Ignore    []struct {
+				DependencyName string `yaml:"dependency-name"`
+			} `yaml:"ignore"`
 		} `yaml:"updates"`
 	}
 	if err := yaml.Unmarshal(content, &document); err != nil {
 		t.Fatal(err)
 	}
-	var exclusions []string
+	var exclusions, ignored, toolsIgnored []string
 	for _, update := range document.Updates {
-		if update.Ecosystem == "gomod" && update.Directory == "/agents/go" {
+		if update.Ecosystem != "gomod" {
+			continue
+		}
+		var names []string
+		for _, entry := range update.Ignore {
+			names = append(names, entry.DependencyName)
+		}
+		switch update.Directory {
+		case "/agents/go":
 			exclusions = update.Groups["go-agent-dependencies"].ExcludePatterns
+			ignored = names
+		case "/tools":
+			toolsIgnored = names
 		}
 	}
 	for _, dependency := range []string{
@@ -179,7 +209,18 @@ func TestDependabotAgentBatchExcludesCompatibilityFamilies(t *testing.T) {
 		"google.golang.org/genai",
 	} {
 		if !slices.Contains(exclusions, dependency) {
-			t.Fatalf("agent dependency exclusions = %#v, want %q", exclusions, dependency)
+			t.Errorf("agent dependency exclusions = %#v, want %q", exclusions, dependency)
+		}
+		if !slices.Contains(ignored, dependency) {
+			t.Errorf("agent dependency ignore list = %#v, want %q", ignored, dependency)
+		}
+	}
+	for _, dependency := range []string{
+		"github.com/chromedp/cdproto",
+		"github.com/chromedp/chromedp",
+	} {
+		if !slices.Contains(toolsIgnored, dependency) {
+			t.Errorf("tool dependency ignore list = %#v, want %q", toolsIgnored, dependency)
 		}
 	}
 }
