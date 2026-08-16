@@ -18,6 +18,7 @@ A full-repository review, and the corrections it earned. The course now says wha
 - _(ci)_ Stop Dependabot opening pull requests the compatibility holds are designed to reject
 - _(ci)_ Build the loopback relay the host gateway needs, so the evidence run reaches its first model call
 - _(ci)_ Capture the Ollama version as one line, which `$GITHUB_ENV` rejected as two and which killed the evidence run
+- _(gateway)_ Admit the judge's chat-completions shape on the governed model route, which `.env.example` already told readers to use
 
 ### 🔒 Gates
 

@@ -48,6 +48,48 @@ func TestResponsesContract(t *testing.T) {
 	}
 }
 
+// The evaluation judge reads choices[0].message.content and fails with "no verdict
+// content" when that field is absent, which is exactly how the gateway's misrouted
+// chat-completions path used to break. Pin the shape the judge parses.
+func TestChatCompletionsContract(t *testing.T) {
+	body := `{"model":"qwen3:4b-instruct","messages":[{"role":"user","content":"hello"}]}`
+	request := httptest.NewRequest(http.MethodPost, ChatCompletionsPath, strings.NewReader(body))
+	response := httptest.NewRecorder()
+	Handler(nil).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body)
+	}
+	var document struct {
+		Object  string `json:"object"`
+		Model   string `json:"model"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if document.Object != "chat.completion" || document.Model != "qwen3:4b-instruct" {
+		t.Fatalf("response = %#v", document)
+	}
+	if len(document.Choices) != 1 || document.Choices[0].Message.Content != ReplyText {
+		t.Fatalf("choices = %#v", document.Choices)
+	}
+}
+
+func TestChatCompletionsAnswersTheSameGuardrailProbes(t *testing.T) {
+	body := `{"model":"qwen3:4b-instruct","messages":[{"role":"user","content":"` +
+		ResponseMaskProbe + `"}]}`
+	request := httptest.NewRequest(http.MethodPost, ChatCompletionsPath, strings.NewReader(body))
+	response := httptest.NewRecorder()
+	Handler(nil).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), ResponsePIIReply) {
+		t.Fatalf("probe reply = %d %s", response.Code, response.Body)
+	}
+}
+
 func TestRejectsStreamingAndUnknownPaths(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -57,7 +99,11 @@ func TestRejectsStreamingAndUnknownPaths(t *testing.T) {
 	}{
 		{"streaming", ResponsesPath, `{"stream":true}`, http.StatusBadRequest},
 		{"malformed", ResponsesPath, `{`, http.StatusBadRequest},
-		{"wrong path", "/v1/chat/completions", `{}`, http.StatusNotFound},
+		{"chat streaming", ChatCompletionsPath, `{"stream":true}`, http.StatusBadRequest},
+		{"chat malformed", ChatCompletionsPath, `{`, http.StatusBadRequest},
+		// The fixture serves exactly the two OpenAI shapes the gateway routes and
+		// nothing else, so a widened surface fails here.
+		{"wrong path", "/v1/completions", `{}`, http.StatusNotFound},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

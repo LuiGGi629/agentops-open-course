@@ -140,13 +140,19 @@ routes:
           fillInterval: 60s
           type: tokens
       ai:
-        # The client route type is what agentgateway parses the body with. Without this
-        # override it assumes chat-completions and rejects a Responses request as
-        # "missing field `messages`" — and the response guard below would then be
-        # inspecting a shape that never arrives. The agent speaks only /v1/responses
-        # (ADK Go's openaimodel has no chat-completions code path).
+        # The client route type is what agentgateway parses the body with, and the
+        # default assumption is chat-completions. Without the first entry a Responses
+        # request is rejected as "missing field `messages`" and the response guard
+        # below would inspect a shape that never arrives; the agent speaks only
+        # /v1/responses (ADK Go's openaimodel has no chat-completions code path).
+        # The second entry admits the *other* OpenAI shape on the same governed route,
+        # because the evaluation judge (evals/judge.go) speaks chat-completions and
+        # `.env.example` tells the reader to point it at :4000. One route, so the judge
+        # passes through the same buckets, prompt guard, and response guard as the
+        # agent rather than being a second unpoliced door to the same model.
         routes:
           /v1/responses: responses
+          /v1/chat/completions: completions
         promptGuard:
           request:
             # Reserved smoke canary preserves the 400/502 rejection evidence;
@@ -200,8 +206,13 @@ routes:
     backends:
       - ai:
           name: ollama
+          # No pathOverride: agentgateway derives the upstream path from the route
+          # type resolved above (/v1/responses or /v1/chat/completions), so both
+          # client shapes reach the endpoint Ollama actually serves. Pinning one
+          # path here forced every chat-completions call onto /v1/responses, which
+          # returned an empty Responses body the judge read as "no verdict content".
+          # An unmapped path is still refused at the parse stage, never proxied.
           hostOverride: localhost:11434
-          pathOverride: /v1/responses
           provider:
             openAI:
               model: qwen3:4b-instruct

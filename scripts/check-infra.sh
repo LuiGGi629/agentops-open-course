@@ -611,6 +611,38 @@ for gateway_config in \
 done
 yq -e '.config.modelCatalog == null' infra/agentgateway/gke/config.yaml >/dev/null
 
+# Two client shapes, one governed model route. The agent speaks Responses and the
+# evaluation judge (evals/judge.go) speaks chat-completions, and .env.example tells
+# the reader to point the judge at the gateway on :4000; both entries must therefore
+# stay declared or that instruction becomes false again. A `pathOverride` would pin
+# every route type to one upstream endpoint, which is precisely how chat-completions
+# calls were rewritten onto /v1/responses and answered with an empty body. The
+# upstream path belongs to the resolved route type, so no profile may pin it.
+# scripts/smoke-host.sh proves the runtime behavior; this pins the shipped shape.
+for gateway_config in \
+	infra/agentgateway/host/config.yaml \
+	infra/agentgateway/host/config-auth.yaml \
+	infra/agentgateway/k3d/config.yaml; do
+	model_route_types="$(yq -r '
+      .routes[] | select(.name == "llm") | .policies.ai.routes |
+      to_entries | sort_by(.key) | map(.key + "=" + .value) | join(",")
+    ' "${gateway_config}")"
+	assert_eq "${gateway_config} model route types" \
+		"${model_route_types}" \
+		"/v1/chat/completions=completions,/v1/responses=responses"
+	yq -e '[.routes[] | select(.name == "llm") | .backends[].ai.pathOverride == null] | all_c(.)' \
+		"${gateway_config}" >/dev/null
+done
+# GKE is deliberately excluded: its backend is Vertex, not a co-hosted Ollama, and no
+# evaluation path points a judge at it. Admitting a second client shape there would
+# add a request translation nobody on this course can exercise, so that profile keeps
+# the single Responses route the agent actually uses.
+gke_model_route_types="$(yq -r '
+  .routes[] | select(.name == "llm") | .policies.ai.routes |
+  to_entries | map(.key + "=" + .value) | join(",")
+' infra/agentgateway/gke/config.yaml)"
+assert_eq "GKE model route types" "${gke_model_route_types}" "/v1/responses=responses"
+
 # The host file stays the canonical process-oriented profile. The Docker
 # wrapper derives a network-correct copy without committing a second config.
 host_container_config="${tmp_dir}/host-container.yaml"

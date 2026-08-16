@@ -395,8 +395,8 @@ GO
 		go run "${work_dir}/mcp-client-check.go"
 )
 
-# The agent speaks only the Responses API, so this is the exact path the gateway now
-# proxies (infra/agentgateway/host/config.yaml `pathOverride: /v1/responses`).
+# The agent speaks only the Responses API, so this is the exact path the gateway
+# routes as `responses` (infra/agentgateway/host/config.yaml `policies.ai.routes`).
 curl --fail --silent --show-error \
 	-H "Authorization: Bearer local-ollama" \
 	-H "Content-Type: application/json" \
@@ -407,6 +407,55 @@ model_content="$(jq -r '[.output[] | select(.type == "message") | .content[] | s
 model_name="$(jq -r '.model' "${work_dir}/model-response.json")"
 [[ "${model_content}" == "Fake model response for platform latency measurement." ]]
 [[ "${model_name}" == "qwen3:4b-instruct" ]]
+
+# The second governed client shape on the same route. The evaluation judge
+# (evals/judge.go) speaks chat-completions and .env.example tells the reader to point
+# it at :4000, so this asserts what that instruction promises. It is not a duplicate of
+# the Responses probe above: when the route carried only `responses`, this request
+# still answered 200 with an empty Responses body and no `choices`, which the judge
+# reported as "gateway judge returned no verdict content" — a green transport probe
+# hiding a dead evaluation. Read `choices[0].message.content`, the exact field the
+# judge parses, so the shape and not merely the status is pinned.
+curl --fail --silent --show-error \
+	-H "Authorization: Bearer local-ollama" \
+	-H "Content-Type: application/json" \
+	--data '{"model":"qwen3:4b-instruct","messages":[{"role":"user","content":"Say hello."}]}' \
+	"http://localhost:${gateway_model_port}/v1/chat/completions" \
+	>"${work_dir}/model-chat-completion.json"
+chat_object="$(jq -r '.object' "${work_dir}/model-chat-completion.json")"
+chat_model="$(jq -r '.model' "${work_dir}/model-chat-completion.json")"
+chat_content="$(jq -r '.choices[0].message.content' "${work_dir}/model-chat-completion.json")"
+[[ "${chat_object}" == "chat.completion" ]]
+[[ "${chat_model}" == "qwen3:4b-instruct" ]]
+[[ "${chat_content}" == "${model_content}" ]]
+
+# Routing the judge here is only worth doing if the judge is governed like the agent,
+# so prove the prompt guard fires on this shape too rather than assuming the policy
+# stack applies to every route type the route admits.
+chat_reject_status="$(
+	curl --silent --show-error \
+		-H "Authorization: Bearer local-ollama" \
+		-H "Content-Type: application/json" \
+		--output "${work_dir}/model-chat-reject.json" \
+		--write-out '%{http_code}' \
+		--data '{"model":"qwen3:4b-instruct","messages":[{"role":"user","content":"reject-probe@example.invalid"}]}' \
+		"http://localhost:${gateway_model_port}/v1/chat/completions"
+)"
+[[ "${chat_reject_status}" == "400" ]]
+grep -Fq "Request rejected by the course prompt guard." "${work_dir}/model-chat-reject.json"
+
+# An endpoint the route does not declare must not become a hole through the gateway
+# to the model host: the parse stage refuses it before any upstream call.
+chat_unrouted_status="$(
+	curl --silent --show-error \
+		-H "Authorization: Bearer local-ollama" \
+		-H "Content-Type: application/json" \
+		--output /dev/null \
+		--write-out '%{http_code}' \
+		--data '{"model":"qwen3:4b-instruct","prompt":"Say hello."}' \
+		"http://localhost:${gateway_model_port}/v1/completions"
+)"
+[[ "${chat_unrouted_status}" == "503" ]]
 
 # Keep the historical rejection canaries while proving that ordinary email is
 # centrally masked on both sides of the model boundary. The fake model's probe
