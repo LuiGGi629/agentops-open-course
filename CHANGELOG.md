@@ -16,6 +16,7 @@ A full-repository review, and the corrections it earned. The course now says wha
 - _(observability)_ Plot the error ratio the alert actually tests, instead of one floored at a rate no lab reaches
 - _(docs)_ Credit the course rather than the theme in the footer of every published page
 - _(ci)_ Stop Dependabot opening pull requests the compatibility holds are designed to reject
+- _(ci)_ Build the loopback relay the host gateway needs, so the evidence run reaches its first model call
 
 ### 🔒 Gates
 
