@@ -288,18 +288,28 @@ func (t *Tools) readServiceStatus(ctx context.Context, args GetServiceStatusArgs
 // runSearchServiceLogs is the search_service_logs handler.
 func (t *Tools) runSearchServiceLogs(ctx agent.Context, args SearchServiceLogsArgs) (SearchServiceLogsResult, error) {
 	var result SearchServiceLogsResult
-	err := t.guard(ctx, SearchServiceLogsToolName, func(context.Context) error {
+	err := t.guard(ctx, SearchServiceLogsToolName, func(ctx context.Context) error {
 		var err error
-		result, err = t.readServiceLogs(args)
+		result, err = t.readServiceLogs(ctx, args)
 		return err
 	})
 	return result, err
 }
 
-// readServiceLogs takes no context because the log corpus is read from the
-// filesystem rather than the database; the Guard's deadline still bounds the
-// call, it simply has nothing to cancel.
-func (t *Tools) readServiceLogs(args SearchServiceLogsArgs) (SearchServiceLogsResult, error) {
+// readServiceLogs honors the Guard's per-attempt context at every point it can,
+// which is a narrower promise than the database reads make — and the difference
+// is worth stating rather than glossing over.
+//
+// Those reads hand ctx to the driver, so AGENT_TOOL_TIMEOUT_S aborts a query
+// already in flight. The log corpus comes from the filesystem instead, and
+// [Store.ReadServiceLogs] wraps os.ReadFile, which takes no context: the
+// deadline therefore decides whether each filesystem read is *started*, but
+// cannot preempt one already blocked on a stalled mount. Moving the read into a
+// goroutine would not change that — the goroutine and its buffer would outlive
+// every attempt and leak for as long as the mount hangs — so the checkpoints
+// below are the real bound, and the limit is documented rather than implied
+// away.
+func (t *Tools) readServiceLogs(ctx context.Context, args SearchServiceLogsArgs) (SearchServiceLogsResult, error) {
 	service, err := domain.NormalizeSlug(args.Service)
 	if err != nil {
 		return SearchServiceLogsResult{Error: invalidServiceName(args.Service)}, nil
@@ -317,12 +327,17 @@ func (t *Tools) readServiceLogs(args SearchServiceLogsArgs) (SearchServiceLogsRe
 		)}, nil
 	}
 
+	// The last point at which an exhausted budget can still stop the work rather
+	// than pay for it: once the read below is under way, nothing can call it back.
+	if expired := ctx.Err(); expired != nil {
+		return SearchServiceLogsResult{}, fmt.Errorf("read the logs of service %s: %w", service, expired)
+	}
 	lines, found, err := t.store.ReadServiceLogs(string(service))
 	if err != nil {
 		return SearchServiceLogsResult{}, fmt.Errorf("read the logs of service %s: %w", service, err)
 	}
 	if !found {
-		available, err := t.availableLogs()
+		available, err := t.availableLogs(ctx)
 		if err != nil {
 			return SearchServiceLogsResult{}, err
 		}
@@ -349,8 +364,14 @@ func (t *Tools) readServiceLogs(args SearchServiceLogsArgs) (SearchServiceLogsRe
 // The listing lives here rather than in the data package because it exists only
 // to compose a message for the model. os.ReadDir sorts, so the sentence is the
 // same on every host — Python's glob returned directory order, which was not.
-func (t *Tools) availableLogs() ([]string, error) {
+func (t *Tools) availableLogs(ctx context.Context) ([]string, error) {
 	directory := t.store.LogsDir()
+	// The second filesystem read of the tool, and the same checkpoint as before
+	// it: os.ReadDir cannot be canceled either, so a budget that expired while
+	// the log read ran has to be caught here rather than during the listing.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list the sample logs in %s: %w", directory, err)
+	}
 	entries, err := os.ReadDir(directory)
 	if errors.Is(err, fs.ErrNotExist) {
 		// No corpus at all is a legal, if unhelpful, state: the refusal above

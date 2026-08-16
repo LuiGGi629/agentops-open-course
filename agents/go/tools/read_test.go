@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -370,6 +371,71 @@ func TestSearchServiceLogsRefusesWhatItCannotRead(t *testing.T) {
 		// The refusal names what can be read instead, so the model has somewhere
 		// to go next.
 		contains(t, result.Error, inventoryService, "Error")
+	})
+}
+
+// TestSearchServiceLogsHonorsTheGuardsBudget pins the narrow promise
+// AGENT_TOOL_TIMEOUT_S makes for this one tool. Its corpus is read with
+// os.ReadFile, which cannot be called back once it is blocked, so the deadline
+// is enforced at the two points where it still decides something: before each of
+// the two filesystem reads. Without those checks the configured deadline would
+// be inert here — the tool would run to completion on a budget that is already
+// spent — while the doc comment claimed the Guard bounded it.
+func TestSearchServiceLogsHonorsTheGuardsBudget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an expired budget stops the log read from starting", func(t *testing.T) {
+		t.Parallel()
+
+		reads := 0
+		fixture := newFixture(t, func(opts *options) {
+			opts.store = func(real Store) Store {
+				return stubStore{Store: real, readLogs: func() ([]string, bool, error) {
+					reads++
+					return nil, false, nil
+				}}
+			}
+		})
+		fixture.guard.wrap = func(ctx context.Context) context.Context {
+			expired, cancel := context.WithCancel(ctx)
+			cancel()
+			return expired
+		}
+		ctx, _ := toolContext(t, confirmation{absent: true}, identity{})
+
+		_, err := run(t, fixture.tools.SearchServiceLogs(), ctx, map[string]any{"service": inventoryService})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want it to wrap %v", err, context.Canceled)
+		}
+		if reads != 0 {
+			t.Errorf("the store was read %d times, want the spent budget to stop the read", reads)
+		}
+	})
+
+	t.Run("a budget spent during the log read stops the listing that follows", func(t *testing.T) {
+		t.Parallel()
+
+		attempt, spend := context.WithCancel(context.Background())
+		t.Cleanup(spend)
+		fixture := newFixture(t, func(opts *options) {
+			opts.store = func(real Store) Store {
+				// The budget runs out while the uncancelable log read is in flight,
+				// which is what the second checkpoint exists for: composing the "no
+				// logs for this service" refusal costs another filesystem read, and
+				// nobody is waiting for the answer anymore.
+				return stubStore{Store: real, readLogs: func() ([]string, bool, error) {
+					spend()
+					return nil, false, nil
+				}}
+			}
+		})
+		fixture.guard.wrap = func(context.Context) context.Context { return attempt }
+		ctx, _ := toolContext(t, confirmation{absent: true}, identity{})
+
+		_, err := run(t, fixture.tools.SearchServiceLogs(), ctx, map[string]any{"service": inventoryService})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want it to wrap %v", err, context.Canceled)
+		}
 	})
 }
 

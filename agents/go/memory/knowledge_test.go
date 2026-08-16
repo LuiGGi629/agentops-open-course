@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -213,6 +215,134 @@ func TestKnowledgeReadsGoThroughTheResilienceGuard(t *testing.T) {
 	if !reflect.DeepEqual(fixture.guard.names.all(), want) {
 		t.Errorf("guarded tools = %v, want %v", fixture.guard.names.all(), want)
 	}
+}
+
+// TestKnowledgeReadsHonorTheGuardsBudget pins the narrow promise
+// AGENT_TOOL_TIMEOUT_S makes for the two runbook reads. Their corpus is read
+// with os.ReadFile and os.ReadDir, neither of which can be called back once it
+// is blocked, so the deadline is enforced at the points where it still decides
+// something: before each filesystem read. Without those checks the configured
+// deadline would be inert here — both tools would run to completion on a budget
+// that is already spent — while the doc comments claimed the Guard bounded them.
+func TestKnowledgeReadsHonorTheGuardsBudget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an expired budget stops the runbook read from starting", func(t *testing.T) {
+		t.Parallel()
+
+		reads := 0
+		fixture := newFixture(t, func(opts *options) {
+			opts.store = func(real Store) Store {
+				return stubStore{Store: real, readRunbook: func(string) (string, bool, error) {
+					reads++
+					return "", false, nil
+				}}
+			}
+		})
+		fixture.guard.wrap = func(ctx context.Context) context.Context {
+			expired, cancel := context.WithCancel(ctx)
+			cancel()
+			return expired
+		}
+
+		_, err := run(t, fixture.memory.GetRunbook(), engineerContext(t),
+			map[string]any{"slug": highLatencyBook})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want it to wrap %v", err, context.Canceled)
+		}
+		if reads != 0 {
+			t.Errorf("the store was read %d times, want the spent budget to stop the read", reads)
+		}
+	})
+
+	t.Run("a budget spent during the runbook read stops the listing that follows", func(t *testing.T) {
+		t.Parallel()
+
+		attempt, spend := context.WithCancel(context.Background())
+		t.Cleanup(spend)
+		fixture := newFixture(t, func(opts *options) {
+			opts.store = func(real Store) Store {
+				// The budget runs out while the uncancelable read is in flight, which
+				// is what the second checkpoint exists for: composing the "no runbook
+				// named this" refusal costs another filesystem read, and nobody is
+				// waiting for the answer anymore.
+				return stubStore{Store: real, readRunbook: func(string) (string, bool, error) {
+					spend()
+					return "", false, nil
+				}}
+			}
+		})
+		fixture.guard.wrap = func(context.Context) context.Context { return attempt }
+
+		_, err := run(t, fixture.memory.GetRunbook(), engineerContext(t),
+			map[string]any{"slug": highLatencyBook})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want it to wrap %v", err, context.Canceled)
+		}
+	})
+
+	t.Run("an expired budget stops the corpus listing from starting", func(t *testing.T) {
+		t.Parallel()
+
+		listings := 0
+		fixture := newFixture(t, func(opts *options) {
+			opts.store = func(real Store) Store {
+				return stubStore{Store: real, listRunbookSlugs: func() ([]string, error) {
+					listings++
+					return nil, nil
+				}}
+			}
+		})
+		fixture.guard.wrap = func(ctx context.Context) context.Context {
+			expired, cancel := context.WithCancel(ctx)
+			cancel()
+			return expired
+		}
+
+		_, err := run(t, fixture.memory.SearchRunbooks(), engineerContext(t),
+			map[string]any{"query": "latency"})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want it to wrap %v", err, context.Canceled)
+		}
+		if listings != 0 {
+			t.Errorf("the corpus was listed %d times, want the spent budget to stop the listing", listings)
+		}
+	})
+
+	t.Run("a budget spent during the corpus listing stops the reads that follow", func(t *testing.T) {
+		t.Parallel()
+
+		attempt, spend := context.WithCancel(context.Background())
+		t.Cleanup(spend)
+		reads := 0
+		fixture := newFixture(t, func(opts *options) {
+			opts.store = func(real Store) Store {
+				// A search reads every runbook, so the per-slug checkpoint is what keeps
+				// an exhausted budget from paying for the whole corpus one file at a time.
+				return stubStore{
+					Store: real,
+					listRunbookSlugs: func() ([]string, error) {
+						spend()
+						return []string{highLatencyBook, serviceDownBook}, nil
+					},
+					readRunbook: func(string) (string, bool, error) {
+						reads++
+						return "", false, nil
+					},
+				}
+			}
+		})
+		fixture.guard.wrap = func(context.Context) context.Context { return attempt }
+
+		_, err := run(t, fixture.memory.SearchRunbooks(), engineerContext(t),
+			map[string]any{"query": "latency"})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run() error = %v, want it to wrap %v", err, context.Canceled)
+		}
+		if reads != 0 {
+			t.Errorf("%d runbooks were read, want the spent budget to stop the first read", reads)
+		}
+	})
 }
 
 func TestKnowledgeToolsAreRegisteredInOrder(t *testing.T) {

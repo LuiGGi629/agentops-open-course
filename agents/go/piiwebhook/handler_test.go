@@ -416,13 +416,15 @@ func TestOverlappingSpansMaskOnceAndDeterministically(t *testing.T) {
 			},
 			want: "<LOCATION> paged Acme Corp",
 		},
-		"a span that starts inside an earlier one is dropped whole": {
+		"a chain of staggered spans masks every one of them": {
 			spans: []Span{
 				{Entity: EntityOrganization, Start: 0, End: 9},
 				{Entity: EntityPerson, Start: 5, End: 20},
 				{Entity: EntityOrganization, Start: 16, End: 25},
 			},
-			want: "<ORGANIZATION> paged <ORGANIZATION>",
+			// The person span covers " paged " too, so the whole text is detected
+			// bytes and nothing of it may survive between the markers.
+			want: "<ORGANIZATION><PERSON><ORGANIZATION>",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -438,6 +440,77 @@ func TestOverlappingSpansMaskOnceAndDeterministically(t *testing.T) {
 			}
 			if !strings.Contains(recorder.Body.String(), testCase.want) {
 				t.Errorf("response body = %s, want it to contain %q", recorder.Body.String(), testCase.want)
+			}
+		})
+	}
+}
+
+// TestStaggeredOverlapMasksTheUncoveredTail is the regression for the one
+// overlap shape that used to leak: a span that starts inside an earlier one but
+// ends after it was dropped whole, so its uncovered tail reached the model
+// verbatim. This webhook is the control that catches the context-dependent
+// names the regex maskers cannot, so a published organization or location tail
+// is exactly the failure it was bought to prevent.
+func TestStaggeredOverlapMasksTheUncoveredTail(t *testing.T) {
+	t.Parallel()
+
+	for name, testCase := range map[string]struct {
+		text  string
+		want  string
+		gone  []string
+		spans []Span
+	}{
+		"a person and an organization sharing a surname": {
+			text: "Alice Smith Corp",
+			spans: []Span{
+				{Entity: EntityPerson, Start: 0, End: 11},
+				{Entity: EntityOrganization, Start: 6, End: 16},
+			},
+			want: "<PERSON><ORGANIZATION>",
+			gone: []string{"Alice", "Smith", "Corp"},
+		},
+		"multi-byte runes on both sides of the overlap": {
+			// "José" is five bytes and "Álvarez" is eight, so the organization span
+			// starts at byte 6 — inside the person span, and on a rune boundary. The
+			// remainder must never be sliced there, or the accented rune is cut in
+			// half and the whole value is conservatively redacted instead.
+			text: "José Álvarez Zenith",
+			spans: []Span{
+				{Entity: EntityPerson, Start: 0, End: 14},
+				{Entity: EntityOrganization, Start: 6, End: 21},
+			},
+			want: "<PERSON><ORGANIZATION>",
+			gone: []string{"José", "Álvarez", "Zenith"},
+		},
+		"a span nested inside a wider earlier one is still absorbed": {
+			// The already-correct half of the masker: this span ends inside what is
+			// masked, so it must add nothing rather than a second marker.
+			text: "Acme Corp paged Acme Corp",
+			spans: []Span{
+				{Entity: EntityOrganization, Start: 0, End: 9},
+				{Entity: EntityPerson, Start: 5, End: 9},
+			},
+			want: "<ORGANIZATION> paged Acme Corp",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			handler := newHandler(t, detectorFunc(func(context.Context, []string) ([][]Span, error) {
+				return [][]Span{testCase.spans}, nil
+			}), time.Second)
+			recorder := post(t, handler, RequestPath,
+				`{"body":{"messages":[{"role":"user","content":"`+testCase.text+`"}]}}`)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %q, want 200", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), testCase.want) {
+				t.Errorf("response body = %s, want it to contain %q", recorder.Body.String(), testCase.want)
+			}
+			for _, leaked := range testCase.gone {
+				if strings.Contains(recorder.Body.String(), leaked) {
+					t.Errorf("response body = %s, still contains the detected %q", recorder.Body.String(), leaked)
+				}
 			}
 		})
 	}

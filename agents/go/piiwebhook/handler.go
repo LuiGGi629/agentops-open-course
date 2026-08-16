@@ -318,10 +318,24 @@ func maskSpans(text string, spans []Span) (string, error) {
 			!utf8.ValidString(text[found.Start:found.End]) {
 			return "", errors.New("invalid detector span")
 		}
-		if found.Start < written {
+		if found.End <= written {
+			// This span lies entirely inside what is already masked, so it has
+			// nothing left to hide. The descending-End tie-break puts the widest
+			// span at a given start first, which is what makes a nested span reach
+			// this branch rather than the partial-overlap one below.
 			continue
 		}
-		output.WriteString(text[written:found.Start])
+		if found.Start > written {
+			output.WriteString(text[written:found.Start])
+		}
+		// A span that starts inside an earlier one but ends after it is only
+		// partially covered, and its uncovered tail is still text the detector
+		// called an entity. That tail is replaced with this span's own marker
+		// instead of being written out, so two markers end up adjacent — which is
+		// the honest rendering, because skipping the span outright published the
+		// tail verbatim and handed the model the bytes the detector meant to hide.
+		// Nothing is sliced at the overlap either, so a multi-byte rune straddling
+		// it cannot be cut in half.
 		output.WriteByte('<')
 		output.WriteString(string(found.Entity))
 		output.WriteByte('>')

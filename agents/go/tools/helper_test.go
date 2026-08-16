@@ -126,7 +126,12 @@ type recordingGuard struct {
 	// before runs immediately before the call, and may replace it entirely by
 	// returning an error, which is how a failing guard is simulated.
 	before func(name string) error
-	names  []string
+	// wrap derives the context one attempt runs under, standing in for the
+	// per-attempt deadline the resilience Guard installs. A test uses it to hand a
+	// read a budget that is already gone, which is the only way to observe what a
+	// tool does with a context it cannot get more time from.
+	wrap  func(ctx context.Context) context.Context
+	names []string
 	// repeat runs the call this many extra times, standing in for the retries the
 	// resilience package performs.
 	repeat int
@@ -140,7 +145,11 @@ func (g *recordingGuard) run(ctx context.Context, name string, call func(context
 		}
 	}
 	for attempt := 0; attempt <= g.repeat; attempt++ {
-		if err := call(ctx); err != nil {
+		attemptCtx := ctx
+		if g.wrap != nil {
+			attemptCtx = g.wrap(ctx)
+		}
+		if err := call(attemptCtx); err != nil {
 			return err
 		}
 	}

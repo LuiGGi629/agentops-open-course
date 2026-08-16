@@ -93,9 +93,9 @@ type SearchRunbooksResult struct {
 // --8<-- [start:get-runbook]
 func (m *Memory) runGetRunbook(ctx agent.Context, args GetRunbookArgs) (GetRunbookResult, error) {
 	var result GetRunbookResult
-	err := m.guard(callContext(ctx), GetRunbookToolName, func(context.Context) error {
+	err := m.guard(callContext(ctx), GetRunbookToolName, func(ctx context.Context) error {
 		var err error
-		result, err = m.readRunbook(args.Slug)
+		result, err = m.readRunbook(ctx, args.Slug)
 		return err
 	})
 	return result, err
@@ -109,10 +109,19 @@ func (m *Memory) runGetRunbook(ctx agent.Context, args GetRunbookArgs) (GetRunbo
 // trusted value is used afterwards — the read, the error message and the result
 // all speak the normalized slug. A traversal payload cannot be expressed as a
 // [domain.Slug], so it never reaches the filesystem.
-func (m *Memory) readRunbook(slug string) (GetRunbookResult, error) {
+//
+// It honors the Guard's per-attempt context at every point it can, which is a
+// narrower promise than a database read makes — and the difference is worth
+// stating rather than glossing over. The knowledge base lives on the filesystem,
+// and [Store.ReadRunbook] wraps os.ReadFile, which takes no context: the
+// deadline therefore decides whether each filesystem read is *started*, but
+// cannot preempt one already blocked on a stalled mount. So the checkpoints
+// below are the real bound, and the limit is documented rather than implied
+// away.
+func (m *Memory) readRunbook(ctx context.Context, slug string) (GetRunbookResult, error) {
 	normalized, err := domain.NormalizeSlug(slug)
 	if err != nil {
-		known, listErr := m.knownRunbooks()
+		known, listErr := m.knownRunbooks(ctx)
 		if listErr != nil {
 			return GetRunbookResult{}, listErr
 		}
@@ -122,12 +131,17 @@ func (m *Memory) readRunbook(slug string) (GetRunbookResult, error) {
 			"Invalid runbook slug %q. Available runbooks: %s.", slug, known,
 		)}, nil
 	}
+	// The last point at which an exhausted budget can still stop the work rather
+	// than pay for it: once the read below is under way, nothing can call it back.
+	if expired := ctx.Err(); expired != nil {
+		return GetRunbookResult{}, fmt.Errorf("read runbook %s: %w", normalized, expired)
+	}
 	content, found, err := m.store.ReadRunbook(string(normalized))
 	if err != nil {
 		return GetRunbookResult{}, fmt.Errorf("read runbook %s: %w", normalized, err)
 	}
 	if !found {
-		known, listErr := m.knownRunbooks()
+		known, listErr := m.knownRunbooks(ctx)
 		if listErr != nil {
 			return GetRunbookResult{}, listErr
 		}
@@ -144,7 +158,15 @@ func (m *Memory) readRunbook(slug string) (GetRunbookResult, error) {
 //
 // Naming what does exist turns a dead end into a next step: the model guessed a
 // slug, and the answer tells it which ones are real.
-func (m *Memory) knownRunbooks() (string, error) {
+//
+// It carries the same checkpoint as the read it composes a refusal for:
+// [Store.ListRunbookSlugs] wraps os.ReadDir, which cannot be canceled either, so
+// a budget that expired while the read ran has to be caught before the listing
+// starts rather than during it.
+func (m *Memory) knownRunbooks(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("list the runbook knowledge base: %w", err)
+	}
 	slugs, err := m.store.ListRunbookSlugs()
 	if err != nil {
 		return "", fmt.Errorf("list the runbook knowledge base: %w", err)
@@ -198,7 +220,7 @@ func (m *Memory) rankRunbooks(ctx context.Context, args SearchRunbooksArgs) (Sea
 			return SearchRunbooksResult{}, err
 		}
 	}
-	return m.keywordSearch(args.Query, limit)
+	return m.keywordSearch(ctx, args.Query, limit)
 }
 
 // runbookDocument is one runbook as the keyword scorer sees it: its slug, its
@@ -222,9 +244,14 @@ type scoredRunbook struct {
 // not dominate, and a term that appears in a runbook's slug earns a large flat
 // boost. Nothing here consults a model or a network, which is what keeps the
 // default path reproducible for evaluation.
-func (m *Memory) keywordSearch(query string, limit int) (SearchRunbooksResult, error) {
+//
+// It takes the Guard's per-attempt context for the corpus read alone: the
+// scoring below is pure CPU work over data already in memory, and the reads that
+// feed it are the only part a deadline can still act on — see [Memory.readRunbook]
+// for why that bound is a narrow one.
+func (m *Memory) keywordSearch(ctx context.Context, query string, limit int) (SearchRunbooksResult, error) {
 	terms := queryTerms(query)
-	documents, err := m.runbookCorpus()
+	documents, err := m.runbookCorpus(ctx)
 	if err != nil {
 		return SearchRunbooksResult{}, err
 	}
@@ -296,13 +323,24 @@ func (m *Memory) keywordSearch(query string, limit int) (SearchRunbooksResult, e
 // A slug the store cannot resolve contributes an empty document rather than an
 // error: the listing and the read are two filesystem operations, and a file
 // that vanished between them is not a reason to refuse the whole search.
-func (m *Memory) runbookCorpus() ([]runbookDocument, error) {
+//
+// This is the most expensive read the package performs — one listing plus one
+// os.ReadFile per runbook — so the budget is checked before each of them. None
+// can be preempted once started, but a corpus of any size is a sequence of
+// starts, and an exhausted budget stops the next one.
+func (m *Memory) runbookCorpus(ctx context.Context) ([]runbookDocument, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("list the runbook knowledge base: %w", err)
+	}
 	slugs, err := m.store.ListRunbookSlugs()
 	if err != nil {
 		return nil, fmt.Errorf("list the runbook knowledge base: %w", err)
 	}
 	documents := make([]runbookDocument, 0, len(slugs))
 	for _, slug := range slugs {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("read runbook %s: %w", slug, err)
+		}
 		content, _, err := m.store.ReadRunbook(slug)
 		if err != nil {
 			return nil, fmt.Errorf("read runbook %s: %w", slug, err)
