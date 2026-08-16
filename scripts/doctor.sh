@@ -16,15 +16,15 @@ profile=${1:-base}
 required=()
 
 # --8<-- [start:doctor-tool-tiers]
-readonly -a base_managed_tools=(go hugo golangci-lint gotestsum dprint sqlite3 jq lychee shfmt shellcheck actionlint zizmor trivy)
+readonly -a base_managed_tools=(go hugo golangci-lint gotestsum dprint sqlite3 jq lychee shfmt shellcheck actionlint zizmor rg trivy)
 readonly -a base_host_tools=(git curl cc install make tar)
 readonly -a model_host_tools=(ollama)
 readonly -a gateway_managed_tools=(yq)
 readonly -a gateway_host_tools=(docker openssl)
 readonly -a platform_tools=(
-	rg k3d kubectl helm helmfile skaffold kubeconform kube-linter agentgateway promtool sops age-keygen
+	k3d kubectl helm helmfile skaffold kubeconform kube-linter agentgateway promtool sops age-keygen
 )
-readonly -a gcp_platform_tools=(rg kubectl helm helmfile skaffold kubeconform tofu tflint)
+readonly -a gcp_platform_tools=(kubectl helm helmfile skaffold kubeconform tofu tflint)
 readonly -a gcp_host_tools=(gcloud gke-gcloud-auth-plugin)
 # --8<-- [end:doctor-tool-tiers]
 
@@ -40,7 +40,12 @@ add_tier() {
 
 # Base is everything the base-tier gates shell out to, not only the three tools
 # that author a page: check:data needs sqlite3, check:links lychee, check:shell
-# shfmt + shellcheck, check:workflows actionlint + Zizmor, and Trivy owns dependency licenses.
+# shfmt + shellcheck, check:workflows actionlint + Zizmor, and check:licenses reads the font
+# license with rg before Trivy owns the dependency verdict. rg is listed here rather than left
+# to the platform tier because check:licenses:core needs it: without it the base doctor reported
+# ready and check:core then failed on a tool no learner had been told to install. The heavier
+# tiers no longer repeat it — every profile adds this tier first, and nothing deduplicates
+# "${required[@]}", so a second entry only made one missing tool print twice, once per remedy.
 add_base_tier() {
 	add_tier "mise run install" "${base_managed_tools[@]}"
 	add_tier "install Git from a reviewed host package source" "${base_host_tools[0]}"

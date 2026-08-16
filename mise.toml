@@ -80,7 +80,11 @@ run = [
 hide = true # implementation detail of install:*; a learner picks a tier, never a tool list
 description = "Install only the tools used by learner and contributor core tasks"
 run = [
-  "mise install -y --locked hugo-extended go golangci-lint gotestsum dprint lefthook gitleaks actionlint zizmor trivy shellcheck shfmt lychee jq",
+  # ripgrep belongs to this tier, not only to install:tools:platform: check:licenses greps the
+  # font license with `rg`, and macOS ships no ripgrep — so a learner who installed only this
+  # tier used to be told the base doctor was ready and then hit a check:core failure whose
+  # remedy pointed back at an installer that could not supply the tool.
+  "mise install -y --locked hugo-extended go golangci-lint gotestsum dprint lefthook gitleaks actionlint zizmor trivy shellcheck shfmt ripgrep lychee jq",
   "./scripts/install-sqlite.sh",
 ]
 
@@ -434,6 +438,7 @@ run = "./scripts/generate-captures.sh"
 
 [tasks."check:accessibility"]
 description = "Build and exercise the representative documentation and web-client accessibility surfaces"
+depends = ["tools:built"]
 run = [
   "mise run build:docs",
   "tools/bin/accessibility",
@@ -478,6 +483,11 @@ run = "lychee --offline --root-dir '{{config_root}}/assets' README.md AGENTS.md 
 
 [tasks."check:skills"]
 description = "Validate the installable Agent Skills under skills/"
+# Every task that shells out to tools/bin/ declares this itself. Listing tools:built beside
+# check:skills in check:source's `depends` looks like ordering but is not: siblings there run
+# in parallel, so the checker could start against yesterday's binary — or against no binary at
+# all when this task is run on its own. mise deduplicates the build, so the edge is free.
+depends = ["tools:built"]
 run = "tools/bin/conventions skills"
 
 [tasks."check:licenses"]
@@ -490,6 +500,7 @@ run = "./scripts/check-licenses.sh core"
 
 [tasks."check:release-metadata"]
 description = "Verify package, citation, changelog, and optional tag versions agree"
+depends = ["tools:built"]
 run = "tools/bin/conventions release-metadata"
 
 [tasks."check:shell"]
@@ -512,7 +523,11 @@ run = [
 [tasks."check:workflows"]
 description = "Lint and security-review GitHub Actions workflows"
 run = [
-  "actionlint .github/workflows/*.yml",
+  # No glob: a bare actionlint discovers .github/workflows itself and reads both .yml and
+  # .yaml, where `*.yml` silently linted nothing when a workflow was added with the other
+  # spelling. zizmor is given the repository root for the same reason, and
+  # --strict-collection makes a workflow it cannot parse an error rather than a skip.
+  "actionlint",
   "zizmor --offline --persona=regular --strict-collection .",
 ]
 
@@ -567,20 +582,23 @@ mise run eval:ab -- \
 
 [tasks."course:evidence"]
 description = "Run deterministic learner gates and create a sanitized completion manifest"
+depends = ["tools:built"]
 run = "tools/bin/course-evidence create"
 
 [tasks."course:evidence:verify"]
 description = "Verify a completion manifest from its exact clean source revision"
+depends = ["tools:built"]
 run = "tools/bin/course-evidence verify"
 
 [tasks."course:certificate"]
 description = "Render a shareable self-attested certificate from a completion manifest"
-# No `depends`, matching its two siblings: all three read what `create` already
+# tools:built only, matching its two siblings: all three read what `create` already
 # wrote, and none of them re-runs a gate to draw a picture of one.
 usage = '''
 flag "--name <name>" help="Name printed on the certificate"
 flag "--tier <tier>" help="Capstone tier claimed: bronze, silver, or gold"
 '''
+depends = ["tools:built"]
 run = 'tools/bin/course-certificate --name "$usage_name" --tier "$usage_tier"'
 
 [tasks."gateway:host"]
@@ -617,6 +635,7 @@ run = [
 
 [tasks."client:web"]
 description = "Serve the minimal A2A web client (offline, no build step) on :8001"
+depends = ["tools:built"]
 run = "tools/bin/static-server --host 127.0.0.1 --port 8001 --directory clients/web"
 
 # k6 is intentionally not in [tools] (optional load path, AGPL-3.0); `mise x` runs the
@@ -635,6 +654,7 @@ run = "mise x k6@2.1.0 -- k6 run load/a2a-send.js"
 
 [tasks."model:fake"]
 description = "Run a deterministic OpenAI-compatible fake model on :11434 for platform-only load tests"
+depends = ["tools:built"]
 run = "tools/bin/fake-model"
 
 [tasks."agent:built"]

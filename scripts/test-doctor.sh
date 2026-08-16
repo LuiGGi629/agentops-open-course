@@ -4,6 +4,8 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 doctor="$(dirname "${BASH_SOURCE[0]}")/doctor.sh"
+doctor_path="$(realpath "${doctor}")"
+repo_dir="$(dirname "$(dirname "${doctor_path}")")"
 tmp_dir="$(mktemp -d)"
 trap 'rm -r -- "${tmp_dir}"' EXIT
 
@@ -12,6 +14,17 @@ trap 'rm -r -- "${tmp_dir}"' EXIT
 "${doctor}" --requirements gcp >"${tmp_dir}/gcp"
 
 grep -Fqx $'sqlite3\tmise run install' "${tmp_dir}/base"
+# rg is a base-tier tool, and the remedy it names has to be able to supply it: check:licenses:core
+# greps the font license with `rg`, and macOS ships none. When the base tier omitted it, the base
+# doctor reported ready and check:core then failed on a tool no learner had been told to install —
+# so both halves of that contract are asserted here rather than left to a hand audit.
+grep -Fqx $'rg\tmise run install' "${tmp_dir}/base" ||
+	fail "the base doctor tier must require rg: check:licenses:core greps the font license with it"
+# The installer line itself, not the comment above it: a section that only explains why ripgrep
+# belongs here would satisfy a plain substring match while installing nothing.
+sed -n '/^\[tasks\."install:tools:core"\]/,/^\[tasks\./p' "${repo_dir}/mise.toml" |
+	grep -Eq '^ *"mise install .* ripgrep ' ||
+	fail "install:tools:core must install ripgrep: it is the remedy the base doctor prints for rg"
 grep -Fqx $'git\tinstall Git from a reviewed host package source' "${tmp_dir}/base"
 grep -Fqx $'install\tinstall it from a reviewed host package source' "${tmp_dir}/base"
 grep -Fqx $'yq\tmise run install:platform' "${tmp_dir}/gateway"
@@ -80,8 +93,6 @@ EOF
 chmod +x "${tmp_dir}/bin/docker" "${tmp_dir}/bin/helm" "${tmp_dir}/bin/gcloud" "${tmp_dir}/bin/gke-gcloud-auth-plugin"
 export FAKE_GCLOUD_LOG="${tmp_dir}/gcloud.log"
 
-doctor_path="$(realpath "${doctor}")"
-repo_dir="$(dirname "$(dirname "${doctor_path}")")"
 run_gcp_doctor() (
 	cd "${repo_dir}"
 	PATH="${tmp_dir}/bin:${PATH}" "${doctor_path}" gcp
