@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "note": "Every URL the course has ever published, and the permalink that serves it today. Pages carry these as Hugo aliases; checkReleasedRoutes proves each one renders.",
+  "note": "Every URL the course has ever published, and the permalink that serves it today. Pages carry the historical ones as Hugo aliases; checkReleasedRoutes proves each one renders. A page born after v0.7.0 has no predecessor to alias, so it is recorded as its own successor — otherwise its slug could be renamed with nothing failing. Adding a page adds its permalink here.",
   "releases": {
     "0.1.0": [
       "0. Overview/0.0. Course.html",
@@ -626,6 +626,14 @@
     "8. Community/8.6. AAIF.html": "/8-community/8-6-aaif/",
     "8. Community/8.7. Capstone.html": "/8-community/8-7-capstone/",
     "8. Community/index.html": "/8-community/",
-    "index.html": "/"
+    "index.html": "/",
+    "/0-overview/0-2-evidence/": "/0-overview/0-2-evidence/",
+    "/3-capabilities/3-8-streaming/": "/3-capabilities/3-8-streaming/",
+    "/3-capabilities/3-9-incident-run/": "/3-capabilities/3-9-incident-run/",
+    "/6-platform/6-8-platform-operations/": "/6-platform/6-8-platform-operations/",
+    "/6-platform/6-9-scale-out/": "/6-platform/6-9-scale-out/",
+    "/7-observability/7-2b-alerting/": "/7-observability/7-2b-alerting/",
+    "/7-observability/7-3b-cost-governance/": "/7-observability/7-3b-cost-governance/",
+    "/8-community/8-8-from-python/": "/8-community/8-8-from-python/"
   }
 }

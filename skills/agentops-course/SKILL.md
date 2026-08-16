@@ -15,7 +15,11 @@ Getting an agent to answer correctly once is a demo. **AgentOps** is keeping it 
 
 ## The patterns
 
-Each pattern is a sibling skill, named rather than linked: installing one skill alone may not put its siblings on disk. Read the local `skills/` catalog and install only the patterns your agent needs.
+Each pattern is a sibling skill, and installing this index alone does not put any of them on disk. They ship from the same package, so add the ones your agent needs by name:
+
+```bash
+npx skills add MLOps-Courses/agentops-open-course --skill agent-resilience
+```
 
 1. **`agentops-telemetry`** — trace, meter, and log the agent with OpenTelemetry; content off by default.
 1. **`agent-guardrails`** — PII redaction, injection spotlighting, human approval on writes, a kill-switch.
@@ -31,4 +35,4 @@ Build and instrument first (telemetry), harden the boundaries (guardrails, least
 
 ## The full course
 
-These patterns are distilled from the **AgentOps Open Course**, which builds, evaluates, secures, deploys, and operates one production-shaped Go agent with Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Grafana, and Ollama. This checkout is an unpublished Hugo evaluation build; consult its `README.md` for current proof boundaries.
+These patterns are distilled from the **AgentOps Open Course**, which builds, evaluates, secures, deploys, and operates one production-shaped Go agent with Google ADK, agentgateway, kagent, OpenTelemetry, Tempo, Loki, Prometheus, Grafana, and Ollama. Read it at <https://agentops-open-course.fmind.dev/>; its `README.md` states the current proof boundaries.

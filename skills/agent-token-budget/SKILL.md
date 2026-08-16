@@ -22,7 +22,7 @@ Every agent loop step is another model call, so cost and latency compound. Give 
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - `agents/go/policy/budget.go` — session usage, hard ceiling, configurable cost estimate, and OTel evidence.
 - Course chapters `7.3. Costs` and `3.7. Multi-Agent`.

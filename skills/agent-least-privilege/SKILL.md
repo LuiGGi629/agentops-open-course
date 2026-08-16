@@ -26,7 +26,7 @@ Most of the time. Every delegation is an extra model call and another candidate 
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - `agents/go/compose/delegation.go` — a coordinator with structurally restricted specialists.
 - Course chapter `3.7. Multi-Agent`.

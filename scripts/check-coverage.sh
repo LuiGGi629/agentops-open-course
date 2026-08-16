@@ -9,10 +9,10 @@
 # well-tested package pays for a small, untested one. The floor is a promise about
 # every package, so it is checked against every package.
 #
-# `cmd/` packages are excluded by kind, not by name. They are `package main` wiring
-# whose behavior is exercised through subprocess tests that Go attributes to the test
-# binary rather than to the package under test, so their reported number measures the
-# harness more than the code. Every other package is in.
+# `cmd/` packages are excluded by kind, not by name. They are `package main` composition
+# wiring — flag parsing, dependency construction, process lifecycle — that this project
+# has chosen not to hold to the floor. Their coverage is measured like every other
+# package's and simply sits below it. Every other package is in.
 #
 # A package with no test file is *not* a blind spot here, which is worth writing down
 # because it looks like one. `go test -coverprofile ./...` compiles every package for

@@ -57,7 +57,7 @@ The gateway answers the preflight itself (`200` with `access-control-allow-*` he
 ## Limitations
 
 1. Lab-only: no authentication, no TLS, loopback addresses — consistent with the course's no-public-endpoint stance.
-1. The default A2A runtime records a synthetic `A2A_USER_<context-id>` approver. This proves confirmation continuity, not authenticated human identity.
+1. The default A2A runtime writes no audit row for a guarded action, because it cannot name a human. With no `AGENT_TRUSTED_IDENTITY_HEADER` configured, the server marks the request network-originated but binds no principal (`agents/go/a2aserver/identity.go`), and the write tool refuses a confirmed action whose network state is `NetworkUnauthenticated` (`agents/go/tools/action.go`). The approval form still demonstrates the whole round-trip — pause, repeated arguments, required rationale — and the refusal then comes back as a tool result the model reads. That is correct behavior rather than a bug: ADK's synthetic `A2A_USER_<context-id>` identity scopes sessions and memory only, and writing it into an append-only audit row would record an approver nobody authenticated. Set the header only behind a gateway that validates the caller and sets it itself.
 1. One conversation per page load; reconnecting without a reload preserves it, but a reload does not list or resume tasks from `.state/runtime.db`.
 1. Text parts only (the card advertises `text/plain`); file parts are not rendered.
 1. Token-level streaming appears only when the server runs with `AGENT_A2A_STREAMING=true`; by default SSE carries whole events. The default is off for a safety reason, not a performance one — see [3.8. Streaming](../../content/3.%20Capabilities/3.8.%20Streaming.md).

@@ -24,7 +24,7 @@ Put a guardrail at each boundary an untrusted signal can cross: input, model, to
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - `agents/go/policy/pii.go` — deterministic request, response, tool, note, and audit redaction.
 - `agents/go/piiwebhook/` — bounded model-backed person, location, and organization masking for agentgateway.

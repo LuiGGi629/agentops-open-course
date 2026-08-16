@@ -51,7 +51,7 @@ mise run --cd tools check
 mise run --cd tools test
 ```
 
-Go coverage has a floor. `mise run test` in `agents/go` and in `evals` fails when any package drops below 80% line coverage, because a repository total lets a well-tested package pay for the untested one you should be worrying about. `cmd/` packages are excluded by kind — they are `package main` wiring exercised through subprocess tests Go attributes to the test binary. `tools/` is maintainer scaffolding and sits outside the floor.
+Go coverage has a floor. `mise run test` in `agents/go` and in `evals` fails when any package drops below 80% line coverage, because a repository total lets a well-tested package pay for the untested one you should be worrying about. `cmd/` packages are excluded by kind — they are `package main` composition wiring (flag parsing, dependency construction, process lifecycle) this project has chosen not to hold to the floor, and their coverage is measured like every other package's and simply sits below it. `tools/` is maintainer scaffolding and sits outside the floor.
 
 ## When should I run model-backed evaluation?
 

@@ -23,7 +23,7 @@ An operated agent is a running workload with incidents of its own: error-budget 
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - Course chapter `7.7. Incident Response` (the full loop and a postmortem template).
 - `agents/go/policy/`, `agents/go/state/`, and `evals/` for startup controls, recovery, and regression evidence.

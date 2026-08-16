@@ -23,7 +23,7 @@ Give an agent's outbound calls three layers of failure handling, applied in the 
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - `agents/go/resilience/` — context deadlines, bounded retries, and circuit state.
 - `agents/go/resilience/circuit_test.go` — deterministic virtual-time checks with `testing/synctest`.

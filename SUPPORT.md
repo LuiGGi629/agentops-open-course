@@ -45,7 +45,7 @@ Stable software contracts are:
 - The host, local k3d, and optional GKE configuration shapes, Kubernetes resource names, image names, and versioned image tags.
 - Evaluation input schemas, the black-box import boundary, stable OpenTelemetry signal names, and sanitized result schemas documented in `evals/README.md`.
 
-Course prose is not frozen. Chapters can be reordered or rewritten, but an owner-approved publication must preserve or redirect previously released URLs.
+Course prose is not frozen. Chapters can be reordered or rewritten, but every push to `main` publishes the site, so a route change must preserve or redirect every previously released URL through `data/released-urls.json`.
 
 Internal Go packages, unexported identifiers, test fixtures, generated HTML, unversioned commits, and upstream implementation details are not public APIs. The repository adapts incompatible upstream changes before changing its documented contract.
 
@@ -136,7 +136,7 @@ The course intentionally excludes a model-callable subject-data administration e
 - PDF and ebook publication.
 - Coordinated subject discovery, export, or erasure across notes, ADK sessions, A2A tasks, traces, and release artifacts.
 - Compatibility for forks, unreviewed patches, mutable tags, or unsupported dependency combinations.
-- Publication of this Hugo evaluation checkout.
+- Availability, uptime, or latency commitments for the published site; `.github/workflows/docs.yml` deploys it to GitHub Pages on a push to `main`, and that hosting is best effort.
 
 ## How long is a release supported?
 

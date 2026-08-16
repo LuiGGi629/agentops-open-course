@@ -24,7 +24,7 @@ Score an agent's _behavior_ over fixed cases, not one exact string. Let model-fr
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - `evals/turn.go` and `evals/client.go` — typed REST/A2A capture and partial-safe usage folding.
 - `evals/trajectory.go`, `evals/groundedness.go`, and `evals/schema.go` — deterministic scorers; `evals/drift.go` — the run-over-run token drift warning.

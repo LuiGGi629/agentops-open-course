@@ -21,7 +21,7 @@ The course is published from this repository to <https://agentops-open-course.fm
 - **One container contract:** the same static distroless image runs on the host, local k3d, and the optional GKE laboratory.
 - **One observability stack:** OTLP fans out to Tempo, Loki, Prometheus, Alertmanager, and Grafana.
 - **Evidence at the wire:** the standalone evaluator folds ADK REST and A2A events into the same typed turn and emits sanitized JSON plus OpenTelemetry evidence.
-- **Source-linked teaching:** critical excerpts are rendered directly from named regions in `agents/go`, `evals`, `tools`, and infrastructure sources.
+- **Source-linked teaching:** critical excerpts are rendered directly from named regions in `agents/go`, `agents/data`, `infra/`, and the repository's own scripts and workflows.
 
 The required path is open source and uses open-weight model artifacts. Gemini, Vertex AI, GKE, GCS, Artifact Registry, and hosted repository services are optional proprietary comparisons.
 
@@ -66,7 +66,7 @@ flowchart LR
 
 ## Local quickstart
 
-You need a Unix-like shell, Git, a C compiler, and [mise](https://mise.jdx.dev/). Clone the repository first:
+You need a Unix-like shell, Git, a C compiler, and [mise](https://mise.jdx.dev/). Linux x86_64 with cgroup v2 is the fully supported host; macOS, Linux arm64, and WSL2 are best-effort, and the host table in [1.0. System](./content/1.%20Setup/1.0.%20System.md) says what that costs on each. Clone the repository first:
 
 ```bash
 git clone https://github.com/MLOps-Courses/agentops-open-course.git
@@ -84,7 +84,7 @@ mise run test
 
 The learner gate does not start a model, container, cluster, collector, paid API, or cloud resource.
 
-`mise run test` in `agents/go` and in `evals` enforces an 80% line-coverage floor on every package, `cmd/` excluded by kind because its behavior is exercised through subprocess tests that Go attributes to the test binary. `mise run coverage` in `agents/go` prints the per-function detail behind that number.
+`mise run test` in `agents/go` and in `evals` enforces an 80% line-coverage floor on every package, `cmd/` excluded by kind because those packages are `package main` composition wiring — flag parsing, dependency construction, process lifecycle — the project has chosen not to hold to the floor; their coverage is measured like every other package's and simply sits below it. `mise run coverage` in `agents/go` prints the per-function detail behind that number.
 
 For the first grounded turn, install [Ollama](https://ollama.com/download), then run:
 
@@ -109,6 +109,8 @@ Continue with the [canonical roughly three-hour build-first route](./content/0.%
 | Required OSS path   | Qwen3 through Ollama | Host, then k3d     | Completing core outcomes without an account or fee         |
 | Optional provider   | Gemini               | Host process       | Comparing ADK's native provider after the local path works |
 | Optional cloud lab  | Gemini on Vertex AI  | Zonal GKE Standard | Workload Identity, GCS artifacts, and cloud delivery       |
+
+The k3d half of the required OSS path has not been executed against the Go rewrite. The authoring host runs cgroup v1, where the platform doctor fails before it can create a cluster, so `mise run check:infra` validates those manifests and profiles but nobody has run the local Kubernetes journey on this code. [SUPPORT.md](./SUPPORT.md) owns that boundary.
 
 The GKE path is a billable, interruptible laboratory, not a production architecture. [7.3. Costs](./content/7.%20Observability/7.3.%20Costs.md) owns the current estimate and verification date.
 
@@ -210,7 +212,7 @@ mise run serve
 
 The Hugo build treats warnings and bad references as errors, derives canonical routes from reviewed page and section slugs, checks rendered canonical/Open Graph/search/sitemap/navigation/fragment parity, and extracts code from named source regions. Every changed Mermaid diagram needs equivalent prose.
 
-This checkout does not publish the site. A successful local build proves rendering only.
+A successful local build proves rendering only. Publication is a separate boundary: `.github/workflows/docs.yml` deploys `site/` to <https://agentops-open-course.fmind.dev/> on a push to `main`.
 
 ## Reuse and contribution
 

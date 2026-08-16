@@ -24,7 +24,7 @@ Trace an agent the way you trace a distributed system: one correlated record of 
 
 ## Reference implementation
 
-From the AgentOps Open Course:
+From the [AgentOps Open Course](https://agentops-open-course.fmind.dev/), installable with `npx skills add MLOps-Courses/agentops-open-course`:
 
 - `agents/go/telemetry/` — OTLP setup and a redacting, bounded log bridge with content capture off by default.
 - `evals/evidence.go` — separate sanitized run/case/score traces and metrics for evaluation.
