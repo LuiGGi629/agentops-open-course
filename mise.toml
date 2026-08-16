@@ -607,6 +607,12 @@ run = "infra/scripts/gateway-host.sh run"
 
 [tasks."gateway:host:start"]
 description = "Start the loopback-only host agentgateway container"
+# The Linux relay is tools/bin/loopback-relay, so this task builds it rather than
+# trusting a caller to have run the root installer first. gateway-host.sh guards on
+# the binary and names `mise run install` as the remedy, which is true at the
+# repository root but not from a module: the Eval workflow installs only `evals/`,
+# so the relay was never built and the run died before its first model call.
+depends = ["tools:built"]
 run = "infra/scripts/gateway-host.sh start"
 
 [tasks."gateway:host:stop"]
@@ -623,6 +629,8 @@ run = "infra/scripts/gateway-host.sh logs"
 
 [tasks."smoke:host"]
 description = "Exercise the account-free host model, MCP, A2A, CORS, and metrics path"
+# Same reason as gateway:host:start — smoke-host.sh reaches for the same relay.
+depends = ["tools:built"]
 run = "scripts/smoke-host.sh"
 
 [tasks."gateway:host:auth"]
