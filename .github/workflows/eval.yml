@@ -105,7 +105,12 @@ jobs:
           zstd --decompress --stdout "${archive}" | sudo tar -xf - -C /usr/local
           ollama serve > evals/ollama.log 2>&1 &
           echo "OLLAMA_PID=$!" >> "$GITHUB_ENV"
-          echo "EVAL_OLLAMA_VERSION=$(ollama --version)" >> "$GITHUB_ENV"
+          # `ollama --version` writes its warnings to stdout, and the client raced the
+          # `ollama serve` backgrounded two lines above, so this captured
+          # "Warning: could not connect..." ahead of the version and handed $GITHUB_ENV a
+          # multi-line value it rejects — which killed the run before its first model call.
+          # One line, always.
+          echo "EVAL_OLLAMA_VERSION=$(ollama --version 2>&1 | tail -n 1 | tr -d '\r')" >> "$GITHUB_ENV"
           timeout 60 bash -c 'until curl -fsS http://127.0.0.1:11434/ >/dev/null; do sleep 1; done'
           ollama pull "$AGENT_MODEL"
           model_digest="$(
